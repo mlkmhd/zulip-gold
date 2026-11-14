@@ -1115,7 +1115,10 @@ def apply_event(
 
     elif event["type"] == "drafts":
         if event["op"] == "add":
-            state["drafts"].extend(event["drafts"])
+            state_draft_ids = {draft["id"] for draft in state["drafts"]}
+            state["drafts"].extend(
+                draft for draft in event["drafts"] if draft["id"] not in state_draft_ids
+            )
         else:
             if event["op"] == "update":
                 event_draft_idx = event["draft"]["id"]
@@ -1137,8 +1140,8 @@ def apply_event(
                 if draft["id"] == event_draft_idx:
                     state_draft_idx = idx
                     break
-            assert state_draft_idx is not None
-            _draft_update_action(state_draft_idx)
+            if state_draft_idx is not None:
+                _draft_update_action(state_draft_idx)
 
     elif event["type"] == "scheduled_messages":
         if event["op"] == "add":
