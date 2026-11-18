@@ -1,8 +1,9 @@
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 
 use crate::draft_text::is_python_whitespace;
 
-fn visit_mentions(content: &str, stars: &str, mut visit: impl FnMut(&str, bool)) {
+fn visit_mentions(content: &str, stars: &str, mut visit: impl FnMut(Range<usize>, &str, bool)) {
     let mut mention_end = 0;
     for (start, _) in content.match_indices('@') {
         if start < mention_end {
@@ -27,8 +28,8 @@ fn visit_mentions(content: &str, stars: &str, mut visit: impl FnMut(&str, bool))
         if body_length == 0 || !content[body_end..].starts_with(stars) {
             continue;
         }
-        visit(&content[body_start..body_end], silent);
         mention_end = body_end + stars.len();
+        visit(start..mention_end, &content[body_start..body_end], silent);
     }
 }
 
@@ -36,7 +37,7 @@ pub(crate) fn possible_user_mentions(content: &str) -> (HashSet<String>, bool, b
     let mut names = HashSet::new();
     let mut topic_wildcard = false;
     let mut channel_wildcard = false;
-    visit_mentions(content, "**", |name, _silent| match name {
+    visit_mentions(content, "**", |_range, name, _silent| match name {
         "topic" => topic_wildcard = true,
         "all" | "everyone" | "stream" | "channel" => channel_wildcard = true,
         _ => {
@@ -48,7 +49,7 @@ pub(crate) fn possible_user_mentions(content: &str) -> (HashSet<String>, bool, b
 
 pub(crate) fn possible_group_mentions(content: &str) -> HashMap<String, &'static str> {
     let mut names = HashMap::new();
-    visit_mentions(content, "*", |name, silent| {
+    visit_mentions(content, "*", |_range, name, silent| {
         let state = names.entry(name.to_owned()).or_insert("silent");
         if !silent {
             *state = "non-silent";
