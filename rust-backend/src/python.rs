@@ -19,7 +19,7 @@ use crate::{
     url_fragments, user_status,
 };
 use crate::{
-    markdown_alerts, markdown_blocks, markdown_channel_links, markdown_fences,
+    markdown_alerts, markdown_blocks, markdown_channel_links, markdown_fences, markdown_headings,
     markdown_inline_mentions, markdown_lists, markdown_mentions, markdown_upload,
     markdown_whitespace, reminder_access, reminder_context, reminder_quote, scheduled_attachments,
     send_permissions,
@@ -181,6 +181,23 @@ mod _zulip_backend {
             .map(|line| line.to_str().ok())
             .collect::<Option<Vec<_>>>()?;
         markdown_lists::separator_positions(&lines)
+    }
+
+    #[pyfunction]
+    fn parse_markdown_heading(
+        block: &Bound<'_, PyString>,
+    ) -> Option<(Option<usize>, String, String, String)> {
+        Some(
+            match markdown_headings::parse_heading(block.to_str().ok()?) {
+                Some(heading) => (
+                    Some(heading.level),
+                    heading.text.to_owned(),
+                    heading.before.to_owned(),
+                    heading.after.to_owned(),
+                ),
+                None => (None, String::new(), String::new(), String::new()),
+            },
+        )
     }
 
     #[pyfunction]

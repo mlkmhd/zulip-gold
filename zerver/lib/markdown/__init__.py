@@ -83,6 +83,11 @@ _rust_markdown_channel_links = (
 _rust_markdown_lists = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_MARKDOWN_LISTS") == "1" else None
 )
+_rust_markdown_headings = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_MARKDOWN_HEADINGS") == "1"
+    else None
+)
 _rust_markdown_quote_mentions = (
     import_module("_zulip_backend")
     if os.environ.get("ZULIP_RUST_MARKDOWN_QUOTE_MENTIONS") == "1"
@@ -1514,6 +1519,32 @@ class HashHeaderProcessor(markdown.blockprocessors.HashHeaderProcessor):
     # Original regex for hashheader is
     # RE = re.compile(r'(?:^|\n)(?P<level>#{1,6})(?P<header>(?:\\.|[^\\])*?)#*(?:\n|$)')
     RE = re.compile(r"(?:^|\n)(?P<level>#{1,6})\s(?P<header>(?:\\.|[^\\])*?)#*(?:\n|$)")
+
+    @override
+    def test(self, parent: Element, block: str) -> bool:
+        if _rust_markdown_headings is not None:
+            result = _rust_markdown_headings.parse_markdown_heading(block)
+            if result is not None:
+                return result[0] is not None
+        return super().test(parent, block)
+
+    @override
+    def run(self, parent: Element, blocks: list[str]) -> None:
+        if _rust_markdown_headings is not None:
+            result = _rust_markdown_headings.parse_markdown_heading(blocks[0])
+            if result is not None and result[0] is not None:
+                level, text, before, after = result
+                blocks.pop(0)
+                if before:
+                    self.parser.parseBlocks(parent, [before])
+                heading = SubElement(parent, f"h{level}")
+                heading.text = text
+                if after:
+                    if self.parser.state.isstate("looselist"):
+                        after = self.looseDetab(after)
+                    blocks.insert(0, after)
+                return
+        super().run(parent, blocks)
 
 
 class BlockQuoteProcessor(markdown.blockprocessors.BlockQuoteProcessor):
