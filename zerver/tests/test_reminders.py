@@ -728,6 +728,32 @@ class RemindersTest(ZulipTestCase):
         self.assertEqual(reminder.reminder_note, raw_note)
         self.assertIn("Note:\n > 📝ش\n\n", reminder.content)
 
+    def test_reminder_channel_link_escapes_topic_punctuation(self) -> None:
+        message_id = self.send_stream_message(
+            self.example_user("hamlet"), "Verona", "Remember this", topic_name="[x] & $$$ > `*"
+        )
+        self.assert_json_success(self.do_schedule_reminder(message_id, int(time.time()) + 86400))
+        reminder = self.last_scheduled_reminder()
+        self.assertIn(
+            "[#Verona > &#91;x&#93; &amp; &#36;&#36;$ &gt; &#96;&#42;]"
+            f"(#narrow/channel/3-Verona/topic/.5Bx.5D.20.26.20.24.24.24.20.3E.20.60.2A/with/{message_id})",
+            reminder.content,
+        )
+
+    def test_reminder_group_message_lists_recipients_in_display_order(self) -> None:
+        sender = self.example_user("hamlet")
+        iago = self.example_user("iago")
+        othello = self.example_user("othello")
+        zoe = self.example_user("ZOE")
+        message_id = self.send_group_direct_message(sender, [zoe, othello, iago], "Remember this")
+        self.assert_json_success(self.do_schedule_reminder(message_id, int(time.time()) + 86400))
+        reminder = self.last_scheduled_reminder()
+        self.assertIn(
+            f" to @_**{iago.full_name}|{iago.id}**, @_**{othello.full_name}|{othello.id}**,"
+            f" and @_**{zoe.full_name}|{zoe.id}**:\n",
+            reminder.content,
+        )
+
     def test_reminder_for_message_with_code_block(self) -> None:
         content = "Look at this:\n```\nprint('hello')\n```\nDoes it work?"
         message_id = self.send_channel_message_for_hamlet(content)

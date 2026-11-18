@@ -17,7 +17,7 @@ from zerver.lib.event_types import RemindersRemoveEvent
 from zerver.lib.exceptions import JsonableError, ResourceNotFoundError
 from zerver.lib.markdown.fenced_code import get_unused_fence
 from zerver.lib.mention import silent_mention_syntax_for_user
-from zerver.lib.message import access_message, get_user_mentions_for_display, truncate_content
+from zerver.lib.message import access_message, format_sorted_user_mentions, truncate_content
 from zerver.lib.message_cache import MessageDict
 from zerver.lib.topic_link_util import (
     TOPIC_LINK_SYNTAX_FOR_DISPLAY,
@@ -104,11 +104,18 @@ def get_reminder_formatted_content(
             },
             conversation_link=True,
         )
-        escape = escape_invalid_stream_topic_characters
-        topic_pretty_link = TOPIC_LINK_SYNTAX_FOR_DISPLAY.format(
-            channel_name=escape(stream.name),
-            topic_name=escape(message.topic_name()),
-        )
+        topic_pretty_link: str | None = None
+        if _rust_reminder_context is not None:
+            topic_pretty_link = _rust_reminder_context.reminder_channel_topic_link(
+                stream.name, message.topic_name(), url
+            )
+        if topic_pretty_link is None:
+            escape = escape_invalid_stream_topic_characters
+            label = TOPIC_LINK_SYNTAX_FOR_DISPLAY.format(
+                channel_name=escape(stream.name),
+                topic_name=escape(message.topic_name()),
+            )
+            topic_pretty_link = f"[{label}]({url})"
         if note:
             content = _(
                 "You requested a reminder for the following message. Note:\n > {note}"
@@ -122,7 +129,7 @@ def get_reminder_formatted_content(
         context = dict(
             user_silent_mention=user_silent_mention,
             conversation_url=conversation_url,
-            topic_pretty_link=f"[{topic_pretty_link}]({url})",
+            topic_pretty_link=topic_pretty_link,
         )
     else:
         if note:
@@ -133,24 +140,30 @@ def get_reminder_formatted_content(
             )
         else:
             content = _("You requested a reminder for the following direct message.")
-        recipients: list[UserProfile | UserDisplayRecipient] = [
-            user
-            for user in get_display_recipient(message.recipient)
-            if user["id"] != message.sender.id
-        ]
+        recipients: list[UserDisplayRecipient] = get_display_recipient(message.recipient)
+        mentions: list[str] | None = None
+        if _rust_reminder_context is not None:
+            mentions = _rust_reminder_context.reminder_direct_recipient_mentions(
+                message.sender_id, [(user["id"], user["full_name"]) for user in recipients]
+            )
+        if mentions is None:
+            mentions = sorted(
+                silent_mention_syntax_for_user(user)
+                for user in recipients
+                if user["id"] != message.sender_id
+            )
 
-        if not recipients:
+        if not mentions:
             format_recipient_type_key = ReminderRecipientType.NOTE_TO_SELF
             context = dict(
                 conversation_url=conversation_url,
             )
         else:
             format_recipient_type_key = ReminderRecipientType.PRIVATE
-            list_of_recipient_mentions = get_user_mentions_for_display(recipients)
             context = dict(
                 user_silent_mention=user_silent_mention,
                 conversation_url=conversation_url,
-                list_of_recipient_mentions=list_of_recipient_mentions,
+                list_of_recipient_mentions=format_sorted_user_mentions(mentions),
             )
 
     # Format the message content as a quote.

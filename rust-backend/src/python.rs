@@ -406,6 +406,33 @@ mod _zulip_backend {
     }
 
     #[pyfunction]
+    fn reminder_channel_topic_link(
+        channel: &Bound<'_, PyString>,
+        topic: &Bound<'_, PyString>,
+        url: &str,
+    ) -> Option<String> {
+        Some(reminder_context::channel_topic_link(
+            channel.to_str().ok()?,
+            topic.to_str().ok()?,
+            url,
+        ))
+    }
+
+    #[pyfunction]
+    fn reminder_direct_recipient_mentions(
+        sender_id: i32,
+        recipients: Vec<(i32, Bound<'_, PyString>)>,
+    ) -> Option<Vec<String>> {
+        let recipients = recipients
+            .iter()
+            .map(|(id, name)| Some((*id, name.to_str().ok()?)))
+            .collect::<Option<Vec<_>>>()?;
+        Some(reminder_context::direct_recipient_mentions(
+            sender_id, recipients,
+        ))
+    }
+
+    #[pyfunction]
     fn append_reminder_quote(
         prefix: &Bound<'_, PyString>,
         message: &Bound<'_, PyString>,

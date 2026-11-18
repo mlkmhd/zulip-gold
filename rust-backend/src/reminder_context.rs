@@ -15,6 +15,50 @@ pub(crate) fn widget_label(content: &str) -> Option<&'static str> {
     }
 }
 
+fn append_topic_link_label(output: &mut String, label: &str) {
+    let mut characters = label.chars().peekable();
+    while let Some(character) = characters.next() {
+        let escaped = match character {
+            '`' => "&#96;",
+            '>' => "&gt;",
+            '*' => "&#42;",
+            '&' => "&amp;",
+            '[' => "&#91;",
+            ']' => "&#93;",
+            '$' if characters.next_if_eq(&'$').is_some() => "&#36;&#36;",
+            _ => {
+                output.push(character);
+                continue;
+            }
+        };
+        output.push_str(escaped);
+    }
+}
+
+pub(crate) fn channel_topic_link(channel: &str, topic: &str, url: &str) -> String {
+    let mut link = String::from("[#");
+    append_topic_link_label(&mut link, channel);
+    link.push_str(" > ");
+    append_topic_link_label(&mut link, topic);
+    link.push_str("](");
+    link.push_str(url);
+    link.push(')');
+    link
+}
+
+pub(crate) fn direct_recipient_mentions<'a>(
+    sender_id: i32,
+    recipients: impl IntoIterator<Item = (i32, &'a str)>,
+) -> Vec<String> {
+    let mut mentions: Vec<_> = recipients
+        .into_iter()
+        .filter(|&(id, _)| id != sender_id)
+        .map(|(id, name)| format!("@_**{name}|{id}**"))
+        .collect();
+    mentions.sort_unstable();
+    mentions
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -33,5 +77,26 @@ mod tests {
         assert_eq!(widget_label("/todoList"), Some("todo list"));
         assert_eq!(widget_label("/Poll question"), None);
         assert_eq!(widget_label(" /todo list"), None);
+    }
+
+    #[test]
+    fn escapes_each_topic_label_component_before_interpolating_the_link() {
+        assert_eq!(
+            channel_topic_link("˛[#]", "$ $$$ & `>*", "#narrow"),
+            "[#˛&#91;#&#93; > $ &#36;&#36;$ &amp; &#96;&gt;&#42;](#narrow)"
+        );
+        assert_eq!(
+            channel_topic_link("general", "", "#narrow"),
+            "[#general > ](#narrow)"
+        );
+    }
+
+    #[test]
+    fn sorts_formatted_mentions_and_omits_the_sender() {
+        assert_eq!(
+            direct_recipient_mentions(10, [(3, "Zoe"), (10, "Hamlet"), (23, "Iago"), (4, "Iago")]),
+            ["@_**Iago|23**", "@_**Iago|4**", "@_**Zoe|3**"]
+        );
+        assert!(direct_recipient_mentions(10, [(10, "Hamlet")]).is_empty());
     }
 }
