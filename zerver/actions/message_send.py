@@ -24,7 +24,7 @@ from zerver.actions.user_topics import (
     do_set_user_topic_visibility_policy,
 )
 from zerver.lib.addressee import Addressee
-from zerver.lib.alert_words import get_alert_word_automaton
+from zerver.lib.alert_words import get_alert_word_matcher
 from zerver.lib.cache import (
     cache_get,
     cache_set,
@@ -152,7 +152,7 @@ def render_incoming_message(
     acting_user: UserProfile | None = None,
     no_previews: bool = False,
 ) -> MessageRenderingResult:
-    realm_alert_words_automaton = get_alert_word_automaton(realm)
+    realm_alert_words_automaton = get_alert_word_matcher(realm)
     try:
         rendering_result = render_message_markdown(
             message=message,

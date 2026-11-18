@@ -1,6 +1,8 @@
 import os
 from collections.abc import Iterable
+from functools import lru_cache
 from importlib import import_module
+from typing import Protocol, TypeAlias
 
 import ahocorasick
 from django.db import connection, transaction
@@ -17,6 +19,18 @@ from zerver.models.alert_words import flush_realm_alert_words
 _rust_alert_words = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_ALERT_WORDS") == "1" else None
 )
+_rust_markdown_alerts = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_MARKDOWN_ALERT_WORDS") == "1"
+    else None
+)
+
+
+class RustAlertWordMatcher(Protocol):
+    def match_user_ids(self, content: bytes) -> set[int]: ...
+
+
+AlertWordAutomaton: TypeAlias = ahocorasick.Automaton | RustAlertWordMatcher
 
 
 @cache_with_key(lambda realm: realm_alert_words_cache_key(realm.id), timeout=3600 * 24)
@@ -51,6 +65,29 @@ def get_alert_word_automaton(realm: Realm) -> ahocorasick.Automaton:
     if alert_word_automaton.kind != ahocorasick.AHOCORASICK:
         return None
     return alert_word_automaton
+
+
+@lru_cache(maxsize=32)
+def _compile_rust_alert_word_matcher(
+    snapshot: tuple[tuple[int, tuple[str, ...]], ...],
+) -> RustAlertWordMatcher:
+    assert _rust_markdown_alerts is not None
+    return _rust_markdown_alerts.MarkdownAlertMatcher(
+        [(user_id, [word.lower().encode() for word in words]) for user_id, words in snapshot]
+    )
+
+
+def get_alert_word_matcher(realm: Realm) -> AlertWordAutomaton | None:
+    if _rust_markdown_alerts is None:
+        return get_alert_word_automaton(realm)
+    words = alert_words_in_realm(realm)
+    if not words:
+        return None
+    # The shared cache still holds the alert words themselves. Keying by
+    # their contents lets a local matcher follow the same invalidations.
+    return _compile_rust_alert_word_matcher(
+        tuple((user_id, tuple(alert_words)) for user_id, alert_words in words.items())
+    )
 
 
 def user_alert_words(user_profile: UserProfile) -> list[str]:

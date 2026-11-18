@@ -33,6 +33,7 @@ from tlds import tld_set
 from typing_extensions import Self, override
 
 from zerver.lib import mention
+from zerver.lib.alert_words import AlertWordAutomaton
 from zerver.lib.camo import get_camo_url
 from zerver.lib.emoji import EMOTICON_RE, codepoint_to_name, name_to_codepoint, translate_emoticons
 from zerver.lib.emoji_utils import emoji_to_hex_codepoint, unqualify_emoji
@@ -135,7 +136,7 @@ class MessageRenderingResult:
 class DbData:
     mention_data: MentionData
     realm_url: str
-    realm_alert_words_automaton: ahocorasick.Automaton | None
+    realm_alert_words_automaton: AlertWordAutomaton | None
     active_realm_emoji: dict[str, EmojiInfo]
     sent_by_bot: bool
     stream_names: dict[str, int]
@@ -1992,9 +1993,11 @@ class AlertWordNotificationProcessor(markdown.preprocessors.Preprocessor):
             # we find to the set self.zmd.zulip_rendering_result.user_ids_with_alert_words.
 
             realm_alert_words_automaton = db_data.realm_alert_words_automaton
+            if realm_alert_words_automaton is None:
+                return lines
 
-            if realm_alert_words_automaton is not None:
-                content = "\n".join(lines).lower()
+            content = "\n".join(lines).lower()
+            if isinstance(realm_alert_words_automaton, ahocorasick.Automaton):
                 for end_index, (original_value, user_ids) in realm_alert_words_automaton.iter(
                     content
                 ):
@@ -2002,6 +2005,12 @@ class AlertWordNotificationProcessor(markdown.preprocessors.Preprocessor):
                         content, end_index - len(original_value)
                     ) and self.check_valid_end_position(content, end_index + 1):
                         self.zmd.zulip_rendering_result.user_ids_with_alert_words.update(user_ids)
+            else:
+                self.zmd.zulip_rendering_result.user_ids_with_alert_words.update(
+                    realm_alert_words_automaton.match_user_ids(
+                        content.encode("utf-8", "surrogatepass")
+                    )
+                )
         return lines
 
 
@@ -2610,7 +2619,7 @@ def privacy_clean_markdown(content: str) -> str:
 
 def do_convert(
     content: str,
-    realm_alert_words_automaton: ahocorasick.Automaton | None = None,
+    realm_alert_words_automaton: AlertWordAutomaton | None = None,
     message: Message | None = None,
     message_realm: Realm | None = None,
     sent_by_bot: bool = False,
@@ -2781,7 +2790,7 @@ def markdown_stats_finish() -> None:
 
 def markdown_convert(
     content: str,
-    realm_alert_words_automaton: ahocorasick.Automaton | None = None,
+    realm_alert_words_automaton: AlertWordAutomaton | None = None,
     message: Message | None = None,
     message_realm: Realm | None = None,
     sent_by_bot: bool = False,
@@ -2814,7 +2823,7 @@ def render_message_markdown(
     message: Message,
     content: str,
     realm: Realm | None = None,
-    realm_alert_words_automaton: ahocorasick.Automaton | None = None,
+    realm_alert_words_automaton: AlertWordAutomaton | None = None,
     url_embed_data: dict[str, UrlEmbedData | None] | None = None,
     mention_data: MentionData | None = None,
     email_gateway: bool = False,

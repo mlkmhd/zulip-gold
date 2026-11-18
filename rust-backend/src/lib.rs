@@ -21,6 +21,9 @@ mod draft_recipients;
 #[cfg(feature = "http")]
 pub mod http;
 
+#[cfg(feature = "python")]
+mod markdown_alerts;
+
 #[cfg(any(feature = "python", test))]
 mod markdown_upload;
 

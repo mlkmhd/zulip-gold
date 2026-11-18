@@ -18,8 +18,8 @@ use crate::{
     memcached, message_topic, stream_color, url_fragments, user_status,
 };
 use crate::{
-    markdown_upload, reminder_access, reminder_context, reminder_quote, scheduled_attachments,
-    send_permissions,
+    markdown_alerts, markdown_upload, reminder_access, reminder_context, reminder_quote,
+    scheduled_attachments, send_permissions,
 };
 
 type DraftParseResult<T> = (Option<T>, Option<(&'static str, Vec<Location>)>);
@@ -102,6 +102,25 @@ fn draft_parse_result<T>(
 #[pymodule]
 mod _zulip_backend {
     use super::*;
+
+    #[pyclass(frozen)]
+    struct MarkdownAlertMatcher {
+        matcher: markdown_alerts::AlertWordMatcher,
+    }
+
+    #[pymethods]
+    impl MarkdownAlertMatcher {
+        #[new]
+        fn new(words_by_user: Vec<(i32, Vec<Vec<u8>>)>) -> PyResult<Self> {
+            let matcher = markdown_alerts::AlertWordMatcher::new(words_by_user)
+                .map_err(|error| PyValueError::new_err(error.to_string()))?;
+            Ok(Self { matcher })
+        }
+
+        fn match_user_ids(&self, content: &[u8]) -> HashSet<i32> {
+            self.matcher.match_user_ids(content)
+        }
+    }
 
     #[pyfunction]
     fn default_read_by_sender(client: &Bound<'_, PyString>, test_suite: bool) -> bool {

@@ -17,7 +17,7 @@ from markdown import Markdown
 from responses import matchers
 from typing_extensions import override
 
-from zerver.actions.alert_words import do_add_alert_words
+from zerver.actions.alert_words import do_add_alert_words, do_remove_alert_words
 from zerver.actions.create_realm import do_create_realm
 from zerver.actions.realm_emoji import do_remove_realm_emoji
 from zerver.actions.realm_settings import do_set_realm_property
@@ -29,7 +29,7 @@ from zerver.actions.user_groups import (
 )
 from zerver.actions.user_settings import do_change_user_setting
 from zerver.actions.users import change_user_is_active
-from zerver.lib.alert_words import get_alert_word_automaton
+from zerver.lib.alert_words import get_alert_word_matcher
 from zerver.lib.camo import get_camo_url
 from zerver.lib.create_user import create_user
 from zerver.lib.emoji import codepoint_to_name
@@ -2156,13 +2156,35 @@ class MarkdownLinkifierTest(ZulipTestCase):
 
 
 class MarkdownAlertTest(ZulipTestCase):
+    def test_alert_word_matcher_refreshes_after_alert_changes(self) -> None:
+        sender = self.example_user("hamlet")
+        other = self.example_user("othello")
+        do_add_alert_words(sender, ["İ", "ος"])
+        do_add_alert_words(other, ["ος", "alert"])
+        message = Message(sender=sender, sending_client=get_client("test"), realm=sender.realm)
+
+        def match(content: str) -> set[int]:
+            result = render_message_markdown(
+                message,
+                content,
+                realm_alert_words_automaton=get_alert_word_matcher(sender.realm),
+            )
+            return result.user_ids_with_alert_words
+
+        self.assertEqual(match("İ."), {sender.id})
+        self.assertEqual(match("ΟΣ"), {sender.id, other.id})
+        self.assertEqual(match('>alert"'), set())
+        self.assertEqual(match(">alert,"), {other.id})
+        do_remove_alert_words(sender, ["ΟΣ"])
+        self.assertEqual(match("ΟΣ"), {other.id})
+
     def test_alert_words(self) -> None:
         user_profile = self.example_user("othello")
         do_add_alert_words(user_profile, ["ALERTWORD", "scaryword"])
         msg = Message(
             sender=user_profile, sending_client=get_client("test"), realm=user_profile.realm
         )
-        realm_alert_words_automaton = get_alert_word_automaton(user_profile.realm)
+        realm_alert_words_automaton = get_alert_word_matcher(user_profile.realm)
 
         def render(msg: Message, content: str) -> MessageRenderingResult:
             return render_message_markdown(
@@ -2206,7 +2228,7 @@ class MarkdownAlertTest(ZulipTestCase):
             sending_client=get_client("test"),
             realm=sender_user_profile.realm,
         )
-        realm_alert_words_automaton = get_alert_word_automaton(sender_user_profile.realm)
+        realm_alert_words_automaton = get_alert_word_matcher(sender_user_profile.realm)
 
         def render(msg: Message, content: str) -> MessageRenderingResult:
             return render_message_markdown(
@@ -2244,7 +2266,7 @@ class MarkdownAlertTest(ZulipTestCase):
             sending_client=get_client("test"),
             realm=sender_user_profile.realm,
         )
-        realm_alert_words_automaton = get_alert_word_automaton(sender_user_profile.realm)
+        realm_alert_words_automaton = get_alert_word_matcher(sender_user_profile.realm)
 
         def render(msg: Message, content: str) -> MessageRenderingResult:
             return render_message_markdown(
@@ -2286,7 +2308,7 @@ class MarkdownAlertTest(ZulipTestCase):
             sending_client=get_client("test"),
             realm=sender_user_profile.realm,
         )
-        realm_alert_words_automaton = get_alert_word_automaton(sender_user_profile.realm)
+        realm_alert_words_automaton = get_alert_word_matcher(sender_user_profile.realm)
 
         def render(msg: Message, content: str) -> MessageRenderingResult:
             return render_message_markdown(
@@ -2322,7 +2344,7 @@ class MarkdownAlertTest(ZulipTestCase):
             sending_client=get_client("test"),
             realm=sender_user_profile.realm,
         )
-        realm_alert_words_automaton = get_alert_word_automaton(sender_user_profile.realm)
+        realm_alert_words_automaton = get_alert_word_matcher(sender_user_profile.realm)
 
         def render(msg: Message, content: str) -> MessageRenderingResult:
             return render_message_markdown(
@@ -2360,7 +2382,7 @@ class MarkdownAlertTest(ZulipTestCase):
             sending_client=get_client("test"),
             realm=sender_user_profile.realm,
         )
-        realm_alert_words_automaton = get_alert_word_automaton(sender_user_profile.realm)
+        realm_alert_words_automaton = get_alert_word_matcher(sender_user_profile.realm)
 
         def render(msg: Message, content: str) -> MessageRenderingResult:
             return render_message_markdown(
@@ -2390,7 +2412,7 @@ class MarkdownAlertTest(ZulipTestCase):
             sending_client=get_client("test"),
             realm=sender_user_profile.realm,
         )
-        realm_alert_words_automaton = get_alert_word_automaton(sender_user_profile.realm)
+        realm_alert_words_automaton = get_alert_word_matcher(sender_user_profile.realm)
 
         def render(msg: Message, content: str) -> MessageRenderingResult:
             return render_message_markdown(
