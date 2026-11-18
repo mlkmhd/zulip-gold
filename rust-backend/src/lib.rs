@@ -25,6 +25,9 @@ pub mod http;
 mod markdown_alerts;
 
 #[cfg(any(feature = "python", test))]
+mod markdown_channel_links;
+
+#[cfg(any(feature = "python", test))]
 mod markdown_upload;
 
 #[cfg(any(feature = "http", feature = "python"))]

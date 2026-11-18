@@ -74,6 +74,11 @@ _rust_markdown_upload_paths = (
     if os.environ.get("ZULIP_RUST_MARKDOWN_UPLOAD_PATHS") == "1"
     else None
 )
+_rust_markdown_channel_links = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_MARKDOWN_CHANNEL_LINKS") == "1"
+    else None
+)
 
 
 # Taken from
@@ -1948,6 +1953,17 @@ def possible_linked_topics(content: str) -> set[ChannelTopicInfo]:
     }
 
 
+def possible_channel_link_references(content: str) -> tuple[set[str], set[ChannelTopicInfo]]:
+    if _rust_markdown_channel_links is not None:
+        references: tuple[set[str], set[tuple[str, str]]] | None = (
+            _rust_markdown_channel_links.possible_markdown_channel_references(content)
+        )
+        if references is not None:
+            channels, topics = references
+            return channels, {ChannelTopicInfo(channel, topic) for channel, topic in topics}
+    return possible_linked_stream_names(content), possible_linked_topics(content)
+
+
 class AlertWordNotificationProcessor(markdown.preprocessors.Preprocessor):
     allowed_before_punctuation = {" ", "\n", "(", '"', ".", ",", "'", ";", "[", "*", "`", ">"}
     allowed_after_punctuation = {
@@ -2695,10 +2711,9 @@ def do_convert(
         if acting_user is None:
             acting_user = message_sender
 
-        stream_names = possible_linked_stream_names(content)
+        stream_names, linked_stream_topic_data = possible_channel_link_references(content)
         stream_name_info = mention_data.get_stream_name_map(stream_names, acting_user=acting_user)
 
-        linked_stream_topic_data = possible_linked_topics(content)
         topic_info = mention_data.get_topic_info_map(
             linked_stream_topic_data, acting_user=acting_user
         )

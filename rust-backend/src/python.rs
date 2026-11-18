@@ -18,8 +18,8 @@ use crate::{
     memcached, message_topic, stream_color, url_fragments, user_status,
 };
 use crate::{
-    markdown_alerts, markdown_upload, reminder_access, reminder_context, reminder_quote,
-    scheduled_attachments, send_permissions,
+    markdown_alerts, markdown_channel_links, markdown_upload, reminder_access, reminder_context,
+    reminder_quote, scheduled_attachments, send_permissions,
 };
 
 type DraftParseResult<T> = (Option<T>, Option<(&'static str, Vec<Location>)>);
@@ -102,6 +102,15 @@ fn draft_parse_result<T>(
 #[pymodule]
 mod _zulip_backend {
     use super::*;
+
+    #[pyfunction]
+    fn possible_markdown_channel_references(
+        content: &Bound<'_, PyString>,
+    ) -> Option<markdown_channel_links::ChannelLinkReferences> {
+        Some(markdown_channel_links::possible_references(
+            content.to_str().ok()?,
+        ))
+    }
 
     #[pyclass(frozen)]
     struct MarkdownAlertMatcher {

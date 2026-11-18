@@ -44,6 +44,7 @@ from zerver.lib.markdown import (
     content_has_emoji_syntax,
     image_preview_enabled,
     markdown_convert,
+    possible_channel_link_references,
     possible_linked_stream_names,
     render_message_markdown,
     topic_links,
@@ -3856,6 +3857,37 @@ class MarkdownStreamTopicMentionTests(ZulipTestCase):
         self.assertEqual(
             possible_linked_stream_names(content),
             {"test here", "Denmark", "garçon", "천국"},
+        )
+
+    def test_possible_channel_links_keep_topic_names_and_boundaries(self) -> None:
+        content = (
+            "[#**Excluded**] /#**Verona>topic@123** #**Denmark>** "
+            "x#**Ignored**\u001f#**Unicode\nchannel>  topic > part ** "
+            "#**broken*name** #**valid** #**prefix #**nested>topic**"
+        )
+        channels, topics = possible_channel_link_references(content)
+        self.assertEqual(
+            channels,
+            {
+                "Verona>topic@123",
+                "Verona",
+                "Denmark>",
+                "Denmark",
+                "Unicode\nchannel>  topic > part ",
+                "Unicode\nchannel",
+                "valid",
+                "prefix #",
+                "nested",
+            },
+        )
+        self.assertEqual(
+            {(topic.channel_name, topic.topic_name) for topic in topics},
+            {
+                ("Verona", "topic@123"),
+                ("Denmark", ""),
+                ("Unicode\nchannel", "  topic > part "),
+                ("nested", "topic"),
+            },
         )
 
     def test_stream_unicode(self) -> None:
