@@ -38,6 +38,8 @@ class URLEncodeTest(ZulipTestCase):
         # Group narrow URL has 3 or more user IDs
         self.assertEqual(encode_user_ids([1, 2, 3]), "1,2,3-group")
         self.assertEqual(encode_user_ids([3, 1, 2]), "1,2,3-group")
+        self.assertEqual(encode_user_ids([3, 1, 1]), "1,1,3-group")
+        self.assertEqual(encode_user_ids([2**63, 1]), "1,9223372036854775808")
 
         # One-on-one narrow URL has 2 user IDs
         self.assertEqual(encode_user_ids([1, 2]), "1,2")

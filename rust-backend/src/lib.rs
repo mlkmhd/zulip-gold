@@ -53,3 +53,6 @@ mod scheduled_validation;
 
 #[cfg(feature = "python")]
 mod send_permissions;
+
+#[cfg(any(feature = "python", test))]
+mod url_fragments;

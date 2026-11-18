@@ -1,6 +1,8 @@
 # See the Zulip URL spec at https://zulip.com/api/zulip-urls
 
+import os
 import urllib.parse
+from importlib import import_module
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -9,6 +11,10 @@ import re2
 from zerver.lib.topic import get_topic_from_message_info
 from zerver.lib.types import UserDisplayRecipient
 from zerver.models import Realm, Stream, UserProfile
+
+_rust_url_fragments = (
+    import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_URL_FRAGMENTS") == "1" else None
+)
 
 hash_replacements = {
     "%": ".",
@@ -19,6 +25,10 @@ hash_replacements = {
 
 
 def encode_hash_component(s: str) -> str:
+    if _rust_url_fragments is not None:
+        rust_encoded = _rust_url_fragments.encode_narrow_hash_component(s)
+        if rust_encoded is not None:
+            return rust_encoded
     encoded = urllib.parse.quote(s, safe="")
     return "".join(hash_replacements.get(c, c) for c in encoded)
 
@@ -60,6 +70,10 @@ def encode_user_ids(
 
     """
     assert len(user_ids) > 0
+    if _rust_url_fragments is not None:
+        rust_encoded = _rust_url_fragments.encode_narrow_user_ids(user_ids, with_operator)
+        if rust_encoded is not None:
+            return rust_encoded
 
     # For 3 or more user ids we use the "-group" decoration tag.
     # If we're only working with 1-2 user ids, it's either a

@@ -5,7 +5,7 @@ use jiter::NumberInt;
 use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::{PyConnectionError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PyString};
+use pyo3::types::{PyDict, PyInt, PyList, PyString};
 
 use crate::draft_fields::{DraftFields, Recipients};
 use crate::draft_input::{self, DraftInput, Location, ParseError, Timestamp};
@@ -15,7 +15,7 @@ use crate::scheduled_input::{self, ArgumentKind, ScheduledArgument};
 use crate::scheduled_validation::{self, RecipientError, RecipientKind};
 use crate::{
     alert_words, bot_storage, client_defaults, direct_message_group, draft_text, draft_timestamp,
-    memcached, message_topic, stream_color, user_status,
+    memcached, message_topic, stream_color, url_fragments, user_status,
 };
 use crate::{
     markdown_upload, reminder_access, reminder_quote, scheduled_attachments, send_permissions,
@@ -509,6 +509,22 @@ mod _zulip_backend {
                 fields,
             },
         })
+    }
+
+    #[pyfunction]
+    fn encode_narrow_hash_component(value: &Bound<'_, PyString>) -> Option<String> {
+        Some(url_fragments::encode_hash_component(value.to_str().ok()?))
+    }
+
+    #[pyfunction]
+    fn encode_narrow_user_ids(user_ids: &Bound<'_, PyAny>, with_operator: bool) -> Option<String> {
+        let user_ids: Vec<i64> = user_ids
+            .cast_exact::<PyList>()
+            .ok()?
+            .iter()
+            .map(|id| id.cast_exact::<PyInt>().ok()?.extract().ok())
+            .collect::<Option<_>>()?;
+        Some(url_fragments::encode_user_ids(user_ids, with_operator))
     }
 
     #[pyfunction]
