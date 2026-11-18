@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from datetime import datetime
+from importlib import import_module
 from typing import Any
 
 import orjson
@@ -97,10 +98,23 @@ def get_latest_message_for_user_in_topic(
     topic_name: str,
     history_public_to_subscribers: bool,
     acting_user_has_channel_content_access: bool = False,
+    *,
+    use_rust: bool = False,
 ) -> int | None:
     # Guard against incorrectly calling this function without
     # first checking for channel access.
     assert acting_user_has_channel_content_access
+
+    if use_rust:
+        with connection.cursor() as cursor:
+            return import_module("_zulip_backend").latest_markdown_topic_message(
+                cursor,
+                realm_id,
+                user_profile.id if user_profile is not None else None,
+                recipient_id,
+                topic_name,
+                history_public_to_subscribers,
+            )
 
     if history_public_to_subscribers:
         return (

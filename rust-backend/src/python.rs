@@ -132,6 +132,38 @@ mod _zulip_backend {
     }
 
     #[pyfunction]
+    fn latest_markdown_topic_message(
+        cursor: &Bound<'_, PyAny>,
+        realm_id: i32,
+        user_id: Option<i32>,
+        recipient_id: i32,
+        topic: &str,
+        history_public_to_subscribers: bool,
+    ) -> PyResult<Option<i64>> {
+        if history_public_to_subscribers {
+            cursor.call_method1(
+                "execute",
+                (
+                    mention_data::PUBLIC_TOPIC_ANCHOR_SQL,
+                    (realm_id, recipient_id, topic),
+                ),
+            )?;
+        } else if let Some(user_id) = user_id {
+            cursor.call_method1(
+                "execute",
+                (
+                    mention_data::PROTECTED_TOPIC_ANCHOR_SQL,
+                    (user_id, recipient_id, topic),
+                ),
+            )?;
+        } else {
+            return Ok(None);
+        }
+        let row: Option<(i64,)> = cursor.call_method0("fetchone")?.extract()?;
+        Ok(row.map(|(id,)| id))
+    }
+
+    #[pyfunction]
     fn markdown_group_members(
         cursor: &Bound<'_, PyAny>,
         group_ids: Vec<i32>,

@@ -38,6 +38,8 @@ _rust_markdown_group_members = (
     else None
 )
 
+USE_RUST_FOR_MARKDOWN_TOPIC_ANCHORS = os.environ.get("ZULIP_RUST_MARKDOWN_TOPIC_ANCHORS") == "1"
+
 BEFORE_MENTION_ALLOWED_REGEX = r"(?<![^\s\'\"\(\{\[\/<])"
 
 # For mentions that generate a link of their own, don't match syntax
@@ -303,6 +305,7 @@ class MentionBackend:
                 topic_name,
                 history_public_to_subscribers,
                 acting_user_has_channel_content_access=True,
+                use_rust=USE_RUST_FOR_MARKDOWN_TOPIC_ANCHORS,
             )
 
             self.topic_cache[channel_topic] = topic_latest_message

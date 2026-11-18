@@ -16,3 +16,18 @@ pub(crate) const GROUP_MEMBERS_SQL: &str = "
     JOIN zulip.zerver_userprofile AS member ON member.id = membership.user_profile_id
     WHERE member.is_active
 ";
+
+pub(crate) const PUBLIC_TOPIC_ANCHOR_SQL: &str = "
+    SELECT id FROM zulip.zerver_message
+    WHERE realm_id = %s AND recipient_id = %s AND is_channel_message
+      AND upper(subject::text) = upper(%s)
+    ORDER BY id DESC LIMIT 1
+";
+
+pub(crate) const PROTECTED_TOPIC_ANCHOR_SQL: &str = "
+    SELECT message.id FROM zulip.zerver_usermessage AS receipt
+    JOIN zulip.zerver_message AS message ON message.id = receipt.message_id
+    WHERE receipt.user_profile_id = %s AND message.recipient_id = %s
+      AND message.is_channel_message AND upper(message.subject::text) = upper(%s)
+    ORDER BY receipt.id DESC LIMIT 1
+";

@@ -21,7 +21,7 @@ from zerver.actions.alert_words import do_add_alert_words, do_remove_alert_words
 from zerver.actions.create_realm import do_create_realm
 from zerver.actions.realm_emoji import do_remove_realm_emoji
 from zerver.actions.realm_settings import do_set_realm_property
-from zerver.actions.streams import do_change_stream_group_based_setting
+from zerver.actions.streams import do_change_stream_group_based_setting, do_set_stream_property
 from zerver.actions.user_groups import (
     add_subgroups_to_user_group,
     check_add_user_group,
@@ -3686,6 +3686,29 @@ class MarkdownStreamTopicMentionTests(ZulipTestCase):
             f"#{scotland.name} &gt; other topic</a>"
             ".</p>",
         )
+
+    def test_protected_topic_anchor_uses_receipt_order(self) -> None:
+        sender = self.example_user("hamlet")
+        stream = self.make_stream(
+            "protected-anchor",
+            sender.realm,
+            invite_only=True,
+            history_public_to_subscribers=False,
+        )
+        self.subscribe(sender, stream.name)
+        topic = "MiXeD %_"
+        first = self.send_stream_message(sender, stream.name, topic_name=topic)
+        second = self.send_stream_message(sender, stream.name, topic_name=topic)
+        message = Message(sender=sender, sending_client=get_client("test"), realm=sender.realm)
+        content = "#**protected-anchor>mixed %_**"
+        self.assertIn(f"/with/{second}", render_message_markdown(message, content).rendered_content)
+        UserMessage.objects.filter(user_profile=sender, message_id=first).delete()
+        UserMessage.objects.create(user_profile=sender, message_id=first, flags=0)
+        self.assertIn(f"/with/{first}", render_message_markdown(message, content).rendered_content)
+        self.assertNotIn("/with/", markdown_convert_wrapper(content))
+        do_set_stream_property(stream, "history_public_to_subscribers", True, acting_user=sender)
+        self.assertIn(f"/with/{second}", render_message_markdown(message, content).rendered_content)
+        self.assertIn(f"/with/{second}", markdown_convert_wrapper(content))
 
     def test_topic_permalink(self) -> None:
         realm = get_realm("zulip")
