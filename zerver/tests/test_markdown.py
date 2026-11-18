@@ -730,10 +730,12 @@ class MarkdownLinkTest(ZulipTestCase):
         )
 
         msg = f"http://zulip.testserver/user_uploads/{realm.id}/ff/file.txt"
+        result = markdown_convert(msg, message_realm=realm, message=message)
         self.assertEqual(
-            markdown_convert(msg, message_realm=realm, message=message).rendered_content,
+            result.rendered_content,
             f'<p><a href="user_uploads/{realm.id}/ff/file.txt">http://zulip.testserver/user_uploads/{realm.id}/ff/file.txt</a></p>',
         )
+        self.assertEqual(result.potential_attachment_path_ids, [f"{realm.id}/ff/file.txt"])
 
         msg = "http://zulip.testserver/not:relative"
         self.assertEqual(

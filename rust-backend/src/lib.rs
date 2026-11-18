@@ -21,6 +21,9 @@ mod draft_recipients;
 #[cfg(feature = "http")]
 pub mod http;
 
+#[cfg(any(feature = "python", test))]
+mod markdown_upload;
+
 #[cfg(any(feature = "http", feature = "python"))]
 mod memcached;
 

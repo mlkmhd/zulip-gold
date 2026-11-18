@@ -17,7 +17,9 @@ use crate::{
     alert_words, bot_storage, client_defaults, direct_message_group, draft_text, draft_timestamp,
     memcached, message_topic, stream_color, user_status,
 };
-use crate::{reminder_access, reminder_quote, scheduled_attachments, send_permissions};
+use crate::{
+    markdown_upload, reminder_access, reminder_quote, scheduled_attachments, send_permissions,
+};
 
 type DraftParseResult<T> = (Option<T>, Option<(&'static str, Vec<Location>)>);
 
@@ -507,6 +509,14 @@ mod _zulip_backend {
                 fields,
             },
         })
+    }
+
+    #[pyfunction]
+    fn local_markdown_upload_path<'py>(
+        url: &'py Bound<'_, PyString>,
+        realm_host: Option<&str>,
+    ) -> Option<&'py str> {
+        markdown_upload::local_upload_path(url.to_str().ok()?, realm_host)
     }
 
     #[pyfunction]

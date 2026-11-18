@@ -1,6 +1,7 @@
 # Zulip's main Markdown implementation.  See docs/subsystems/markdown.md for
 # detailed documentation on our Markdown syntax.
 import logging
+import os
 import re
 import time
 from collections import deque
@@ -8,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
+from importlib import import_module
 from re import Match, Pattern
 from typing import Generic, Literal, Optional, TypeAlias, TypedDict, TypeVar, cast
 from urllib.parse import parse_qs, parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
@@ -65,6 +67,12 @@ from zerver.models.realm_emoji import EmojiInfo, get_name_keyed_dict_for_active_
 from zerver.models.streams import StreamTopicsPolicyEnum
 
 ReturnT = TypeVar("ReturnT")
+
+_rust_markdown_upload_paths = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_MARKDOWN_UPLOAD_PATHS") == "1"
+    else None
+)
 
 
 # Taken from
@@ -307,6 +315,13 @@ def rewrite_local_links_to_relative(db_data: DbData | None, link: str) -> str:
 
 
 def maybe_add_attachment_path_id(url: str, zmd: "ZulipMarkdown") -> None:
+    if _rust_markdown_upload_paths is not None:
+        realm_host = None if zmd.zulip_realm is None else zmd.zulip_realm.host
+        rust_path_id = _rust_markdown_upload_paths.local_markdown_upload_path(url, realm_host)
+        if rust_path_id is not None:
+            zmd.zulip_rendering_result.potential_attachment_path_ids.append(rust_path_id)
+            return
+
     # Due to rewrite_local_links_to_relative, we need to
     # handle both relative URLs beginning with
     # `/user_uploads` and beginning with `user_uploads`.
