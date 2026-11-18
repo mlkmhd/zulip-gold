@@ -92,6 +92,11 @@ parser.add_argument(
     help="Forward draft POST requests to the Rust HTTP server",
 )
 parser.add_argument(
+    "--rust-draft-patches",
+    action="store_true",
+    help="Forward draft PATCH requests to the Rust HTTP server",
+)
+parser.add_argument(
     "--rust-draft-deletes",
     action="store_true",
     help="Forward draft DELETE requests to the Rust HTTP server",
@@ -313,6 +318,8 @@ if options.rust_draft_reads and options.rust_http_port is None:
     parser.error("--rust-draft-reads requires --rust-http-port")
 if options.rust_draft_posts and options.rust_http_port is None:
     parser.error("--rust-draft-posts requires --rust-http-port")
+if options.rust_draft_patches and options.rust_http_port is None:
+    parser.error("--rust-draft-patches requires --rust-http-port")
 if options.rust_draft_deletes and options.rust_http_port is None:
     parser.error("--rust-draft-deletes requires --rust-http-port")
 if options.rust_attachment_reads and options.rust_http_port is None:
@@ -670,9 +677,14 @@ build step and rerun `run-dev`.""")
                 draft_methods.add(hdrs.METH_POST)
             rust_routes["/api/v1/drafts"] = draft_methods
             rust_routes["/json/drafts"] = draft_methods
-        if options.rust_draft_deletes:
-            rust_routes["/api/v1/drafts/{draft_id:[0-9]+}"] = {hdrs.METH_DELETE}
-            rust_routes["/json/drafts/{draft_id:[0-9]+}"] = {hdrs.METH_DELETE}
+        if options.rust_draft_patches or options.rust_draft_deletes:
+            draft_detail_methods = set()
+            if options.rust_draft_patches:
+                draft_detail_methods.add(hdrs.METH_PATCH)
+            if options.rust_draft_deletes:
+                draft_detail_methods.add(hdrs.METH_DELETE)
+            rust_routes["/api/v1/drafts/{draft_id:[0-9]+}"] = draft_detail_methods
+            rust_routes["/json/drafts/{draft_id:[0-9]+}"] = draft_detail_methods
         if options.rust_attachment_reads:
             rust_routes["/api/v1/attachments"] = read_methods
             rust_routes["/json/attachments"] = read_methods
