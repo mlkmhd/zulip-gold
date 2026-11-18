@@ -37,6 +37,9 @@ mod python;
 mod reminder_access;
 
 #[cfg(any(feature = "python", test))]
+mod reminder_context;
+
+#[cfg(any(feature = "python", test))]
 mod reminder_quote;
 
 #[cfg(feature = "python")]

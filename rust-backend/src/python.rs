@@ -18,7 +18,8 @@ use crate::{
     memcached, message_topic, stream_color, url_fragments, user_status,
 };
 use crate::{
-    markdown_upload, reminder_access, reminder_quote, scheduled_attachments, send_permissions,
+    markdown_upload, reminder_access, reminder_context, reminder_quote, scheduled_attachments,
+    send_permissions,
 };
 
 type DraftParseResult<T> = (Option<T>, Option<(&'static str, Vec<Location>)>);
@@ -384,6 +385,24 @@ mod _zulip_backend {
                 Err(index) => (None, Some(index)),
             },
         )
+    }
+
+    #[pyfunction]
+    fn normalize_reminder_note<'py>(
+        note: &'py Bound<'_, PyString>,
+        max_length: usize,
+    ) -> Option<(bool, &'py str)> {
+        Some(
+            match reminder_context::normalize_note(note.to_str().ok()?, max_length) {
+                Some(note) => (true, note),
+                None => (false, ""),
+            },
+        )
+    }
+
+    #[pyfunction]
+    fn reminder_widget_label(content_prefix: &Bound<'_, PyString>) -> Option<&'static str> {
+        reminder_context::widget_label(content_prefix.to_str().ok()?)
     }
 
     #[pyfunction]

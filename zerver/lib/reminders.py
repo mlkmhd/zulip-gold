@@ -32,6 +32,11 @@ from zerver.tornado.django_api import send_event_on_commit
 _rust_reminder_quote = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_REMINDER_QUOTE") == "1" else None
 )
+_rust_reminder_context = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_REMINDER_CONTEXT") == "1"
+    else None
+)
 
 
 USE_RUST_FOR_REMINDER_ACCESS = os.environ.get("ZULIP_RUST_REMINDER_ACCESS") == "1"
@@ -47,14 +52,20 @@ def access_reminder_target(user: UserProfile, message_id: int) -> Message:
 
 
 def normalize_note_text(body: str) -> str:
-    # Similar to zerver.lib.message.normalize_body
-    body = body.rstrip().lstrip("\n")
+    max_length = settings.MAX_REMINDER_NOTE_LENGTH
+    rust_result: tuple[bool, str] | None = None
+    if _rust_reminder_context is not None and 0 <= max_length <= sys.maxsize:
+        rust_result = _rust_reminder_context.normalize_reminder_note(body, max_length)
 
-    if len(body) > settings.MAX_REMINDER_NOTE_LENGTH:
+    if rust_result is None:
+        # Similar to zerver.lib.message.normalize_body
+        body = body.rstrip().lstrip("\n")
+        valid = len(body) <= max_length
+    else:
+        valid, body = rust_result
+    if not valid:
         raise JsonableError(
-            _("Maximum reminder note length: {max_length} characters").format(
-                max_length=settings.MAX_REMINDER_NOTE_LENGTH
-            )
+            _("Maximum reminder note length: {max_length} characters").format(max_length=max_length)
         )
 
     return body
@@ -164,11 +175,16 @@ def get_reminder_formatted_content(
         },
     }
 
-    if message.content.startswith("/poll"):
-        context.update(widget="poll")
-        content += REMINDER_FORMAT[format_recipient_type_key]["widget"].format_map(context)
+    widget: str | None = None
+    if _rust_reminder_context is not None:
+        widget = _rust_reminder_context.reminder_widget_label(message.content[:5])
+    elif message.content.startswith("/poll"):
+        widget = "poll"
     elif message.content.startswith("/todo"):
-        context.update(widget="todo list")
+        widget = "todo list"
+
+    if widget is not None:
+        context.update(widget=widget)
         content += REMINDER_FORMAT[format_recipient_type_key]["widget"].format_map(context)
     else:
         content += REMINDER_FORMAT[format_recipient_type_key]["text"].format_map(context)

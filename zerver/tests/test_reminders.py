@@ -712,6 +712,22 @@ class RemindersTest(ZulipTestCase):
             f"```quote\n{content}\n```",
         )
 
+    def test_reminder_note_unicode_length_and_whitespace(self) -> None:
+        content = "A message to remember"
+        message_id = self.send_dm_from_hamlet_to_othello(content)
+        timestamp = int(time.time() + 86400)
+        raw_note = "\n\n📝ش\u3000\u001f"
+        with self.settings(MAX_REMINDER_NOTE_LENGTH=1):
+            self.assert_json_error(
+                self.do_schedule_reminder(message_id, timestamp, raw_note),
+                "Maximum reminder note length: 1 characters",
+            )
+        with self.settings(MAX_REMINDER_NOTE_LENGTH=2):
+            self.assert_json_success(self.do_schedule_reminder(message_id, timestamp, raw_note))
+        reminder = self.last_scheduled_reminder()
+        self.assertEqual(reminder.reminder_note, raw_note)
+        self.assertIn("Note:\n > 📝ش\n\n", reminder.content)
+
     def test_reminder_for_message_with_code_block(self) -> None:
         content = "Look at this:\n```\nprint('hello')\n```\nDoes it work?"
         message_id = self.send_channel_message_for_hamlet(content)
