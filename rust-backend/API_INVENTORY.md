@@ -1000,3 +1000,20 @@ serialization و دادهٔ کامل رندر همچنان در Django هستن�
 مستقل همان ۲۸ از ۱۷۱ عملیات OpenAPI و ۲۸ از ۱۹۰ عملیات وب است؛
 فایل Python حذف نشده است.
 [فعال‌سازی و بازگشت](README.md#parse-markdown-blockquotes-and-lists-through-rust)
+
+## تکمیل parser کد و سطرهای جدول Markdown
+
+`ZULIP_RUST_MARKDOWN_INLINE_CODE` تشخیص backtick و backslash جفت‌شده،
+محدودهٔ match برحسب کاراکتر Python و escaping متن کد را منتقل می‌کند.
+`ZULIP_RUST_MARKDOWN_CODE_BLOCKS` حذف تورفتگی، تقسیم ادامهٔ متن، ادغام
+کد مجاور و بازگرداندن خط خالی پس از کد را به Rust می‌سپارد.
+`ZULIP_RUST_MARKDOWN_TABLES` تشخیص header و separator، وضعیت border
+و تقسیم سلول با حفظ pipe و backtick escapeشده را محاسبه می‌کند.
+هر سه مستقل و پیش‌فرض خاموش‌اند و surrogate را به Python می‌سپارند.
+ساخت Element و جدول، alignment، پیمایش و serialization سند و دادهٔ
+کامل رندر همچنان در Django هستند. مسیر email gateway همچنان parser
+کد تورفته را ثبت نمی‌کند. شمار مسیرهای مستقل همان ۲۸ از ۱۷۱ عملیات
+OpenAPI و ۲۸ از ۱۹۰ عملیات وب است؛ فایل Python حذف نشده است.
+[کد inline](README.md#parse-markdown-inline-code-through-rust)،
+[کد تورفته](README.md#plan-markdown-indented-code-blocks-through-rust) و
+[سطر جدول](README.md#parse-markdown-tables-through-rust)

@@ -1422,3 +1422,125 @@ inline parser و serialization هم هنوز در Python هستند. برای ر
 نوشتن مستقل نیست.
 [ثبت parserها](../zerver/lib/markdown/__init__.py)،
 [قرارداد رندر](../docs/subsystems/markdown.md)
+
+## ادامهٔ مهاجرت: کد inline، کد تورفته و جدول — ۲۰۲۶-۱۱-۱۹
+
+کامیت کد inline: `6c7916d6e1`. کامیت کد تورفته: `f0a45b931b`.
+کامیت سطرهای جدول: `e413d16e2e`.
+
+`markdown_code.rs` تشخیص spanهای backtick و backslash جفت‌شده را
+انجام می‌دهد و متن HTML-escaped کد را بدون حذف فاصلهٔ ابتدا و انتها
+برمی‌گرداند. adapter پایتون فقط قرارداد match مورد استفادهٔ
+Python-Markdown را فراهم می‌کند. ترتیب پردازش inline و `AtomicString`
+حفظ شده‌اند. موقعیت‌ها برحسب کاراکتر Python هستند، نه بایت UTF-8.
+پرچم مستقل این مسیر `ZULIP_RUST_MARKDOWN_INLINE_CODE=1` است؛ الگوی
+سفارشی، surrogate و موقعیت خارج از محدودهٔ عدد Rust به Python
+واگذار می‌شوند و خطای `OverflowError` قبلی برای موقعیت بسیار بزرگ
+حفظ می‌شود. اعلان mention و preview پیوند در کد ساخته نمی‌شوند؛
+همان syntax بیرون کد همچنان metadata معمول را تولید می‌کند.
+
+`markdown_code_blocks.rs` detab مطابق عرض تنظیم‌شده، جداکردن متن
+بدون تورفتگی، trim انتهای متن مطابق whitespace پایتون، escaping،
+ادغام با کد قبلی و بازگرداندن خط خالی را انجام می‌دهد. پرچم مستقل
+`ZULIP_RUST_MARKDOWN_CODE_BLOCKS=1` هر دو processor کد تورفته و بلوک
+خالی را فعال می‌کند. sibling خالی یا دارای فرزند غیرکد به‌اشتباه
+ادغام نمی‌شود؛ متن `None` قبلی و newlineها مطابق Python حفظ می‌شوند.
+در مسیر email gateway همچنان processor کد تورفته ثبت نمی‌شود.
+
+`markdown_tables.rs` تشخیص جدول، header و separator و وضعیت border
+را محاسبه و سلول‌ها را تقسیم می‌کند. پرچم مستقل
+`ZULIP_RUST_MARKDOWN_TABLES=1` آن را فعال می‌کند. قواعد escape و
+جفت‌کردن backtick این parser با کد inline متفاوت‌اند و همان قواعد
+جدول Python-Markdown حفظ شدند. separator قبلی در تشخیص ناموفق و
+border قبلی برای بلوک تک‌خطی حفظ می‌شوند. برداشتن border انتهایی،
+جدول تک‌ستونی و pipe داخل کد یا پس از backslash جفت‌شده بررسی شدند.
+ساخت جدول، پرکردن سلول کوتاه، alignment، ساخت Element و پیمایش و
+serialization سند همچنان در Python هستند. هر سه پرچم پیش‌فرض
+خاموش‌اند و مستقل بازمی‌گردند.
+[دستورهای اجرا و بازگشت](README.md#parse-markdown-inline-code-through-rust)
+
+- مقایسهٔ کد inline روی ۲٬۰۱۱٬۱۱۴ مورد، کد تورفته و بلوک خالی روی
+  ۲٬۴۲۴٬۱۲۸ مورد و جدول روی ۳٬۴۰۰٬۶۹۰ مورد با Python یکسان بود.
+  هر سه مجموعه در Linux با Python 3.12 و در macOS با Python
+  3.10، 3.12 و 3.13 اجرا شدند. تمام scalarهای Unicode، ورودی‌های
+  تولیدشده و حالت‌های escape و state قبلی پوشش داده شدند.
+- برش inline در هر حالت خاموش/روشن ۴۹۳ تست داشت؛ Python با هشت
+  skip مربوط به مسیرهای غیرفعال و Rust با یک skip مخصوص کش گذشت.
+  برش کد تورفته در هر حالت ۴۹۹ تست داشت؛ Python با نه skip و
+  Rust با همان یک skip گذشت. تست‌های Memcached واقعی و بازگشت
+  مستقل مجوز/ثبت پیوست در حالت‌های `01` و `10` هم گذشتند.
+- پوشش‌سنجی تمام ۲۰ دستور اجرایی `BacktickInlineProcessor`، تمام
+  ۵۰ دستور adapter، تمام ۶۸ دستور `code_blocks.py` و تمام ۳۶ دستور
+  `tables.py` را اجرا کرد.
+  تست اختصاصی، استفاده از parser و handler پایتون را در مسیر عادی
+  Rust ممنوع می‌کند تا delegation پنهان به‌اشتباه موفق شمرده نشود.
+- هر هشت ترکیب مستقل سه پرچم جدید در مجموعهٔ ۱۹تایی، شامل fixtureهای
+  کامل Markdown و استثنای email gateway، گذشتند. فقط تست مسیرهایی
+  که در همان ترکیب خاموش بودند skip شدند؛ حالت `111` بدون skip بود.
+- ۸۶ تست معمول Cargo با همهٔ featureها، rustfmt، Clippy و lint
+  هدفمند Python شامل mypy گذشتند. یک تست یکپارچهٔ قدیمی Cargo
+  همچنان ignored است. متد خصوصی جدول در stubهای types-Markdown
+  وجود ندارد؛ ignoreهای محدود با توضیح همان کمبود ثبت شدند.
+- برای هر برش هشت سناریوی nginx ایزوله روی HTTP/HTTPS، API/نشست وب
+  و حالت خاموش/روشن گذشتند. کد فارسی با فاصلهٔ ابتدا و انتها،
+  escapeهای `<>&`، backtick تودرتو، کد تورفته و خط خالی و جدول فارسی
+  دارای alignment و pipe داخل کد بررسی شدند. ارسال و ویرایش پیام
+  زمان‌بندی‌شده، یادآوری، تحویل واقعی، حریم پیوست، Redis و رویداد
+  محدودشده به مالک نیز مطابق مرجع بودند.
+
+اولین اجرای نهایی Rust در تست قدیمی
+`ScheduledJobDeleteHTTPTest.test_reminder_delete_parity` شکست خورد:
+در بررسی listener مرجع Django، `basic_get` فوری پس از DELETE موفق
+هنوز رویداد را ندید؛ همان رویداد حذف یادآوری در بررسی 404 بعدی رسید.
+شکست زودهنگام، سطر آزمایشی را باقی گذاشت و خطای بعدی duplicate key
+را هم ایجاد کرد. این مسیر Markdown را اجرا نمی‌کند. لاگ آن در
+`zulip-rust-tables-final-mode-1-first-amqp-failure.log` و گزارش driver
+در `zulip-rust-tables-regression-first-amqp-failure.log` حفظ شدند.
+تست، timeout و کد محصول برای این race تغییر نکردند.
+
+بازاجرای دقیق همان مجموعه با همان کد، پس از پایان کارهای هم‌زمان،
+در هر حالت ۵۰۳ تست را گذراند: Python با ده skip مربوط به مسیرهای
+غیرفعال و Rust با یک skip مخصوص کش. گزارش نهایی در
+`zulip-rust-tables-regression.log` و لاگ‌های `final-mode-0` و
+`final-mode-1` با همان پیشوند ثبت شد.
+
+checkout آزمایش در VM `zulip-rust-tests` مسیر
+`/home/ubuntu/zulip-rust-inline-code` است. wheelهای هر مرحله جدا در
+`var/inline-code-python`، `var/code-blocks-python` و `var/tables-python`
+نصب شدند. لاگ‌ها و اسکریپت‌های تکرارپذیر در `/home/ubuntu/` با
+پیشوندهای `zulip-rust-inline-code-*`، `zulip-rust-code-blocks-*` و
+`zulip-rust-tables-*` نگه داشته شدند. ماتریس مستقل و لاگ هر ترکیب
+با پیشوند `zulip-rust-code-rollbacks-*` هستند. ساخت checkout تازه
+به symlink وابستگی‌های provisionشدهٔ Node و بازسازی عادی پایگاه تست
+نیاز داشت؛ provision check دور زده نشد. خطاهای اولیهٔ تست و mypy
+پیش از کامیت اصلاح شدند. فقط cache ساخت Cargo قدیمی و غیرفعال حذف
+شد؛ source، wheel، binary و لاگ‌ها حفظ شدند.
+
+upstream اصلی در `84aa18d3c7` fetch و بررسی شد؛ merge آزمایشی با
+تاریخچهٔ fork تعارض داشت. شاخهٔ fork و ویرایش‌های اجرای قبلی حفظ
+شدند و تغییرات این برش پس از آزمون به شاخهٔ اصلی کار منتقل شدند.
+push یا استقرار انجام نشد. شمار مسیرهای مستقل همان ۲۸ از ۱۷۱ عملیات
+OpenAPI و ۲۸ از ۱۹۰ عملیات وب است. فایل Python حذف نشده و هیچ‌یک از
+سه پرچم جدید به‌صورت پیش‌فرض فعال نشده است.
+
+## گام بعدی پس از کد و جدول
+
+تشخیص و تقسیم سطر جدول منتقل شده، اما `TableProcessor.run` هنوز
+alignment، تعداد سلول و ساخت Element را در Python انجام می‌دهد.
+منطق `run` فهرست‌ها، ساخت و پیمایش درخت، stash و placeholderهای
+inline، سایر parserهای inline و serialization سند نیز باقی‌اند.
+برای انتقال بعدی، از fixtureهای فعلی و تطبیق دادهٔ کامل
+`MessageRenderingResult` استفاده کنید؛ escaping و ترتیب پردازش کد،
+mention، link و emoji باید حفظ شوند. یک اجرای هم‌زمان مستقل، برش
+emphasis را در شاخهٔ `codex/rust-markdown-emphasis` آماده می‌کند؛
+قبل از تکرار آن کار حافظهٔ automation را بخوانید و پس از تکمیل، با
+آخرین شاخهٔ کار ادغام و آزمون کنید.
+
+رندر مستقل، highlighting، TeX، previewها، metadata اعلان و پیوندها
+هنوز کامل نشده‌اند. مجوز group و wildcard و اتصال کوئری‌های مجوز
+و پیوست به listener نیز پیش‌نیاز ایجاد/ویرایش مستقل پیام زمان‌بندی‌شده
+هستند. پل‌های فعلی به‌تنهایی معادل مسیر HTTP مستقل یا امکان حذف
+Python نیستند.
+[ساخت parser](../zerver/lib/markdown/__init__.py)،
+[کد تورفته](../zerver/lib/markdown/code_blocks.py)،
+[جدول](../zerver/lib/markdown/tables.py)

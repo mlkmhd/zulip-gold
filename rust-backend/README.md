@@ -1632,3 +1632,69 @@ and targeted rendering tests in all eight flag combinations:
     zerver.tests.test_markdown_list_blocks zerver.tests.test_markdown_list_indent \
     zerver.tests.test_markdown zerver.tests.test_reminders
 ```
+
+## Parse Markdown inline code through Rust
+
+Rebuild and install the Python extension, then set
+`ZULIP_RUST_MARKDOWN_INLINE_CODE=1` in Django processes. Rust finds backtick
+spans and escaped backslash pairs, preserves Python character offsets and
+capture groups, and escapes code text without trimming its whitespace.
+The adapter implements the match methods used by Python-Markdown. Django
+constructs code elements and continues the remaining inline/tree rendering.
+
+The flag defaults to disabled. Lone surrogates, positions outside the Rust
+integer range, and custom backtick patterns use Python. Unset the flag and
+restart the processes to roll back independently of the block parser flags.
+This bridge does not enable standalone scheduled message writes.
+
+Run the same collections with the flag unset and set:
+
+```bash
+./tools/test-backend --parallel 1 zerver.tests.test_markdown_inline_code \
+    zerver.tests.test_markdown zerver.tests.test_scheduled_messages \
+    zerver.tests.test_reminders
+```
+
+## Plan Markdown indented code blocks through Rust
+
+Rebuild and install the Python extension, then set
+`ZULIP_RUST_MARKDOWN_CODE_BLOCKS=1` in Django processes. Rust removes the
+configured indentation, splits off dedented text, escapes code, merges
+adjacent code blocks, and restores blank lines after code siblings.
+Django constructs elements and preserves `AtomicString` text. The email
+gateway continues to omit the indented code processor.
+
+The flag defaults to disabled. Lone surrogates and unsupported indentation
+values delegate to Python. Unset the flag and restart the processes to roll
+back independently of inline code and the other block parser bridges.
+This bridge does not enable standalone scheduled message writes.
+
+Run the same collections with the flag unset and set, then repeat both new
+code collections with only one code flag enabled at a time:
+
+```bash
+./tools/test-backend --parallel 1 zerver.tests.test_markdown_code_blocks \
+    zerver.tests.test_markdown_inline_code zerver.tests.test_markdown \
+    zerver.tests.test_reminders
+```
+
+## Parse Markdown tables through Rust
+
+Rebuild and install the Python extension, then set
+`ZULIP_RUST_MARKDOWN_TABLES=1` in Django processes. Rust validates table
+headers and separators, tracks border flags, and splits rows while
+preserving escaped pipes and the table parser's backtick pairing rules.
+Django retains table element construction, alignment, and inline rendering.
+
+The flag defaults to disabled. Lone surrogates delegate to Python. Unset
+the flag and restart the processes to roll back independently of inline
+code and indented code blocks. This bridge does not enable standalone
+scheduled message writes.
+
+Run the same collections with the flag unset and set:
+
+```bash
+./tools/test-backend --parallel 1 zerver.tests.test_markdown_tables \
+    zerver.tests.test_markdown zerver.tests.test_scheduled_messages \
+    zerver.tests.test_reminders
+```
