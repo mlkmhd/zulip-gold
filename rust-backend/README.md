@@ -1059,14 +1059,22 @@ and the scheduled delivery worker.
 
 - `ZULIP_RUST_SCHEDULED_SEND_PERMISSIONS` reads nested posting and topic
   groups, existing topics, shared subscriptions for guests, direct-message
-  permission groups, and sent conversation history. Django retains validation
-  order, system-group rules, channel lookup, and localized errors.
+  permission groups, and sent conversation history. It also evaluates direct
+  message system-group roles, inherited channel topic policy, and whether a bot
+  channel has active subscribers. Django retains validation order, channel
+  lookup, localized errors, and rate-limited notifications to bot owners.
 - `ZULIP_RUST_REMINDER_ACCESS` looks up message receipt and restricted
   channel content access during reminder creation and delivery. The worker
   uses the stored reminder text when the referenced message is inaccessible.
 - `ZULIP_RUST_SCHEDULED_ATTACHMENTS` writes or removes links to authorized
   attachments inside the scheduled job transaction. Public visibility is
   updated when a message using the attachment is delivered.
+- `ZULIP_RUST_SCHEDULED_ATTACHMENT_ACCESS` checks direct-message receipt,
+  active channel subscriptions, protected history, and nested content-access
+  groups before scheduled creation or editing links an upload. It also refills
+  an invalidated realm-public cache inside the existing transaction. Ownership
+  and cached public access checks remain in Django. This flag is independent
+  of `ZULIP_RUST_SCHEDULED_ATTACHMENTS`; either flag can be rolled back alone.
 - `ZULIP_RUST_MARKDOWN_UPLOAD_PATHS` extracts path IDs from common local upload
   URLs used by the Markdown renderer. Other URLs are handled by the existing
   Python parser. Django still renders the HTML and authorizes attachment claims.
@@ -1084,11 +1092,64 @@ for mode in 0 1; do
     ZULIP_RUST_SCHEDULED_SEND_PERMISSIONS=$mode \
         ZULIP_RUST_REMINDER_ACCESS=$mode \
         ZULIP_RUST_SCHEDULED_ATTACHMENTS=$mode \
+        ZULIP_RUST_SCHEDULED_ATTACHMENT_ACCESS=$mode \
         ZULIP_RUST_MARKDOWN_UPLOAD_PATHS=$mode \
         ZULIP_RUST_URL_FRAGMENTS=$mode ./tools/test-backend \
         zerver.tests.test_scheduled_messages zerver.tests.test_reminders \
         zerver.tests.test_markdown zerver.tests.test_upload.FileUploadTest \
         zerver.tests.test_url_encoding zerver.tests.test_topic_link_util
+done
+```
+
+## Prepare reminder context and Markdown mention data through Rust
+
+Install a fresh PyO3 wheel before enabling these flags in Django and the
+scheduled delivery worker. Each flag is independent and can be unset followed
+by a restart to return to the Python implementation.
+
+- `ZULIP_RUST_REMINDER_CONTEXT` trims and validates reminder notes, classifies
+  widget content, escapes channel and topic labels, and sorts silent direct
+  recipient mentions. Django selects the translated context templates and
+  conjunction and retrieves the referenced message and recipients.
+- `ZULIP_RUST_MARKDOWN_ALERT_WORDS` matches overlapping alert words with the
+  existing punctuation boundaries. Matchers are cached by the alert word
+  snapshot, so changing words also changes the matcher. Python supplies Unicode
+  lowercasing before Rust matches UTF-8 bytes.
+- `ZULIP_RUST_MARKDOWN_CHANNEL_LINKS` finds channel and topic link candidates
+  before rendering metadata is fetched. Channel and topic patterns retain
+  their independent overlap rules.
+- `ZULIP_RUST_MARKDOWN_MENTIONS` finds user and group mention candidates,
+  classifies wildcards, and gives non-silent group mentions precedence.
+  Strings containing lone surrogates use the Python scanner.
+- `ZULIP_RUST_MARKDOWN_GROUP_MEMBERS` fetches active members of non-silent,
+  active mentioned groups in one recursive query. Membership stays associated
+  with each mentioned root when subgroups overlap.
+- `ZULIP_RUST_MARKDOWN_FENCES` parses fenced block delimiters, language
+  tags, and headers in the fenced block and list preprocessors. Quote
+  completion uses the same parser. Python retains block nesting, whitespace
+  normalization, syntax highlighting, and TeX rendering. Strings containing
+  lone surrogates use the Python parser.
+- `ZULIP_RUST_MARKDOWN_TOPIC_ANCHORS` selects topic link anchors after Django
+  checks channel content access. Shared history uses message ordering;
+  protected history uses the existing user receipt ordering. Anonymous
+  rendering does not reveal an anchor for protected history.
+
+These bridges prepare rendering data. Python-Markdown still produces HTML,
+processes inline mentions, and manages link and image previews. Django still
+checks permission to notify mentioned groups and to use wildcard mentions.
+
+```sh
+for mode in 0 1; do
+    ZULIP_RUST_REMINDER_CONTEXT=$mode \
+        ZULIP_RUST_MARKDOWN_ALERT_WORDS=$mode \
+        ZULIP_RUST_MARKDOWN_CHANNEL_LINKS=$mode \
+        ZULIP_RUST_MARKDOWN_MENTIONS=$mode \
+        ZULIP_RUST_MARKDOWN_GROUP_MEMBERS=$mode \
+        ZULIP_RUST_MARKDOWN_FENCES=$mode \
+        ZULIP_RUST_MARKDOWN_TOPIC_ANCHORS=$mode ./tools/test-backend \
+        zerver.tests.test_markdown zerver.tests.test_reminders \
+        zerver.tests.test_scheduled_messages zerver.tests.test_message_send \
+        zerver.tests.test_message_edit zerver.tests.test_alert_words
 done
 ```
 
