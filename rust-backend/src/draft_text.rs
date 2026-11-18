@@ -12,10 +12,13 @@ pub(crate) fn is_python_whitespace(character: char) -> bool {
     character.is_whitespace() || matches!(character, '\u{1c}'..='\u{1f}')
 }
 
+pub(crate) fn trim_message_body(body: &str) -> &str {
+    body.trim_end_matches(is_python_whitespace)
+        .trim_start_matches('\n')
+}
+
 pub fn normalize_body(body: &str, max_length: usize) -> Result<Cow<'_, str>, BodyError> {
-    let body = body
-        .trim_end_matches(is_python_whitespace)
-        .trim_start_matches('\n');
+    let body = trim_message_body(body);
     if body.is_empty() {
         return Err(BodyError::Empty);
     }
