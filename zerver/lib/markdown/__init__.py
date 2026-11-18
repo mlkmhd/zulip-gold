@@ -40,6 +40,7 @@ from zerver.lib.emoji_utils import emoji_to_hex_codepoint, unqualify_emoji
 from zerver.lib.exceptions import MarkdownRenderingError
 from zerver.lib.markdown import fenced_code
 from zerver.lib.markdown.fenced_code import parse_fence_line
+from zerver.lib.markdown.inline_code import BacktickMatch, backtick_pattern
 from zerver.lib.markdown.whitespace import ZulipNormalizeWhitespace
 from zerver.lib.mention import (
     BEFORE_LINK_PRODUCING_MENTION_ALLOWED_REGEX,
@@ -598,10 +599,21 @@ class InlineVideoProcessor(markdown.treeprocessors.Treeprocessor):
 class BacktickInlineProcessor(markdown.inlinepatterns.BacktickInlineProcessor):
     """Return a `<code>` element containing the matching text."""
 
+    def __init__(self, pattern: str) -> None:
+        super().__init__(pattern)
+        if pattern == markdown.inlinepatterns.BACKTICK_RE:
+            self.compiled_re = backtick_pattern(self.compiled_re)
+
     @override
     def handleMatch(  # type: ignore[override] # https://github.com/python/mypy/issues/10197
-        self, m: Match[str], data: str
+        self, m: Match[str] | BacktickMatch, data: str
     ) -> tuple[Element | str | None, int | None, int | None]:
+        if isinstance(m, BacktickMatch):
+            if m.group(3):
+                code = Element(self.tag)
+                code.text = markdown.util.AtomicString(m.rendered_text)
+                return code, m.start(), m.end()
+            return m.rendered_text, m.start(), m.end()
         # Let upstream's implementation do its job as it is, we'll
         # just replace the text to not strip the group because it
         # makes it impossible to put leading/trailing whitespace in

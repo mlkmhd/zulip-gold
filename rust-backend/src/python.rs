@@ -19,12 +19,21 @@ use crate::{
     url_fragments, user_status,
 };
 use crate::{
-    markdown_alerts, markdown_blockquotes, markdown_blocks, markdown_channel_links,
+    markdown_alerts, markdown_blockquotes, markdown_blocks, markdown_channel_links, markdown_code,
     markdown_fences, markdown_headings, markdown_horizontal_rules, markdown_inline_mentions,
     markdown_list_blocks, markdown_list_indent, markdown_lists, markdown_mentions,
     markdown_paragraphs, markdown_upload, markdown_whitespace, reminder_access, reminder_context,
     reminder_quote, scheduled_attachments, send_permissions,
 };
+
+type InlineCodeMatch = (
+    usize,
+    usize,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    String,
+);
 
 type DraftParseResult<T> = (Option<T>, Option<(&'static str, Vec<Location>)>);
 
@@ -264,6 +273,27 @@ mod _zulip_backend {
                 None => (false, String::new(), String::new()),
             },
         )
+    }
+
+    #[pyfunction]
+    fn find_markdown_inline_code(
+        data: &Bound<'_, PyString>,
+        position: &Bound<'_, PyInt>,
+    ) -> Option<(Option<InlineCodeMatch>,)> {
+        let data = data.to_str().ok()?;
+        let position = position.extract::<isize>().ok()?.max(0) as usize;
+        Some((
+            markdown_code::find_inline_code(data, position).map(|matched| {
+                (
+                    matched.start,
+                    matched.end,
+                    matched.backslashes.map(str::to_owned),
+                    matched.delimiter.map(str::to_owned),
+                    matched.code.map(str::to_owned),
+                    matched.rendered_text(),
+                )
+            }),
+        ))
     }
 
     #[pyfunction]
