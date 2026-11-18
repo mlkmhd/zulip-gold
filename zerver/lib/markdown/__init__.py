@@ -93,6 +93,11 @@ _rust_markdown_list_blocks = (
     if os.environ.get("ZULIP_RUST_MARKDOWN_LIST_BLOCKS") == "1"
     else None
 )
+_rust_markdown_list_indent = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_MARKDOWN_LIST_INDENT") == "1"
+    else None
+)
 _rust_markdown_horizontal_rules = (
     import_module("_zulip_backend")
     if os.environ.get("ZULIP_RUST_MARKDOWN_HORIZONTAL_RULES") == "1"
@@ -1563,6 +1568,28 @@ class ListIndentProcessor(markdown.blockprocessors.ListIndentProcessor):
         parser.md.tab_length = 2
         super().__init__(parser)
         parser.md.tab_length = 4
+
+    @override
+    def get_level(self, parent: Element, block: str) -> tuple[int, Element]:
+        if _rust_markdown_list_indent is not None:
+            descendants = [parent]
+            while len(descendants[-1]):
+                descendants.append(descendants[-1][-1])
+            result = _rust_markdown_list_indent.markdown_list_indent_parent(
+                block, self.parser.state.isstate("list"), [child.tag for child in descendants[1:]]
+            )
+            if result is not None:
+                level, steps = result
+                return level, descendants[steps]
+        return super().get_level(parent, block)
+
+    @override
+    def looseDetab(self, text: str, level: int = 1) -> str:
+        if _rust_markdown_list_indent is not None:
+            result = _rust_markdown_list_indent.detab_markdown_list(text, level)
+            if result is not None:
+                return result
+        return super().looseDetab(text, level)
 
 
 class HashHeaderProcessor(markdown.blockprocessors.HashHeaderProcessor):

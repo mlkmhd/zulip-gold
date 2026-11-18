@@ -21,9 +21,9 @@ use crate::{
 use crate::{
     markdown_alerts, markdown_blockquotes, markdown_blocks, markdown_channel_links,
     markdown_fences, markdown_headings, markdown_horizontal_rules, markdown_inline_mentions,
-    markdown_list_blocks, markdown_lists, markdown_mentions, markdown_paragraphs, markdown_upload,
-    markdown_whitespace, reminder_access, reminder_context, reminder_quote, scheduled_attachments,
-    send_permissions,
+    markdown_list_blocks, markdown_list_indent, markdown_lists, markdown_mentions,
+    markdown_paragraphs, markdown_upload, markdown_whitespace, reminder_access, reminder_context,
+    reminder_quote, scheduled_attachments, send_permissions,
 };
 
 type DraftParseResult<T> = (Option<T>, Option<(&'static str, Vec<Location>)>);
@@ -182,6 +182,31 @@ mod _zulip_backend {
             .map(|line| line.to_str().ok())
             .collect::<Option<Vec<_>>>()?;
         markdown_lists::separator_positions(&lines)
+    }
+
+    #[pyfunction]
+    fn markdown_list_indent_parent(
+        block: &Bound<'_, PyString>,
+        tight_list: bool,
+        descendants: Vec<Bound<'_, PyString>>,
+    ) -> Option<(usize, usize)> {
+        let descendants = descendants
+            .iter()
+            .map(|tag| tag.to_str().ok())
+            .collect::<Option<Vec<_>>>()?;
+        Some(markdown_list_indent::indent_parent(
+            block.to_str().ok()?,
+            tight_list,
+            &descendants,
+        ))
+    }
+
+    #[pyfunction]
+    fn detab_markdown_list(
+        block: &Bound<'_, PyString>,
+        level: &Bound<'_, PyInt>,
+    ) -> Option<String> {
+        markdown_list_indent::loose_detab(block.to_str().ok()?, level.extract().ok()?)
     }
 
     #[pyfunction]
