@@ -1017,6 +1017,41 @@ values, invalid argument types, and integers outside the signed 64-bit
 range. Unset the flag and restart Django to roll back independently of
 the database flags below.
 
+## Validate scheduled jobs and prepare message text through Rust
+
+Install a fresh PyO3 wheel and set the applicable environment variables to
+`1` in Django. Set `ZULIP_RUST_MESSAGE_BODY`, `ZULIP_RUST_CHANNEL_MESSAGE_TOPIC`,
+`ZULIP_RUST_REMINDER_QUOTE`, and `ZULIP_RUST_SCHEDULED_DM_GROUPS` on the
+delivery worker to use the applicable paths when sending scheduled jobs.
+
+- `ZULIP_RUST_SCHEDULED_JOB_TIMESTAMP` compares a whole delivery second to
+  the current time at microsecond precision for scheduled-message creation
+  and edits and reminder creation. Python handles datetime conversion errors
+  for timestamps outside its supported range.
+- `ZULIP_RUST_SCHEDULED_MESSAGE_RECIPIENT` classifies channel and direct
+  recipients on scheduled-message creation and edits. Django keeps the
+  existing recipient lookup, deduplication order, and send permission checks.
+- `ZULIP_RUST_MESSAGE_BODY` trims and truncates message bodies before the
+  existing Markdown renderer for sends, edits, scheduled jobs, and mirrored
+  email. `ZULIP_RUST_DRAFT_TEXT` also controls draft topic normalization.
+- `ZULIP_RUST_CHANNEL_MESSAGE_TOPIC` trims channel send topics, recognizes
+  the legacy empty-topic names, and reports invalid character positions.
+- `ZULIP_RUST_REMINDER_QUOTE` builds the fenced quote and budgets its length
+  alongside the localized context supplied by Django.
+- `ZULIP_RUST_SCHEDULED_JOB_SERIALIZATION` uses the standalone Rust response
+  types to assemble fields for Django list responses and add and update events.
+- `ZULIP_RUST_SCHEDULED_DM_GROUPS` finds or creates the direct-message group,
+  recipient, and memberships while preparing scheduled messages and reminders
+  and while rechecking a scheduled direct message for delivery. Django still
+  validates the recipients and applies direct-message permissions.
+- `ZULIP_RUST_MESSAGE_CLIENT_DEFAULTS` applies the client rule for initially
+  marking ordinary and scheduled messages read by their sender. Scheduled
+  self-messages keep their existing exception when the caller omits the field.
+
+Each flag can be unset independently followed by a restart of the affected
+processes. Out-of-range limits and strings containing lone surrogates use
+the existing Python paths where applicable.
+
 ## Run scheduled job database operations through Rust
 
 Install a fresh PyO3 wheel in the Zulip environment, then set any of these
