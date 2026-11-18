@@ -88,6 +88,11 @@ _rust_markdown_horizontal_rules = (
     if os.environ.get("ZULIP_RUST_MARKDOWN_HORIZONTAL_RULES") == "1"
     else None
 )
+_rust_markdown_paragraphs = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_MARKDOWN_PARAGRAPHS") == "1"
+    else None
+)
 _rust_markdown_headings = (
     import_module("_zulip_backend")
     if os.environ.get("ZULIP_RUST_MARKDOWN_HEADINGS") == "1"
@@ -1577,6 +1582,30 @@ class HRProcessor(markdown.blockprocessors.HRProcessor):
         super().run(parent, blocks)
 
 
+class ParagraphProcessor(markdown.blockprocessors.ParagraphProcessor):
+    @override
+    def run(self, parent: Element, blocks: list[str]) -> None:
+        if _rust_markdown_paragraphs is not None:
+            tight_list = self.parser.state.isstate("list")
+            sibling = self.lastChild(parent) if tight_list else None
+            previous_text = sibling.tail if sibling is not None else parent.text
+            result = _rust_markdown_paragraphs.plan_markdown_paragraph(
+                blocks[0], tight_list, sibling is not None, previous_text
+            )
+            if result is not None:
+                kind, text = result
+                blocks.pop(0)
+                if kind == "paragraph":
+                    SubElement(parent, "p").text = text
+                elif kind == "tail":
+                    assert sibling is not None
+                    sibling.tail = text
+                elif kind == "parent":
+                    parent.text = text
+                return
+        super().run(parent, blocks)
+
+
 class BlockQuoteProcessor(markdown.blockprocessors.BlockQuoteProcessor):
     """Process block quotes.
 
@@ -2490,9 +2519,7 @@ class ZulipMarkdown(markdown.Markdown):
         parser.blockprocessors.register(UListProcessor(parser), "ulist", 60)
         parser.blockprocessors.register(BlockQuoteProcessor(parser), "quote", 55)
         # We get priority 51 from our 'include' extension
-        parser.blockprocessors.register(
-            markdown.blockprocessors.ParagraphProcessor(parser), "paragraph", 50
-        )
+        parser.blockprocessors.register(ParagraphProcessor(parser), "paragraph", 50)
         return parser
 
     def build_inlinepatterns(self) -> markdown.util.Registry[markdown.inlinepatterns.Pattern]:

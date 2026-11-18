@@ -21,8 +21,8 @@ use crate::{
 use crate::{
     markdown_alerts, markdown_blocks, markdown_channel_links, markdown_fences, markdown_headings,
     markdown_horizontal_rules, markdown_inline_mentions, markdown_lists, markdown_mentions,
-    markdown_upload, markdown_whitespace, reminder_access, reminder_context, reminder_quote,
-    scheduled_attachments, send_permissions,
+    markdown_paragraphs, markdown_upload, markdown_whitespace, reminder_access, reminder_context,
+    reminder_quote, scheduled_attachments, send_permissions,
 };
 
 type DraftParseResult<T> = (Option<T>, Option<(&'static str, Vec<Location>)>);
@@ -210,6 +210,25 @@ mod _zulip_backend {
                 None => (false, String::new(), String::new()),
             },
         )
+    }
+
+    #[pyfunction]
+    fn plan_markdown_paragraph(
+        block: &Bound<'_, PyString>,
+        tight_list: bool,
+        has_sibling: bool,
+        previous_text: Option<Bound<'_, PyString>>,
+    ) -> Option<(&'static str, String)> {
+        let previous_text = match previous_text.as_ref() {
+            Some(text) => Some(text.to_str().ok()?),
+            None => None,
+        };
+        Some(markdown_paragraphs::plan_paragraph(
+            block.to_str().ok()?,
+            tight_list,
+            has_sibling,
+            previous_text,
+        ))
     }
 
     #[pyfunction]
