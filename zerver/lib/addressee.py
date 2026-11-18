@@ -1,4 +1,6 @@
+import os
 from collections.abc import Iterable, Sequence
+from importlib import import_module
 from typing import cast
 
 from django.utils.translation import gettext as _
@@ -9,11 +11,43 @@ from zerver.lib.topic import (
     maybe_rename_general_chat_to_empty_topic,
     maybe_rename_no_topic_to_empty_topic,
 )
-from zerver.models import Realm, Stream, UserProfile
+from zerver.models import Message, Realm, Stream, UserProfile
 from zerver.models.users import (
     get_user_by_id_in_realm_including_cross_realm,
     get_user_including_cross_realm,
 )
+
+_rust_channel_message_topic = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_CHANNEL_MESSAGE_TOPIC") == "1"
+    else None
+)
+
+
+def _normalize_channel_message_topic(topic_name: str) -> str:
+    if _rust_channel_message_topic is not None:
+        result = cast(
+            tuple[str | None, int | None] | None,
+            _rust_channel_message_topic.normalize_channel_message_topic(
+                topic_name, Message.EMPTY_TOPIC_FALLBACK_NAME
+            ),
+        )
+        if result is not None:
+            topic, invalid_character_pos = result
+            if invalid_character_pos is not None:
+                raise JsonableError(
+                    _("Invalid character in topic, at position {position}!").format(
+                        position=invalid_character_pos
+                    )
+                )
+            assert topic is not None
+            return topic
+
+    topic_name = topic_name.strip()
+    topic_name = maybe_rename_general_chat_to_empty_topic(topic_name)
+    topic_name = maybe_rename_no_topic_to_empty_topic(topic_name)
+    check_stream_topic(topic_name)
+    return topic_name
 
 
 def get_user_profiles(emails: Iterable[str], realm: Realm) -> list[UserProfile]:
@@ -156,38 +190,26 @@ class Addressee:
 
     @staticmethod
     def for_stream(stream: Stream, topic_name: str) -> "Addressee":
-        topic_name = topic_name.strip()
-        topic_name = maybe_rename_general_chat_to_empty_topic(topic_name)
-        topic_name = maybe_rename_no_topic_to_empty_topic(topic_name)
-        check_stream_topic(topic_name)
         return Addressee(
             msg_type="stream",
             stream=stream,
-            topic_name=topic_name,
+            topic_name=_normalize_channel_message_topic(topic_name),
         )
 
     @staticmethod
     def for_stream_name(stream_name: str, topic_name: str) -> "Addressee":
-        topic_name = topic_name.strip()
-        topic_name = maybe_rename_general_chat_to_empty_topic(topic_name)
-        topic_name = maybe_rename_no_topic_to_empty_topic(topic_name)
-        check_stream_topic(topic_name)
         return Addressee(
             msg_type="stream",
             stream_name=stream_name,
-            topic_name=topic_name,
+            topic_name=_normalize_channel_message_topic(topic_name),
         )
 
     @staticmethod
     def for_stream_id(stream_id: int, topic_name: str) -> "Addressee":
-        topic_name = topic_name.strip()
-        topic_name = maybe_rename_general_chat_to_empty_topic(topic_name)
-        topic_name = maybe_rename_no_topic_to_empty_topic(topic_name)
-        check_stream_topic(topic_name)
         return Addressee(
             msg_type="stream",
             stream_id=stream_id,
-            topic_name=topic_name,
+            topic_name=_normalize_channel_message_topic(topic_name),
         )
 
     @staticmethod

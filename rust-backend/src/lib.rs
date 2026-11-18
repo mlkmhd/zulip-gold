@@ -21,6 +21,9 @@ pub mod http;
 #[cfg(any(feature = "http", feature = "python"))]
 mod memcached;
 
+#[cfg(any(feature = "python", test))]
+mod message_topic;
+
 #[cfg(feature = "python")]
 mod python;
 

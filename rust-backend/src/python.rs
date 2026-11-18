@@ -15,7 +15,7 @@ use crate::scheduled_input::{self, ArgumentKind, ScheduledArgument};
 use crate::scheduled_validation::{self, RecipientError, RecipientKind};
 use crate::{
     alert_words, bot_storage, direct_message_group, draft_text, draft_timestamp, memcached,
-    stream_color, user_status,
+    message_topic, stream_color, user_status,
 };
 
 type DraftParseResult<T> = (Option<T>, Option<(&'static str, Vec<Location>)>);
@@ -250,6 +250,20 @@ mod _zulip_backend {
         max_length: usize,
     ) -> Option<(Option<String>, Option<&'static str>)> {
         Some(normalize_draft_body(body.to_str().ok()?, max_length))
+    }
+
+    #[pyfunction]
+    fn normalize_channel_message_topic(
+        topic: &Bound<'_, PyString>,
+        empty_topic_fallback: &str,
+    ) -> Option<(Option<String>, Option<usize>)> {
+        let topic = topic.to_str().ok()?;
+        Some(
+            match message_topic::normalize_channel_topic(topic, empty_topic_fallback) {
+                Ok(topic) => (Some(topic.to_owned()), None),
+                Err(index) => (None, Some(index)),
+            },
+        )
     }
 
     #[pyfunction]

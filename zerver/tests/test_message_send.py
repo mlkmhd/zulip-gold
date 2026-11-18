@@ -54,6 +54,7 @@ from zerver.lib.exceptions import (
 )
 from zerver.lib.message import get_raw_unread_data, get_recent_private_conversations
 from zerver.lib.message_cache import MessageDict
+from zerver.lib.partial import partial
 from zerver.lib.per_request_cache import flush_per_request_caches
 from zerver.lib.stream_subscription import create_stream_subscription
 from zerver.lib.streams import create_stream_if_needed
@@ -3829,6 +3830,24 @@ class TestAddressee(ZulipTestCase):
 
         stream_id = result.stream_id()
         self.assertEqual(stream.id, stream_id)
+
+    def test_channel_addressee_normalizes_and_validates_topic(self) -> None:
+        stream = get_stream("Verona", get_realm("zulip"))
+        builders = [
+            ("stream", partial(Addressee.for_stream, stream)),
+            ("name", partial(Addressee.for_stream_name, stream.name)),
+            ("id", partial(Addressee.for_stream_id, stream.id)),
+        ]
+        for kind, build in builders:
+            with self.subTest(kind=kind):
+                self.assertEqual(build("\u3000general chat\u001f").topic_name(), "")
+                self.assertEqual(build(" (no topic) ").topic_name(), "")
+                self.assertEqual(build("\u3000سلام📝\u001f").topic_name(), "سلام📝")
+                for invalid in ("\x7f", "\ufdd0", "\U0010ffff", "\ud800"):
+                    with self.assertRaisesRegex(
+                        JsonableError, "Invalid character in topic, at position 2!"
+                    ):
+                        build(f" 📝{invalid}x ")
 
 
 class CheckMessageTest(ZulipTestCase):
