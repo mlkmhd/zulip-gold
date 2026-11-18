@@ -1126,17 +1126,37 @@ by a restart to return to the Python implementation.
   with each mentioned root when subgroups overlap.
 - `ZULIP_RUST_MARKDOWN_FENCES` parses fenced block delimiters, language
   tags, and headers in the fenced block and list preprocessors. Quote
-  completion uses the same parser. Python retains block nesting, whitespace
-  normalization, syntax highlighting, and TeX rendering. Strings containing
-  lone surrogates use the Python parser.
+  completion uses the same parser. Strings containing lone surrogates use
+  the Python parser.
+- `ZULIP_RUST_MARKDOWN_LISTS` locates separators before hanging lists and
+  changes in list type, preserving the existing case-sensitive quote rules.
+  Decimal markers added after Unicode 13.0 use Python so differences between
+  the regex and Python Unicode versions do not change list behavior.
+- `ZULIP_RUST_MARKDOWN_BLOCKS` plans fenced block nesting and line handling,
+  including quote default-language inheritance, spoiler resets, and the
+  unfinished stack used by reminder quote completion. Python retains the
+  existing formatting callbacks, content validators, syntax highlighting,
+  and TeX rendering. Non-ASCII default languages use Python.
+- `ZULIP_RUST_MARKDOWN_WHITESPACE` removes control placeholders, normalizes
+  line endings, expands tabs by Unicode character columns, and normalizes
+  blank lines before rendering and reminder quote completion.
+- `ZULIP_RUST_MARKDOWN_QUOTE_MENTIONS` silences user, group, and wildcard
+  mentions in quotes, preserving user replacement before group replacement.
+- `ZULIP_RUST_MARKDOWN_INLINE_MENTIONS` builds span attributes, display text,
+  and notification metadata for resolved users, groups, and wildcards.
+  Django checks user visibility and name/ID agreement and supplies localized
+  system group names. ElementTree serializes and escapes the span text.
 - `ZULIP_RUST_MARKDOWN_TOPIC_ANCHORS` selects topic link anchors after Django
   checks channel content access. Shared history uses message ordering;
   protected history uses the existing user receipt ordering. Anonymous
   rendering does not reveal an anchor for protected history.
 
-These bridges prepare rendering data. Python-Markdown still produces HTML,
-processes inline mentions, and manages link and image previews. Django still
-checks permission to notify mentioned groups and to use wildcard mentions.
+These bridges prepare rendering data and preprocessing decisions. The new
+string bridges delegate lone surrogates to Python. Python-Markdown still
+parses inline syntax, constructs the document tree, produces HTML, and manages
+link and image previews. Django still checks permission to notify mentioned
+groups and to use wildcard mentions. These flags do not route additional HTTP
+operations to the standalone listener.
 
 ```sh
 for mode in 0 1; do
@@ -1146,6 +1166,11 @@ for mode in 0 1; do
         ZULIP_RUST_MARKDOWN_MENTIONS=$mode \
         ZULIP_RUST_MARKDOWN_GROUP_MEMBERS=$mode \
         ZULIP_RUST_MARKDOWN_FENCES=$mode \
+        ZULIP_RUST_MARKDOWN_LISTS=$mode \
+        ZULIP_RUST_MARKDOWN_BLOCKS=$mode \
+        ZULIP_RUST_MARKDOWN_WHITESPACE=$mode \
+        ZULIP_RUST_MARKDOWN_QUOTE_MENTIONS=$mode \
+        ZULIP_RUST_MARKDOWN_INLINE_MENTIONS=$mode \
         ZULIP_RUST_MARKDOWN_TOPIC_ANCHORS=$mode ./tools/test-backend \
         zerver.tests.test_markdown zerver.tests.test_reminders \
         zerver.tests.test_scheduled_messages zerver.tests.test_message_send \
@@ -1574,4 +1599,36 @@ first two collections with only one flag enabled at a time:
 ./tools/test-backend --parallel 1 zerver.tests.test_markdown_horizontal_rules \
     zerver.tests.test_markdown_paragraphs zerver.tests.test_markdown \
     zerver.tests.test_reminders
+```
+
+## Parse Markdown blockquotes and lists through Rust
+
+Rebuild and install the Python extension, then enable any of these independent
+flags in Django processes:
+
+- `ZULIP_RUST_MARKDOWN_BLOCKQUOTES=1` locates blockquote boundaries and removes
+  quote markers. It preserves empty quote detection, lazy continuations,
+  nested quotes, separate quote blocks, and the existing recursion guard.
+  Mention silencing still has its own `ZULIP_RUST_MARKDOWN_QUOTE_MENTIONS` flag.
+- `ZULIP_RUST_MARKDOWN_LIST_BLOCKS=1` recognizes ordered and unordered lists
+  and splits blocks into items, preserving start numbers and nested item
+  grouping. This is separate from the `ZULIP_RUST_MARKDOWN_LISTS` preprocessor.
+  Decimal digits added after Unicode 13.0 delegate the block to Python.
+- `ZULIP_RUST_MARKDOWN_LIST_INDENT=1` calculates the indentation level and
+  selects the parent along the last-child path, then removes complete
+  two-space indentation while preserving dedented lines.
+
+All three flags default to disabled. Strings containing lone surrogates use
+Python. Negative detab levels also use Python. Django retains tree traversal,
+element construction, recursive parsing, inline rendering, and serialization.
+Unset any flag and restart the processes to roll back independently. These
+bridges do not enable standalone scheduled message writes.
+
+Run these collections with the flags unset and set, then repeat the fixture
+and targeted rendering tests in all eight flag combinations:
+
+```bash
+./tools/test-backend --parallel 1 zerver.tests.test_markdown_blockquotes \
+    zerver.tests.test_markdown_list_blocks zerver.tests.test_markdown_list_indent \
+    zerver.tests.test_markdown zerver.tests.test_reminders
 ```
