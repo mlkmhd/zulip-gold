@@ -19,8 +19,9 @@ use crate::{
     url_fragments, user_status,
 };
 use crate::{
-    markdown_alerts, markdown_channel_links, markdown_fences, markdown_mentions, markdown_upload,
-    reminder_access, reminder_context, reminder_quote, scheduled_attachments, send_permissions,
+    markdown_alerts, markdown_channel_links, markdown_fences, markdown_lists, markdown_mentions,
+    markdown_upload, reminder_access, reminder_context, reminder_quote, scheduled_attachments,
+    send_permissions,
 };
 
 type DraftParseResult<T> = (Option<T>, Option<(&'static str, Vec<Location>)>);
@@ -127,6 +128,15 @@ mod _zulip_backend {
             ),
             None => (None, None, None),
         })
+    }
+
+    #[pyfunction]
+    fn markdown_list_separator_positions(lines: Vec<Bound<'_, PyString>>) -> Option<Vec<usize>> {
+        let lines = lines
+            .iter()
+            .map(|line| line.to_str().ok())
+            .collect::<Option<Vec<_>>>()?;
+        markdown_lists::separator_positions(&lines)
     }
 
     #[pyfunction]

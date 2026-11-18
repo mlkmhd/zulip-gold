@@ -33,6 +33,9 @@ mod markdown_channel_links;
 #[cfg(feature = "python")]
 mod markdown_fences;
 
+#[cfg(feature = "python")]
+mod markdown_lists;
+
 #[cfg(any(feature = "python", test))]
 mod markdown_mentions;
 

@@ -561,6 +561,29 @@ class MarkdownListPreprocessorTest(ZulipTestCase):
         )
         self.assertEqual(preprocessor.run(original), expected)
 
+    def test_list_marker_boundaries(self) -> None:
+        cases = [
+            ([], []),
+            (["single"], ["single"]),
+            (["", "* one"], ["", "* one"]),
+            (["intro", "* one", "+ two"], ["intro", "", "* one", "+ two"]),
+            (["* one", "۳. two", "- three"], ["* one", "", "۳. two", "", "- three"]),
+            (["intro", "12. two"], ["intro", "12. two"]),
+            (["intro", "². two"], ["intro", "². two"]),
+            (["intro", "\U00010d40. two"], ["intro", "\U00010d40. two"]),
+            (["intro", "*\tone"], ["intro", "*\tone"]),
+            (["intro", "\t* one"], ["intro", "\t* one"]),
+            (["intro\n", " * one"], ["intro\n", "", " * one"]),
+            (["\ud800", "* one"], ["\ud800", "", "* one"]),
+            (["```QUOTE", "intro", "* one"], ["```QUOTE", "intro", "* one"]),
+            (["```quoted", "intro", "* one"], ["```quoted", "intro", "", "* one"]),
+            (["```spoiler Header", "intro", "* one"], ["```spoiler Header", "intro", "* one"]),
+        ]
+        preprocessor = MarkdownListPreprocessor()
+        for original, expected in cases:
+            with self.subTest(original=original):
+                self.assertEqual(preprocessor.run(original), expected)
+
     def test_list_in_code(self) -> None:
         preprocessor = MarkdownListPreprocessor()
         original, expected = self.split_message("```\nList without a gap\n* One\n* Two\n```")

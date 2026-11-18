@@ -79,6 +79,9 @@ _rust_markdown_channel_links = (
     if os.environ.get("ZULIP_RUST_MARKDOWN_CHANNEL_LINKS") == "1"
     else None
 )
+_rust_markdown_lists = (
+    import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_MARKDOWN_LISTS") == "1" else None
+)
 
 
 # Taken from
@@ -1568,6 +1571,18 @@ class MarkdownListPreprocessor(markdown.preprocessors.Preprocessor):
     @override
     def run(self, lines: list[str]) -> list[str]:
         """Insert a newline between a paragraph and ulist if missing"""
+        if _rust_markdown_lists is not None:
+            positions = _rust_markdown_lists.markdown_list_separator_positions(lines)
+            if positions is not None:
+                output = []
+                start = 0
+                for position in positions:
+                    output.extend(lines[start:position])
+                    output.append("")
+                    start = position
+                output.extend(lines[start:])
+                return output
+
         inserts = 0
         in_code_fence: bool = False
         open_fences: list[Fence] = []
