@@ -88,6 +88,11 @@ _rust_markdown_blockquotes = (
     if os.environ.get("ZULIP_RUST_MARKDOWN_BLOCKQUOTES") == "1"
     else None
 )
+_rust_markdown_list_blocks = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_MARKDOWN_LIST_BLOCKS") == "1"
+    else None
+)
 _rust_markdown_horizontal_rules = (
     import_module("_zulip_backend")
     if os.environ.get("ZULIP_RUST_MARKDOWN_HORIZONTAL_RULES") == "1"
@@ -1500,6 +1505,25 @@ class OListProcessor(sane_lists.SaneOListProcessor):
         super().__init__(parser)
         parser.md.tab_length = 4
 
+    @override
+    def test(self, parent: Element, block: str) -> bool:
+        if _rust_markdown_list_blocks is not None:
+            result = _rust_markdown_list_blocks.starts_markdown_list(block, True)
+            if result is not None:
+                return result
+        return super().test(parent, block)
+
+    @override
+    def get_items(self, block: str) -> list[str]:
+        if _rust_markdown_list_blocks is not None:
+            result = _rust_markdown_list_blocks.split_markdown_list_items(block, True)
+            if result is not None:
+                items, start = result
+                assert start is not None
+                self.STARTSWITH = start  # type: ignore[misc] # Upstream mutates this ClassVar-stubbed attribute.
+                return items
+        return super().get_items(block)
+
 
 class UListProcessor(sane_lists.SaneUListProcessor):
     """Unordered lists, but with 2-space indent"""
@@ -1508,6 +1532,22 @@ class UListProcessor(sane_lists.SaneUListProcessor):
         parser.md.tab_length = 2
         super().__init__(parser)
         parser.md.tab_length = 4
+
+    @override
+    def test(self, parent: Element, block: str) -> bool:
+        if _rust_markdown_list_blocks is not None:
+            result = _rust_markdown_list_blocks.starts_markdown_list(block, False)
+            if result is not None:
+                return result
+        return super().test(parent, block)
+
+    @override
+    def get_items(self, block: str) -> list[str]:
+        if _rust_markdown_list_blocks is not None:
+            result = _rust_markdown_list_blocks.split_markdown_list_items(block, False)
+            if result is not None:
+                return result[0]
+        return super().get_items(block)
 
 
 class ListIndentProcessor(markdown.blockprocessors.ListIndentProcessor):

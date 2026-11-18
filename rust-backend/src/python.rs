@@ -21,8 +21,9 @@ use crate::{
 use crate::{
     markdown_alerts, markdown_blockquotes, markdown_blocks, markdown_channel_links,
     markdown_fences, markdown_headings, markdown_horizontal_rules, markdown_inline_mentions,
-    markdown_lists, markdown_mentions, markdown_paragraphs, markdown_upload, markdown_whitespace,
-    reminder_access, reminder_context, reminder_quote, scheduled_attachments, send_permissions,
+    markdown_list_blocks, markdown_lists, markdown_mentions, markdown_paragraphs, markdown_upload,
+    markdown_whitespace, reminder_access, reminder_context, reminder_quote, scheduled_attachments,
+    send_permissions,
 };
 
 type DraftParseResult<T> = (Option<T>, Option<(&'static str, Vec<Location>)>);
@@ -181,6 +182,19 @@ mod _zulip_backend {
             .map(|line| line.to_str().ok())
             .collect::<Option<Vec<_>>>()?;
         markdown_lists::separator_positions(&lines)
+    }
+
+    #[pyfunction]
+    fn starts_markdown_list(block: &Bound<'_, PyString>, ordered: bool) -> Option<bool> {
+        markdown_list_blocks::starts_list(block.to_str().ok()?, ordered)
+    }
+
+    #[pyfunction]
+    fn split_markdown_list_items(
+        block: &Bound<'_, PyString>,
+        ordered: bool,
+    ) -> Option<(Vec<String>, Option<String>)> {
+        markdown_list_blocks::split_items(block.to_str().ok()?, ordered)
     }
 
     #[pyfunction]
