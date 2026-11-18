@@ -48,6 +48,9 @@ mod reminder_context;
 #[cfg(any(feature = "python", test))]
 mod reminder_quote;
 
+#[cfg(any(feature = "python", test))]
+mod role_permissions;
+
 #[cfg(feature = "python")]
 mod scheduled_attachments;
 

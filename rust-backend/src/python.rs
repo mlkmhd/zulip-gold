@@ -15,7 +15,7 @@ use crate::scheduled_input::{self, ArgumentKind, ScheduledArgument};
 use crate::scheduled_validation::{self, RecipientError, RecipientKind};
 use crate::{
     alert_words, bot_storage, client_defaults, direct_message_group, draft_text, draft_timestamp,
-    memcached, message_topic, stream_color, url_fragments, user_status,
+    memcached, message_topic, role_permissions, stream_color, url_fragments, user_status,
 };
 use crate::{
     markdown_alerts, markdown_channel_links, markdown_upload, reminder_access, reminder_context,
@@ -390,6 +390,11 @@ mod _zulip_backend {
         max_length: usize,
     ) -> Option<(Option<String>, Option<&'static str>)> {
         Some(normalize_draft_body(body.to_str().ok()?, max_length))
+    }
+
+    #[pyfunction]
+    fn has_system_group_permission(role: i16, provisional_member: bool, group: &str) -> bool {
+        role_permissions::has_system_group_permission(role, provisional_member, group)
     }
 
     #[pyfunction]

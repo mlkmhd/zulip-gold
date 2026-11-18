@@ -559,6 +559,61 @@ class ScheduledMessageTest(ZulipTestCase):
         self.assertEqual(job.sender, sender)
         self.assertEqual(job.recipient, pending_job.recipient)
 
+    def test_schedule_direct_message_role_permissions(self) -> None:
+        sender = self.example_user("hamlet")
+        admin = self.example_user("iago")
+        other = self.example_user("othello")
+        realm = sender.realm
+        administrators = NamedUserGroup.objects.get(
+            name=SystemGroups.ADMINISTRATORS, realm=realm, is_system_group=True
+        )
+        full_members = NamedUserGroup.objects.get(
+            name=SystemGroups.FULL_MEMBERS, realm=realm, is_system_group=True
+        )
+        do_change_realm_permission_group_setting(
+            realm, "direct_message_permission_group", administrators, acting_user=None
+        )
+        payload = {
+            "type": "direct",
+            "to": orjson.dumps([other.id]).decode(),
+            "content": "Scheduled role test",
+            "scheduled_delivery_timestamp": int(time.time()) + 86400,
+        }
+        endpoint = "/api/v1/scheduled_messages"
+        self.assert_json_error(
+            self.api_post(sender, endpoint, payload),
+            "This conversation does not include any users who can authorize it.",
+        )
+        do_change_realm_permission_group_setting(
+            realm, "direct_message_initiator_group", administrators, acting_user=None
+        )
+        self.assert_json_error(
+            self.api_post(sender, endpoint, {**payload, "to": orjson.dumps([admin.id]).decode()}),
+            "You do not have permission to initiate direct message conversations.",
+        )
+        self.assert_json_success(self.api_post(admin, endpoint, payload))
+        do_change_realm_permission_group_setting(
+            realm, "direct_message_permission_group", full_members, acting_user=None
+        )
+        do_change_realm_permission_group_setting(
+            realm, "direct_message_initiator_group", full_members, acting_user=None
+        )
+        do_set_realm_property(realm, "waiting_period_threshold", 10, acting_user=admin)
+        now = timezone_now()
+        with time_machine.travel(now, tick=False):
+            sender.date_joined = now - timedelta(days=9, hours=23)
+            sender.save(update_fields=["date_joined"])
+            other.date_joined = now - timedelta(days=11)
+            other.save(update_fields=["date_joined"])
+            self.assert_json_error(
+                self.api_post(sender, endpoint, payload),
+                "You do not have permission to initiate direct message conversations.",
+            )
+            sender.date_joined = now - timedelta(days=10)
+            sender.save(update_fields=["date_joined"])
+            self.assert_json_success(self.api_post(sender, endpoint, payload))
+        self.assertEqual(ScheduledMessage.objects.count(), 2)
+
     def test_schedule_direct_message_respects_guest_recipient_visibility(self) -> None:
         self.set_up_db_for_testing_user_access()
         guest = self.example_user("polonius")

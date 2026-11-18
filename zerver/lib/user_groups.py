@@ -1,6 +1,7 @@
 from collections.abc import Collection, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
+from importlib import import_module
 from typing import Any, TypedDict
 
 from django.db import connection, transaction
@@ -1301,9 +1302,22 @@ def get_group_setting_value_for_audit_log_data(
 
 
 def check_user_has_permission_by_role(
-    user: UserProfile, setting_group_id: int, system_groups_name_dict: dict[int, str]
+    user: UserProfile,
+    setting_group_id: int,
+    system_groups_name_dict: dict[int, str],
+    *,
+    use_rust: bool = False,
 ) -> bool:
     system_group_name = system_groups_name_dict[setting_group_id]
+    if use_rust:
+        provisional_member = (
+            user.role == UserProfile.ROLE_MEMBER
+            and system_group_name == SystemGroups.FULL_MEMBERS
+            and user.is_provisional_member
+        )
+        return import_module("_zulip_backend").has_system_group_permission(
+            user.role, provisional_member, system_group_name
+        )
 
     if system_group_name == SystemGroups.NOBODY:
         return False
@@ -1334,10 +1348,16 @@ def check_user_has_permission_by_role(
 
 
 def check_any_user_has_permission_by_role(
-    users: set[UserProfile], setting_group_id: int, system_groups_name_dict: dict[int, str]
+    users: set[UserProfile],
+    setting_group_id: int,
+    system_groups_name_dict: dict[int, str],
+    *,
+    use_rust: bool = False,
 ) -> bool:
     for user in users:
-        if check_user_has_permission_by_role(user, setting_group_id, system_groups_name_dict):
+        if check_user_has_permission_by_role(
+            user, setting_group_id, system_groups_name_dict, use_rust=use_rust
+        ):
             return True
 
     return False

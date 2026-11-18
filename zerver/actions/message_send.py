@@ -1808,7 +1808,10 @@ def check_can_send_direct_message(
     if realm.direct_message_permission_group_id in system_groups_name_dict:
         users = set(recipient_users) | {sender}
         if not check_any_user_has_permission_by_role(
-            users, realm.direct_message_permission_group_id, system_groups_name_dict
+            users,
+            realm.direct_message_permission_group_id,
+            system_groups_name_dict,
+            use_rust=use_rust,
         ):
             is_nobody_group = (
                 system_groups_name_dict[realm.direct_message_permission_group_id]
@@ -1824,7 +1827,10 @@ def check_can_send_direct_message(
 
     if realm.direct_message_initiator_group_id in system_groups_name_dict:
         if check_user_has_permission_by_role(
-            sender, realm.direct_message_initiator_group_id, system_groups_name_dict
+            sender,
+            realm.direct_message_initiator_group_id,
+            system_groups_name_dict,
+            use_rust=use_rust,
         ):
             return
     elif dm_group_has_active_member(
