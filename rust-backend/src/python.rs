@@ -22,8 +22,8 @@ use crate::{
     markdown_alerts, markdown_blockquotes, markdown_blocks, markdown_channel_links, markdown_code,
     markdown_code_blocks, markdown_fences, markdown_headings, markdown_horizontal_rules,
     markdown_inline_mentions, markdown_list_blocks, markdown_list_indent, markdown_lists,
-    markdown_mentions, markdown_paragraphs, markdown_upload, markdown_whitespace, reminder_access,
-    reminder_context, reminder_quote, scheduled_attachments, send_permissions,
+    markdown_mentions, markdown_paragraphs, markdown_tables, markdown_upload, markdown_whitespace,
+    reminder_access, reminder_context, reminder_quote, scheduled_attachments, send_permissions,
 };
 
 type InlineCodeMatch = (
@@ -273,6 +273,16 @@ mod _zulip_backend {
                 None => (false, String::new(), String::new()),
             },
         )
+    }
+
+    #[pyfunction]
+    fn split_markdown_table_row(row: &Bound<'_, PyString>, border: bool) -> Option<Vec<String>> {
+        Some(markdown_tables::split_row(row.to_str().ok()?, border))
+    }
+
+    #[pyfunction]
+    fn check_markdown_table(block: &Bound<'_, PyString>) -> Option<markdown_tables::TableCheck> {
+        Some(markdown_tables::check_table(block.to_str().ok()?))
     }
 
     #[pyfunction]

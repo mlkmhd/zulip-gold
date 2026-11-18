@@ -69,6 +69,9 @@ mod markdown_mentions;
 #[cfg(feature = "python")]
 mod markdown_paragraphs;
 
+#[cfg(feature = "python")]
+mod markdown_tables;
+
 #[cfg(any(feature = "python", test))]
 mod markdown_upload;
 

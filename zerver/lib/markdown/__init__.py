@@ -28,7 +28,7 @@ import regex
 import uri_template
 from django.conf import settings
 from markdown.blockparser import BlockParser
-from markdown.extensions import codehilite, nl2br, sane_lists, tables
+from markdown.extensions import codehilite, nl2br, sane_lists
 from tlds import tld_set
 from typing_extensions import Self, override
 
@@ -42,6 +42,7 @@ from zerver.lib.markdown import fenced_code
 from zerver.lib.markdown.code_blocks import CodeBlockProcessor, EmptyBlockProcessor
 from zerver.lib.markdown.fenced_code import parse_fence_line
 from zerver.lib.markdown.inline_code import BacktickMatch, backtick_pattern
+from zerver.lib.markdown.tables import TableExtension
 from zerver.lib.markdown.whitespace import ZulipNormalizeWhitespace
 from zerver.lib.mention import (
     BEFORE_LINK_PRODUCING_MENTION_ALLOWED_REGEX,
@@ -2566,7 +2567,7 @@ class ZulipMarkdown(markdown.Markdown):
         super().__init__(
             extensions=[
                 nl2br.makeExtension(),
-                tables.makeExtension(),
+                TableExtension(),
                 codehilite.makeExtension(
                     linenums=False,
                     guess_lang=False,
