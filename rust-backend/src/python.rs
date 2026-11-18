@@ -292,6 +292,23 @@ mod _zulip_backend {
     }
 
     #[pyfunction]
+    fn channel_has_active_subscribers(
+        cursor: &Bound<'_, PyAny>,
+        channel_id: i32,
+        stream_type: i16,
+    ) -> PyResult<bool> {
+        cursor.call_method1(
+            "execute",
+            (
+                send_permissions::CHANNEL_HAS_ACTIVE_SUBSCRIBERS_SQL,
+                (channel_id, stream_type),
+            ),
+        )?;
+        let (exists,): (bool,) = cursor.call_method0("fetchone")?.extract()?;
+        Ok(exists)
+    }
+
+    #[pyfunction]
     fn channel_topic_exists(
         cursor: &Bound<'_, PyAny>,
         realm_id: i32,

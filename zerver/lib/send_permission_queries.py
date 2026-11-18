@@ -2,9 +2,10 @@ from importlib import import_module
 
 from django.db import connection
 
+from zerver.lib.stream_subscription import num_subscribers_for_stream_id
 from zerver.lib.topic import messages_for_topic
 from zerver.lib.user_groups import get_recursive_membership_groups, is_any_user_in_group
-from zerver.models import Message, UserProfile
+from zerver.models import Message, Recipient, UserProfile
 
 
 def channel_permission_group_ids(user: UserProfile, *, use_rust: bool) -> set[int]:
@@ -31,6 +32,15 @@ def channel_topic_exists(
     with connection.cursor() as cursor:
         return import_module("_zulip_backend").channel_topic_exists(
             cursor, realm_id, recipient_id, topic_name
+        )
+
+
+def channel_has_active_subscribers(channel_id: int, *, use_rust: bool) -> bool:
+    if not use_rust:
+        return num_subscribers_for_stream_id(channel_id) > 0
+    with connection.cursor() as cursor:
+        return import_module("_zulip_backend").channel_has_active_subscribers(
+            cursor, channel_id, Recipient.STREAM
         )
 
 

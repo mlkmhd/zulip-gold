@@ -33,6 +33,14 @@ pub(crate) const CHANNEL_TOPIC_EXISTS_SQL: &str = "
     )
 ";
 
+pub(crate) const CHANNEL_HAS_ACTIVE_SUBSCRIBERS_SQL: &str = "
+    SELECT EXISTS (
+        SELECT 1 FROM zulip.zerver_subscription AS s
+        JOIN zulip.zerver_recipient AS r ON r.id = s.recipient_id
+        WHERE r.type_id = %s AND r.type = %s AND s.active AND s.is_user_active
+    )
+";
+
 pub(crate) const CONVERSATION_EXISTS_SQL: &str = "
     SELECT EXISTS (
         SELECT 1 FROM zulip.zerver_message WHERE realm_id = %s AND recipient_id = %s

@@ -411,6 +411,54 @@ class ScheduledMessageTest(ZulipTestCase):
         self.assertEqual(job.topic_name(), "")
         self.assertEqual(job.content, "Edited general chat")
 
+    def test_scheduling_bot_channel_notices(self) -> None:
+        owner = self.example_user("hamlet")
+        bot = self.create_test_bot("scheduled-notices", owner)
+        stream = self.make_stream("Empty scheduled channel")
+        self.subscribe(self.example_user("othello"), stream.name)
+        endpoint = "/api/v1/scheduled_messages"
+        now = timezone_now()
+        payload = {
+            "type": "channel",
+            "to": str(stream.id),
+            "topic": "Scheduled notices",
+            "content": "A scheduled message",
+            "scheduled_delivery_timestamp": int(now.timestamp()) + 86400,
+        }
+        notice_sender = self.notification_bot(owner.realm)
+        recipient = get_or_create_direct_message_group(
+            id_list=[notice_sender.id, owner.id]
+        ).recipient
+        notices = Message.objects.filter(
+            realm=owner.realm, sender=notice_sender, recipient=recipient
+        )
+        with time_machine.travel(now, tick=False):
+            self.assert_json_success(self.api_post(bot, endpoint, payload))
+            self.assertFalse(notices.exists())
+            missing_id = stream.id + 10000
+            self.assert_json_error(
+                self.api_post(bot, endpoint, {**payload, "to": str(missing_id)}),
+                f"Channel with ID '{missing_id}' does not exist",
+            )
+            self.assertIn(f"channel ID {missing_id}", notices.get().content)
+            bot.refresh_from_db()
+            self.assertEqual(bot.last_reminder, now)
+
+        change_user_is_active(self.example_user("othello"), False)
+        boundary = now + timedelta(minutes=UserProfile.BOT_OWNER_STREAM_ALERT_WAITPERIOD)
+        with time_machine.travel(boundary, tick=False):
+            self.assert_json_success(self.api_post(bot, endpoint, payload))
+            self.assertEqual(notices.count(), 1)
+
+        after_boundary = boundary + timedelta(microseconds=1)
+        with time_machine.travel(after_boundary, tick=False):
+            self.assert_json_success(self.api_post(bot, endpoint, payload))
+            self.assertEqual(notices.count(), 2)
+            self.assertIn("does not have any subscribers.", notices.latest("id").content)
+            bot.refresh_from_db()
+            self.assertEqual(bot.last_reminder, after_boundary)
+        self.assertEqual(ScheduledMessage.objects.filter(sender=bot, stream=stream).count(), 3)
+
     def test_scheduled_channel_permission_is_rechecked_on_edit_and_delivery(self) -> None:
         sender = self.example_user("hamlet")
         admin = self.example_user("iago")

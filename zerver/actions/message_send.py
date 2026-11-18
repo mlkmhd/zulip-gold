@@ -72,11 +72,12 @@ from zerver.lib.recipient_users import (
     check_sender_can_access_recipients,
     recipient_for_user_profiles,
 )
-from zerver.lib.send_permission_queries import dm_conversation_exists, dm_group_has_active_member
-from zerver.lib.stream_subscription import (
-    get_subscriptions_for_send_message,
-    num_subscribers_for_stream_id,
+from zerver.lib.send_permission_queries import (
+    channel_has_active_subscribers,
+    dm_conversation_exists,
+    dm_group_has_active_member,
 )
+from zerver.lib.stream_subscription import get_subscriptions_for_send_message
 from zerver.lib.stream_topic import StreamTopicTarget
 from zerver.lib.streams import (
     access_stream_for_send_message,
@@ -1708,6 +1709,8 @@ def send_pm_if_empty_stream(
     sender: UserProfile,
     stream_name: str | None = None,
     stream_id: int | None = None,
+    *,
+    use_rust: bool = False,
 ) -> None:
     """If a bot sends a message to a stream that doesn't exist or has no
     subscribers, sends a notification to the bot owner (if not a
@@ -1743,7 +1746,7 @@ def send_pm_if_empty_stream(
                         "Click [here]({new_channel_link}) to create it."
                     ).format(**arg_dict)
             else:
-                if num_subscribers_for_stream_id(stream.id) > 0:
+                if channel_has_active_subscribers(stream.id, use_rust=use_rust):
                     return
                 arg_dict = {
                     **arg_dict,
@@ -1759,14 +1762,14 @@ def send_pm_if_empty_stream(
 
 
 def validate_stream_name_with_pm_notification(
-    stream_name: str, realm: Realm, sender: UserProfile
+    stream_name: str, realm: Realm, sender: UserProfile, *, use_rust: bool = False
 ) -> Stream:
     stream_name = stream_name.strip()
     check_stream_name(stream_name)
 
     try:
         stream = get_realm_stream(stream_name, realm.id)
-        send_pm_if_empty_stream(stream, realm, sender)
+        send_pm_if_empty_stream(stream, realm, sender, use_rust=use_rust)
     except Stream.DoesNotExist:
         send_pm_if_empty_stream(None, realm, sender, stream_name=stream_name)
         raise StreamDoesNotExistError(escape(stream_name))
@@ -1775,11 +1778,11 @@ def validate_stream_name_with_pm_notification(
 
 
 def validate_stream_id_with_pm_notification(
-    stream_id: int, realm: Realm, sender: UserProfile
+    stream_id: int, realm: Realm, sender: UserProfile, *, use_rust: bool = False
 ) -> Stream:
     try:
         stream = get_stream_by_id_in_realm(stream_id, realm)
-        send_pm_if_empty_stream(stream, realm, sender)
+        send_pm_if_empty_stream(stream, realm, sender, use_rust=use_rust)
     except Stream.DoesNotExist:
         send_pm_if_empty_stream(None, realm, sender, stream_id=stream_id)
         raise StreamWithIDDoesNotExistError(stream_id)
@@ -1949,9 +1952,13 @@ def check_message(
         stream_id = addressee.stream_id()
 
         if stream_name is not None:
-            stream = validate_stream_name_with_pm_notification(stream_name, realm, sender)
+            stream = validate_stream_name_with_pm_notification(
+                stream_name, realm, sender, use_rust=use_rust_for_send_permissions
+            )
         elif stream_id is not None:
-            stream = validate_stream_id_with_pm_notification(stream_id, realm, sender)
+            stream = validate_stream_id_with_pm_notification(
+                stream_id, realm, sender, use_rust=use_rust_for_send_permissions
+            )
         else:
             stream = addressee.stream()
         assert stream is not None
