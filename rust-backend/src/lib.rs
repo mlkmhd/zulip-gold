@@ -39,6 +39,9 @@ mod markdown_upload;
 #[cfg(any(feature = "http", feature = "python"))]
 mod memcached;
 
+#[cfg(feature = "python")]
+mod mention_data;
+
 #[cfg(any(feature = "python", test))]
 mod message_topic;
 

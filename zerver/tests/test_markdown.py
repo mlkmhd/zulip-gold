@@ -3317,6 +3317,42 @@ class MarkdownMentionTest(ZulipTestCase):
 
         self.assertEqual(rendering_result.mentions_user_group_ids, {support.id, backend.id})
 
+    def test_nested_user_group_mention_membership(self) -> None:
+        sender = self.example_user("hamlet")
+        other = self.example_user("othello")
+        third = self.example_user("aaron")
+        fourth = self.example_user("cordelia")
+        inactive = self.example_user("shiva")
+        root = check_add_user_group(sender.realm, "root", [sender], acting_user=sender)
+        left = check_add_user_group(sender.realm, "left", [other], acting_user=sender)
+        right = check_add_user_group(sender.realm, "right", [third], acting_user=sender)
+        leaf = check_add_user_group(sender.realm, "leaf", [fourth, inactive], acting_user=sender)
+        add_subgroups_to_user_group(root, [left, right], acting_user=sender)
+        add_subgroups_to_user_group(left, [leaf], acting_user=sender)
+        add_subgroups_to_user_group(right, [leaf], acting_user=sender)
+        change_user_is_active(inactive, False)
+
+        content = "@*root* @_*left* @*leaf*"
+        data = MentionData(MentionBackend(sender.realm_id), content, sender)
+        self.assertEqual(
+            data.get_group_members(root.id), {sender.id, other.id, third.id, fourth.id}
+        )
+        self.assertEqual(data.get_group_members(leaf.id), {fourth.id})
+        self.assertEqual(data.get_group_members(left.id), set())
+        self.assertEqual(data.get_group_members(right.id), set())
+        message = Message(sender=sender, sending_client=get_client("test"), realm=sender.realm)
+        rendered = render_message_markdown(message, content, mention_data=data)
+        self.assertEqual(rendered.mentions_user_group_ids, {root.id, leaf.id})
+        self.assertEqual(rendered.mentions_user_ids, set())
+        self.assertIn(f'data-user-group-id="{left.id}">left</span>', rendered.rendered_content)
+
+        do_deactivate_user_group(root, acting_user=sender)
+        data = MentionData(MentionBackend(sender.realm_id), content, sender)
+        self.assertEqual(data.get_group_members(root.id), set())
+        self.assertEqual(data.get_group_members(leaf.id), {fourth.id})
+        rendered = render_message_markdown(message, content, mention_data=data)
+        self.assertEqual(rendered.mentions_user_group_ids, {leaf.id})
+
     def test_user_group_mention_edit(self) -> None:
         sender_user_profile = self.example_user("hamlet")
         user_profile = self.example_user("othello")

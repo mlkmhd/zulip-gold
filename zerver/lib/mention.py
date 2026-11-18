@@ -8,6 +8,7 @@ from re import Match
 from typing import Literal
 
 from django.conf import settings
+from django.db import connection
 from django.db.models import Q
 from django_stubs_ext import StrPromise
 
@@ -28,6 +29,12 @@ from zerver.models.users import is_cross_realm_bot_email
 _rust_markdown_mentions = (
     import_module("_zulip_backend")
     if os.environ.get("ZULIP_RUST_MARKDOWN_MENTIONS") == "1"
+    else None
+)
+
+_rust_markdown_group_members = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_MARKDOWN_GROUP_MEMBERS") == "1"
     else None
 )
 
@@ -452,11 +459,20 @@ class MentionData:
             # Fetch membership for the groups filtered above in a
             # single, efficient bulk query, mapping each group to its
             # direct and indirect members.
-            for group_root_id, member_id in (
-                get_root_id_annotated_recursive_subgroups_for_groups(filtered_group_ids, realm_id)
-                .filter(direct_members__is_active=True)
-                .values_list("root_id", "direct_members")  # type: ignore[misc]  # root_id is an annotated field.
-            ):
+            if _rust_markdown_group_members is not None:
+                with connection.cursor() as cursor:
+                    member_rows = _rust_markdown_group_members.markdown_group_members(
+                        cursor, filtered_group_ids, realm_id
+                    )
+            else:
+                member_rows = (
+                    get_root_id_annotated_recursive_subgroups_for_groups(
+                        filtered_group_ids, realm_id
+                    )
+                    .filter(direct_members__is_active=True)
+                    .values_list("root_id", "direct_members")  # type: ignore[misc]  # root_id is an annotated field.
+                )
+            for group_root_id, member_id in member_rows:
                 self.user_group_members[group_root_id].add(member_id)
 
     def get_user_by_name(self, name: str) -> FullNameInfo | None:

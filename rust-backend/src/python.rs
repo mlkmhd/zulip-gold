@@ -15,8 +15,8 @@ use crate::scheduled_input::{self, ArgumentKind, ScheduledArgument};
 use crate::scheduled_validation::{self, RecipientError, RecipientKind};
 use crate::{
     alert_words, attachment_access, bot_storage, client_defaults, direct_message_group, draft_text,
-    draft_timestamp, memcached, message_topic, role_permissions, stream_color, url_fragments,
-    user_status,
+    draft_timestamp, memcached, mention_data, message_topic, role_permissions, stream_color,
+    url_fragments, user_status,
 };
 use crate::{
     markdown_alerts, markdown_channel_links, markdown_mentions, markdown_upload, reminder_access,
@@ -129,6 +129,19 @@ mod _zulip_backend {
         Some(markdown_mentions::possible_group_mentions(
             content.to_str().ok()?,
         ))
+    }
+
+    #[pyfunction]
+    fn markdown_group_members(
+        cursor: &Bound<'_, PyAny>,
+        group_ids: Vec<i32>,
+        realm_id: i32,
+    ) -> PyResult<Vec<(i32, i32)>> {
+        cursor.call_method1(
+            "execute",
+            (mention_data::GROUP_MEMBERS_SQL, (group_ids, realm_id)),
+        )?;
+        cursor.call_method0("fetchall")?.extract()
     }
 
     #[pyclass(frozen)]
