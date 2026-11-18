@@ -664,6 +664,32 @@ reads and deletes enabled, use `drafts-post-map.conf` in place of
 back creation, remove `--rust-draft-posts` or switch back to
 `drafts-delete-map.conf` and reload nginx.
 
+## Edit drafts through Rust
+
+Set `ZULIP_RUST_DRAFT_PATCHES=1` to enable
+`PATCH /api/v1/drafts/{draft_id}` and, with sessions and
+`ZULIP_RUST_WEB_POST_SCHEME` configured, `PATCH /json/drafts/{draft_id}`.
+Use the same PostgreSQL, RabbitMQ, message length, and cross-realm bot
+settings as for [draft creation](#create-drafts-through-rust). The database
+role needs permission to update drafts. Rust checks the input schema before
+looking up the draft by ID and owner. It validates recipients after that
+lookup and publishes a `drafts/update` event to the owner after commit.
+
+Run the direct comparison with a dedicated RabbitMQ test vhost.
+
+```bash
+ZULIP_RUST_HTTP_BIN="$PWD/rust-backend/target/debug/zulip-http" \
+    ZULIP_RUST_ACTIVITY_TEST_VHOST=zulip-rust-test-drafts \
+    ./tools/test-backend zerver.tests.test_drafts.DraftEditHTTPTest
+```
+
+Use `--rust-draft-patches` with `--rust-http-port 9997` for development.
+For isolated nginx staging with the full set of draft operations enabled,
+replace `drafts-post-map.conf` with `drafts-patch-map.conf` and retain
+`drafts-routes.conf`. To roll back editing, remove `--rust-draft-patches`
+or restore `drafts-post-map.conf` and reload nginx. Unset
+`ZULIP_RUST_DRAFT_PATCHES` and restart the listener to disable direct editing.
+
 ## Route draft reads and deletion through proxies
 
 With [Rust draft deletion enabled](#delete-drafts-through-rust), use the two

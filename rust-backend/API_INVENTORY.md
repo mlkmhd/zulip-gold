@@ -41,7 +41,7 @@
 | `GET /api/v1/drafts` و alias وب با `HEAD` متناظر                                        | شرط همگام‌سازی حساب، خواندن PostgreSQL و ارائهٔ گیرنده                | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی    | Django               |
 | `DELETE /api/v1/drafts/{draft_id}` و alias وب                                          | حذف محدود به مالک و رویداد بعد از commit                              | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی    | Django               |
 | `POST /api/v1/drafts` و alias وب | اعتبارسنجی شکل بسته، دسترسی گیرنده، ثبت گروه و پیش‌نویس، رویداد مالک | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی | Django |
-| `PATCH /api/v1/drafts/{draft_id}` و alias وب | عادی‌سازی متن و زمان، یافتن یا ساخت گروه پیام مستقیم، ثبت ویرایش و قالب رویداد | Django با افزونهٔ اختیاری Rust | Django |
+| `PATCH /api/v1/drafts/{draft_id}` و alias وب | بررسی مالکیت و گیرنده، ویرایش اتمیک و رویداد مالک | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی | Django |
 | `GET /api/v1/realm/linkifiers` و alias وب با `HEAD` متناظر                              | خواندن لینک‌سازهای سازمان با ترتیب اولویت از PostgreSQL              | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی    | Django               |
 | `GET /api/v1/realm/domains` و alias وب با `HEAD` متناظر                                 | خواندن دامنه‌های مجاز ایمیل سازمان از PostgreSQL                     | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی    | Django               |
 | `GET /api/v1/realm/profile_fields` و alias وب با `HEAD` متناظر | تعاریف مرتب‌شدهٔ فیلدهای پروفایل سازمان از PostgreSQL | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی | Django |
@@ -110,7 +110,14 @@ Rust زمان هر پیش‌نویس را با دقت میکروثانیه گر�
 
 ## قرارداد ویرایش پیش‌نویس
 
-`PATCH` همگام‌سازی و مالکیت پیش‌نویس را در Django بررسی می‌کند.
+listener مستقل با `ZULIP_RUST_DRAFT_PATCHES=1` هر دو مسیر ویرایش را
+می‌پذیرد. پس از احراز هویت، CSRF مسیر وب و بررسی همگام‌سازی، Rust ابتدا
+شکل ورودی و سپس مالکیت پیش‌نویس را بررسی می‌کند. اعتبارسنجی معنایی و ساخت
+گروه پس از تأیید مالکیت انجام می‌شوند. به‌روزرسانی و ساخت رویداد در یک
+تراکنش‌اند و انتشار `drafts/update` پس از commit فقط برای مالک است.
+[راه‌اندازی و بازگشت](README.md#edit-drafts-through-rust)
+
+در مسیر Django، `PATCH` همگام‌سازی و مالکیت پیش‌نویس را در Django بررسی می‌کند.
 پرچم‌های شکل ورودی و دسترسی به گیرندهٔ کانال و پیام مستقیم برای ایجاد
 و ویرایش مشترک‌اند. با `ZULIP_RUST_DRAFT_EDIT=1`، به‌روزرسانی متن،
 عنوان، گیرنده و زمان در Rust با شرط شناسه و مالک انجام می‌شود. Django
@@ -222,7 +229,7 @@ commit به مالک می‌فرستد. اگر ساخت رویداد خطا بد
 `HEAD` هدرها را بدون بدنه برمی‌گرداند. خواندن، رویداد پیش‌نویس منتشر نمی‌کند.
 خواندن و حذف با هدایت اختیاری و بازگشت در پروکسی توسعه و nginx آزمایشی
 تأیید شده‌اند. `DELETE` پس از بررسی همگام‌سازی فقط ردیف مالک را حذف می‌کند
-و `drafts/remove` را پس از commit می‌فرستد. `POST` و `PATCH` در Django هستند.
+و `drafts/remove` را پس از commit می‌فرستد. ایجاد و ویرایش پرچم‌های مستقل دارند.
 [view](../zerver/views/drafts.py)، [پیاده‌سازی Rust](src/http/drafts.rs)،
 [تست مقایسه](../zerver/tests/test_drafts.py)
 
@@ -438,9 +445,9 @@ audit ایجاد حفظ می‌شود و رویداد `saved_snippets/remove` پ
 | `POST`   | `/api/v1/dev_fetch_api_key`                             | `dev-fetch-api-key`                    | `zerver.views.development.dev_login.api_dev_fetch_api_key`                     | Django (توسعه) |
 | `GET`    | `/api/v1/dev_list_users`                                | `dev-list-users`                       | `zerver.views.development.dev_login.api_dev_list_users`                        | Django (توسعه) |
 | `GET`    | `/api/v1/drafts`                                        | `get-drafts`                           | `zerver.views.drafts.fetch_drafts`                                             | Rust اختیاری |
-| `POST`   | `/api/v1/drafts`                                        | `create-drafts`                        | `zerver.views.drafts.create_drafts`                                            | Django با درج اختیاری Rust |
+| `POST`   | `/api/v1/drafts`                                        | `create-drafts`                        | `zerver.views.drafts.create_drafts`                                            | Rust اختیاری |
 | `DELETE` | `/api/v1/drafts/{draft_id}`                             | `delete-draft`                         | `zerver.views.drafts.delete_draft`                                             | Rust اختیاری |
-| `PATCH`  | `/api/v1/drafts/{draft_id}`                             | `edit-draft`                           | `zerver.views.drafts.edit_draft`                                               | Django با افزونهٔ اختیاری Rust |
+| `PATCH`  | `/api/v1/drafts/{draft_id}`                             | `edit-draft`                           | `zerver.views.drafts.edit_draft`                                               | Rust اختیاری |
 | `DELETE` | `/api/v1/events`                                        | `delete-queue`                         | `zerver.tornado.views.cleanup_event_queue`                                     | Tornado        |
 | `GET`    | `/api/v1/events`                                        | `get-events`                           | `zerver.tornado.views.get_events`                                              | Tornado        |
 | `GET`    | `/api/v1/export/realm`                                  | `get-realm-exports`                    | `zerver.views.realm_export.get_realm_exports`                                  | Django         |
@@ -662,8 +669,8 @@ audit ایجاد حفظ می‌شود و رویداد `saved_snippets/remove` پ
 | `/json/default_stream_groups/{group_id}`              | `DELETE`, `PATCH`        | Django            |
 | `/json/default_stream_groups/{group_id}/streams`      | `PATCH`                  | Django            |
 | `/json/default_streams`                               | `DELETE`, `POST`         | Django            |
-| `/json/drafts`                                        | `GET`, `POST`            | `GET` در Rust اختیاری، `POST` در Django با درج اختیاری Rust |
-| `/json/drafts/{draft_id}`                             | `DELETE`, `PATCH`        | `DELETE` در Rust اختیاری، `PATCH` در Django با افزونهٔ اختیاری Rust |
+| `/json/drafts`                                        | `GET`, `POST`            | Rust اختیاری برای هر روش |
+| `/json/drafts/{draft_id}`                             | `DELETE`, `PATCH`        | Rust اختیاری برای هر روش |
 | `/json/events`                                        | `DELETE`, `GET`          | Tornado           |
 | `/json/export/realm`                                  | `GET`, `POST`            | Django            |
 | `/json/export/realm/consents`                         | `GET`                    | Django            |
