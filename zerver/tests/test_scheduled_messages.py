@@ -893,6 +893,36 @@ class ScheduledMessageTest(ZulipTestCase):
         )
         self.assert_json_error(result, "Scheduled delivery time must be in the future.")
 
+    def test_edit_checks_owner_before_recipient_shape(self) -> None:
+        owner = self.example_user("hamlet")
+        other = self.example_user("othello")
+        response = self.do_schedule_message(
+            "channel", self.get_stream_id("Verona"), "Original", int(time.time()) + 86400
+        )
+        job_id = self.assert_json_success(response)["scheduled_message_id"]
+        endpoint = f"/api/v1/scheduled_messages/{job_id}"
+        original = ScheduledMessage.objects.get(id=job_id).to_dict()
+
+        with self.capture_send_event_calls(expected_num_events=0):
+            self.assert_json_error(
+                self.api_patch(other, endpoint, {"to": "[true]"}),
+                'to["int"] is not an integer',
+            )
+            self.assert_json_error(
+                self.api_patch(other, endpoint, {"to": "[]"}),
+                "Scheduled message does not exist",
+                status_code=404,
+            )
+            self.assert_json_error(
+                self.api_patch(owner, endpoint, {"to": "[]"}),
+                "Invalid data type for channel ID",
+            )
+            self.assert_json_error(
+                self.api_patch(owner, endpoint, {"type": "private", "to": "[]"}),
+                "Message must have recipients",
+            )
+        self.assertEqual(ScheduledMessage.objects.get(id=job_id).to_dict(), original)
+
     def test_edit_schedule_message(self) -> None:
         content = "Original test message"
         scheduled_delivery_timestamp = int(time.time() + 86400)
