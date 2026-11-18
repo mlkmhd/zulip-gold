@@ -1530,3 +1530,23 @@ still serving reads and physical DELETE through Rust.
    historical migrations before retiring them. Remove each Python reference
    only after the equivalent Rust path is in place and its expected results
    are recorded in tests that run without Python.
+
+## Parse Markdown headings through Rust
+
+Rebuild and install the Python extension, then set
+`ZULIP_RUST_MARKDOWN_HEADINGS=1` in Django processes to parse hash headings
+through Rust. The parser returns the heading level, trimmed text, and the
+surrounding blocks. Django constructs the elements and runs inline rendering.
+Python handles strings containing lone surrogates. Unset the flag and restart
+the processes to roll back independently of the other Markdown flags.
+
+Run the same collections with the flag unset and set:
+
+```bash
+./tools/test-backend --parallel 1 zerver.tests.test_markdown_headings \
+    zerver.tests.test_markdown zerver.tests.test_reminders
+```
+
+This bridge preserves the existing whitespace, escaped hash, closing hash,
+and loose list continuation rules. It does not implement a standalone
+Markdown renderer or route scheduled writes to the Rust HTTP listener.
