@@ -17,7 +17,7 @@ from zerver.lib.event_types import RemindersRemoveEvent
 from zerver.lib.exceptions import JsonableError, ResourceNotFoundError
 from zerver.lib.markdown.fenced_code import get_unused_fence
 from zerver.lib.mention import silent_mention_syntax_for_user
-from zerver.lib.message import get_user_mentions_for_display, truncate_content
+from zerver.lib.message import access_message, get_user_mentions_for_display, truncate_content
 from zerver.lib.message_cache import MessageDict
 from zerver.lib.topic_link_util import (
     TOPIC_LINK_SYNTAX_FOR_DISPLAY,
@@ -32,6 +32,18 @@ from zerver.tornado.django_api import send_event_on_commit
 _rust_reminder_quote = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_REMINDER_QUOTE") == "1" else None
 )
+
+
+USE_RUST_FOR_REMINDER_ACCESS = os.environ.get("ZULIP_RUST_REMINDER_ACCESS") == "1"
+
+
+def access_reminder_target(user: UserProfile, message_id: int) -> Message:
+    return access_message(
+        user,
+        message_id,
+        is_modifying_message=False,
+        use_rust_for_read_access=USE_RUST_FOR_REMINDER_ACCESS,
+    )
 
 
 def normalize_note_text(body: str) -> str:

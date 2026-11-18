@@ -30,6 +30,9 @@ mod message_topic;
 #[cfg(feature = "python")]
 mod python;
 
+#[cfg(feature = "python")]
+mod reminder_access;
+
 #[cfg(any(feature = "python", test))]
 mod reminder_quote;
 

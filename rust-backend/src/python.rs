@@ -17,7 +17,7 @@ use crate::{
     alert_words, bot_storage, client_defaults, direct_message_group, draft_text, draft_timestamp,
     memcached, message_topic, stream_color, user_status,
 };
-use crate::{reminder_quote, scheduled_attachments, send_permissions};
+use crate::{reminder_access, reminder_quote, scheduled_attachments, send_permissions};
 
 type DraftParseResult<T> = (Option<T>, Option<(&'static str, Vec<Location>)>);
 
@@ -488,6 +488,51 @@ mod _zulip_backend {
                 fields,
             },
         })
+    }
+
+    #[pyfunction]
+    fn reminder_user_message_exists(
+        cursor: &Bound<'_, PyAny>,
+        user_id: i32,
+        message_id: i64,
+    ) -> PyResult<bool> {
+        cursor.call_method1(
+            "execute",
+            (
+                reminder_access::USER_MESSAGE_EXISTS_SQL,
+                (user_id, message_id),
+            ),
+        )?;
+        let (exists,): (bool,) = cursor.call_method0("fetchone")?.extract()?;
+        Ok(exists)
+    }
+
+    #[pyfunction]
+    fn reminder_restricted_channel_access(
+        cursor: &Bound<'_, PyAny>,
+        user_id: i32,
+        is_guest: bool,
+        recipient_id: i32,
+        can_subscribe_group_id: i32,
+        can_add_subscribers_group_id: i32,
+        required_message_id: Option<i64>,
+    ) -> PyResult<bool> {
+        cursor.call_method1(
+            "execute",
+            (
+                reminder_access::RESTRICTED_CHANNEL_ACCESS_SQL,
+                (
+                    user_id,
+                    is_guest,
+                    required_message_id,
+                    recipient_id,
+                    can_subscribe_group_id,
+                    can_add_subscribers_group_id,
+                ),
+            ),
+        )?;
+        let (exists,): (bool,) = cursor.call_method0("fetchone")?.extract()?;
+        Ok(exists)
     }
 
     #[pyfunction]

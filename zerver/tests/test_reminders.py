@@ -12,12 +12,14 @@ from zerver.actions.scheduled_messages import (
     SCHEDULED_MESSAGE_LATE_CUTOFF_MINUTES,
     try_deliver_one_scheduled_message,
 )
+from zerver.actions.streams import do_change_stream_group_based_setting
 from zerver.actions.users import change_user_is_active
 from zerver.lib.message import get_user_mentions_for_display
 from zerver.lib.test_classes import ZulipTestCase
 from zerver.lib.test_helpers import most_recent_message
 from zerver.lib.timestamp import timestamp_to_datetime
-from zerver.models import Message, ScheduledMessage
+from zerver.lib.types import UserGroupMembersData
+from zerver.models import Message, NamedUserGroup, ScheduledMessage, UserMessage
 from zerver.models.recipients import Recipient, get_or_create_direct_message_group
 from zerver.models.users import UserProfile
 
@@ -162,6 +164,66 @@ class RemindersTest(ZulipTestCase):
 
         result = self.do_schedule_reminder(123456789, scheduled_delivery_timestamp)
         self.assert_json_error(result, "Invalid message(s)")
+
+    def test_reminder_target_access_checks_receipt_and_current_channel_access(self) -> None:
+        owner = self.example_user("hamlet")
+        other = self.example_user("othello")
+        admin = self.example_user("iago")
+        old_dm_id = self.send_personal_message(other, admin)
+        timestamp = int(time.time()) + 86400
+        self.assert_json_error(
+            self.do_schedule_reminder(old_dm_id, timestamp), "Invalid message(s)"
+        )
+
+        private_history = self.make_stream(
+            "Private reminder history", invite_only=True, history_public_to_subscribers=False
+        )
+        self.subscribe(other, private_history.name)
+        old_id = self.send_stream_message(other, private_history.name)
+        self.subscribe(owner, private_history.name)
+        self.assert_json_error(self.do_schedule_reminder(old_id, timestamp), "Invalid message(s)")
+
+        current_id = self.send_stream_message(other, private_history.name, "Original content")
+        self.assert_json_success(self.do_schedule_reminder(current_id, timestamp))
+        reminder = self.last_scheduled_reminder()
+        self.assertIn("Original content", reminder.content)
+        self.unsubscribe(owner, private_history.name)
+        self.assertTrue(
+            UserMessage.objects.filter(user_profile=owner, message_id=current_id).exists()
+        )
+        self.assert_json_error(
+            self.do_schedule_reminder(current_id, timestamp), "Invalid message(s)"
+        )
+
+        Message.objects.filter(id=current_id).update(content="Content edited after access was lost")
+        with time_machine.travel(reminder.scheduled_timestamp, tick=False):
+            self.assertTrue(try_deliver_one_scheduled_message())
+        reminder.refresh_from_db()
+        self.assertTrue(reminder.delivered)
+        assert reminder.delivered_message_id is not None
+        self.assertEqual(
+            Message.objects.get(id=reminder.delivered_message_id).content, reminder.content
+        )
+
+        subscriber_history = self.make_stream(
+            "Shared reminder history", invite_only=True, history_public_to_subscribers=True
+        )
+        self.subscribe(other, subscriber_history.name)
+        shared_id = self.send_stream_message(other, subscriber_history.name)
+        self.assert_json_error(
+            self.do_schedule_reminder(shared_id, timestamp), "Invalid message(s)"
+        )
+        members = NamedUserGroup.objects.get(name="hamletcharacters", realm=owner.realm)
+        do_change_stream_group_based_setting(
+            subscriber_history,
+            "can_subscribe_group",
+            UserGroupMembersData(direct_members=[], direct_subgroups=[members.id]),
+            acting_user=admin,
+        )
+        self.assertFalse(
+            UserMessage.objects.filter(user_profile=owner, message_id=shared_id).exists()
+        )
+        self.assert_json_success(self.do_schedule_reminder(shared_id, timestamp))
 
     def test_successful_deliver_direct_message_reminder(self) -> None:
         # No scheduled message

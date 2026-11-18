@@ -33,8 +33,12 @@ from zerver.lib.exceptions import (
     RealmDeactivatedError,
     UserDeactivatedError,
 )
-from zerver.lib.message import SendMessageRequest, access_message, truncate_topic
-from zerver.lib.reminders import get_reminder_formatted_content, notify_remove_reminder
+from zerver.lib.message import SendMessageRequest, truncate_topic
+from zerver.lib.reminders import (
+    access_reminder_target,
+    get_reminder_formatted_content,
+    notify_remove_reminder,
+)
 from zerver.lib.scheduled_messages import (
     access_scheduled_message,
     parse_scheduled_message_recipient,
@@ -413,7 +417,7 @@ def send_reminder(scheduled_message: ScheduledMessage) -> None:
     assert message_id is not None
     current_user = scheduled_message.sender
     try:
-        message = access_message(current_user, message_id, is_modifying_message=False)
+        message = access_reminder_target(current_user, message_id)
         content = get_reminder_formatted_content(
             message, current_user, scheduled_message.reminder_note
         )

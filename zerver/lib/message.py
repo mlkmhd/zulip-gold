@@ -428,6 +428,7 @@ def access_message(
     *,
     is_modifying_message: bool,
     fetch_edit_history: bool = False,
+    use_rust_for_read_access: bool = False,
 ) -> Message:
     """You can access a message by ID in our APIs that either:
     (1) You received or have previously accessed via starring
@@ -464,9 +465,13 @@ def access_message(
     except Message.DoesNotExist:
         raise JsonableError(_("Invalid message(s)"))
 
-    has_user_message = lambda: UserMessage.objects.filter(
-        user_profile=user_profile, message_id=message_id
-    ).exists()
+    def has_user_message() -> bool:
+        if use_rust_for_read_access:
+            with connection.cursor() as cursor:
+                return import_module("_zulip_backend").reminder_user_message_exists(
+                    cursor, user_profile.id, message_id
+                )
+        return UserMessage.objects.filter(user_profile=user_profile, message_id=message_id).exists()
 
     user_group_membership_details = UserGroupMembershipDetails(user_recursive_group_ids=None)
     if has_message_access(
@@ -475,6 +480,7 @@ def access_message(
         has_user_message=has_user_message,
         user_group_membership_details=user_group_membership_details,
         is_modifying_message=is_modifying_message,
+        use_rust_for_read_access=use_rust_for_read_access,
     ):
         return message
     raise JsonableError(_("Invalid message(s)"))
@@ -623,6 +629,7 @@ def has_message_access(
     is_subscribed: bool | None = None,
     user_group_membership_details: UserGroupMembershipDetails,
     is_modifying_message: bool,
+    use_rust_for_read_access: bool = False,
 ) -> bool:
     """
     Returns whether a user has access to a given message.
@@ -651,6 +658,21 @@ def has_message_access(
 
     if stream.is_public() and user_profile.can_access_public_streams():
         return True
+
+    if use_rust_for_read_access:
+        assert not is_modifying_message and is_subscribed is None
+        assert stream.recipient_id is not None
+        required_message_id = None if stream.is_history_public_to_subscribers() else message.id
+        with connection.cursor() as cursor:
+            return import_module("_zulip_backend").reminder_restricted_channel_access(
+                cursor,
+                user_profile.id,
+                user_profile.is_guest,
+                stream.recipient_id,
+                stream.can_subscribe_group_id,
+                stream.can_add_subscribers_group_id,
+                required_message_id,
+            )
 
     if not stream.is_history_public_to_subscribers():
         # Unless history is public to subscribers, you need to both:
