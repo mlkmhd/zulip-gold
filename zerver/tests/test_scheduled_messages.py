@@ -627,6 +627,33 @@ class ScheduledMessageTest(ZulipTestCase):
         self.assertEqual(msg.sender_id, self.notification_bot(realm).id)
         self.assertIn("Internal server error", msg.content)
 
+    def test_removal_event_error_preserves_delivery(self) -> None:
+        self.create_scheduled_message()
+        scheduled_message = self.last_scheduled_message()
+        delivery = scheduled_message.scheduled_timestamp + timedelta(minutes=1)
+        with (
+            time_machine.travel(delivery, tick=False),
+            mock.patch(
+                "zerver.actions.scheduled_messages.notify_remove_scheduled_message",
+                side_effect=ValueError("Event creation failed"),
+            ),
+            mock.patch(
+                "zerver.actions.scheduled_messages.send_failed_scheduled_message_notification"
+            ) as notify_failure,
+            self.assertLogs(level="ERROR"),
+        ):
+            self.assertTrue(try_deliver_one_scheduled_message())
+            self.assertFalse(try_deliver_one_scheduled_message())
+        notify_failure.assert_not_called()
+
+        scheduled_message.refresh_from_db()
+        self.assertTrue(scheduled_message.delivered)
+        self.assertTrue(scheduled_message.failed)
+        self.assertEqual(scheduled_message.failure_message, "Internal server error")
+        self.assertIsNotNone(scheduled_message.delivered_message_id)
+        assert scheduled_message.delivered_message is not None
+        self.assertEqual(scheduled_message.delivered_message.content, scheduled_message.content)
+
     def test_failed_to_deliver_scheduled_message_from_system_bot(self) -> None:
         # Cross-realm system bots have no human reading their DMs, so
         # they should not receive a failure notification -- doing so

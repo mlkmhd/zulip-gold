@@ -379,6 +379,40 @@ mod _zulip_backend {
     }
 
     #[pyfunction]
+    fn mark_scheduled_job_delivered(
+        cursor: &Bound<'_, PyAny>,
+        id: i64,
+        message_id: i32,
+    ) -> PyResult<bool> {
+        cursor.call_method1(
+            "execute",
+            (
+                "UPDATE zulip.zerver_scheduledmessage
+                 SET delivered = true, delivered_message_id = %s WHERE id = %s",
+                (message_id, id),
+            ),
+        )?;
+        Ok(cursor.getattr("rowcount")?.extract::<i64>()? == 1)
+    }
+
+    #[pyfunction]
+    fn mark_scheduled_job_failed(
+        cursor: &Bound<'_, PyAny>,
+        id: i64,
+        failure_message: &str,
+    ) -> PyResult<bool> {
+        cursor.call_method1(
+            "execute",
+            (
+                "UPDATE zulip.zerver_scheduledmessage
+                 SET failed = true, failure_message = %s WHERE id = %s",
+                (failure_message, id),
+            ),
+        )?;
+        Ok(cursor.getattr("rowcount")?.extract::<i64>()? == 1)
+    }
+
+    #[pyfunction]
     fn update_draft(
         cursor: &Bound<'_, PyAny>,
         user_id: i32,
