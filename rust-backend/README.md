@@ -1550,3 +1550,28 @@ Run the same collections with the flag unset and set:
 This bridge preserves the existing whitespace, escaped hash, closing hash,
 and loose list continuation rules. It does not implement a standalone
 Markdown renderer or route scheduled writes to the Rust HTTP listener.
+
+## Parse Markdown horizontal rules and paragraphs through Rust
+
+Rebuild and install the Python extension, then enable either flag in
+Django processes:
+
+- `ZULIP_RUST_MARKDOWN_HORIZONTAL_RULES=1` recognizes horizontal rules
+  and splits the surrounding blocks, preserving the Python-Markdown
+  marker count, indentation, and ASCII spacing rules.
+- `ZULIP_RUST_MARKDOWN_PARAGRAPHS=1` drops blank blocks and prepares
+  paragraph text, including text and sibling tails in tight lists.
+
+Django constructs the elements and runs inline rendering. Both bridges
+preserve Python whitespace semantics and delegate lone surrogates to Python.
+Unset either flag and restart the processes to roll back that bridge
+independently. The flags do not enable standalone scheduled message writes.
+
+Run the same collections with both flags unset and set, then repeat the
+first two collections with only one flag enabled at a time:
+
+```bash
+./tools/test-backend --parallel 1 zerver.tests.test_markdown_horizontal_rules \
+    zerver.tests.test_markdown_paragraphs zerver.tests.test_markdown \
+    zerver.tests.test_reminders
+```

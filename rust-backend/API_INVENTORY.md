@@ -966,3 +966,14 @@ audit ایجاد حفظ می‌شود و رویداد `saved_snippets/remove` پ
 | `zabbix`              | `/api/v1/external/zabbix`                                             | `zerver.webhooks.zabbix.view.api_zabbix_webhook`                           |
 | `zapier`              | `/api/v1/external/zapier`                                             | `zerver.webhooks.zapier.view.api_zapier_webhook`                           |
 | `zendesk`             | `/api/v1/external/zendesk`                                            | `zerver.webhooks.zendesk.view.api_zendesk_webhook`                         |
+
+## تکمیل parser بلوک Markdown: جداکننده و پاراگراف
+
+`ZULIP_RUST_MARKDOWN_HORIZONTAL_RULES` تشخیص جداکننده و تقسیم بلوک‌های
+اطراف را به Rust می‌سپارد. `ZULIP_RUST_MARKDOWN_PARAGRAPHS` تشخیص بلوک
+خالی، حذف فاصلهٔ ابتدای پاراگراف و اتصال متن در فهرست فشرده را منتقل
+می‌کند. هر دو مستقل و پیش‌فرض خاموش‌اند. ساخت Element، رندر inline،
+metadata کامل، مجوز اعلان و orchestration ارسال همچنان در Django
+هستند. این برش عملیات HTTP مستقلی اضافه نمی‌کند؛ شمار مسیرها همان
+۲۸ از ۱۷۱ عملیات OpenAPI و ۲۸ از ۱۹۰ عملیات وب است.
+[فعال‌سازی و بازگشت](README.md#parse-markdown-horizontal-rules-and-paragraphs-through-rust)
