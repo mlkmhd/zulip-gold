@@ -71,6 +71,7 @@ from zerver.lib.recipient_users import (
     check_sender_can_access_recipients,
     recipient_for_user_profiles,
 )
+from zerver.lib.send_permission_queries import dm_conversation_exists, dm_group_has_active_member
 from zerver.lib.stream_subscription import (
     get_subscriptions_for_send_message,
     num_subscribers_for_stream_id,
@@ -99,8 +100,6 @@ from zerver.lib.user_groups import (
     UserGroupMembershipDetails,
     check_any_user_has_permission_by_role,
     check_user_has_permission_by_role,
-    is_any_user_in_group,
-    is_user_in_group,
 )
 from zerver.lib.user_message import UserMessageLite, bulk_insert_ums
 from zerver.lib.users import (
@@ -1788,7 +1787,12 @@ def validate_stream_id_with_pm_notification(
 
 
 def check_can_send_direct_message(
-    realm: Realm, sender: UserProfile, recipient_users: Sequence[UserProfile], recipient: Recipient
+    realm: Realm,
+    sender: UserProfile,
+    recipient_users: Sequence[UserProfile],
+    recipient: Recipient,
+    *,
+    use_rust: bool = False,
 ) -> None:
     if sender.is_bot:
         return
@@ -1809,7 +1813,9 @@ def check_can_send_direct_message(
             raise DirectMessagePermissionError(is_nobody_group)
     else:
         user_ids = {recipient_user.id for recipient_user in recipient_users} | {sender.id}
-        if not is_any_user_in_group(realm.direct_message_permission_group_id, user_ids):
+        if not dm_group_has_active_member(
+            realm.direct_message_permission_group_id, user_ids, use_rust=use_rust
+        ):
             raise DirectMessagePermissionError(is_nobody_group=False)
 
     if realm.direct_message_initiator_group_id in system_groups_name_dict:
@@ -1817,20 +1823,17 @@ def check_can_send_direct_message(
             sender, realm.direct_message_initiator_group_id, system_groups_name_dict
         ):
             return
-    else:
-        if is_user_in_group(realm.direct_message_initiator_group_id, sender):
-            return
+    elif dm_group_has_active_member(
+        realm.direct_message_initiator_group_id, {sender.id}, use_rust=use_rust
+    ):
+        return
 
     # TODO: This check is inefficient; we should in the future be able to cache
     # on the Huddle object whether the conversation already exists, likely in the
     # form of a `first_message_id` field, and be able to save doing this check in the
     # common case that this is not the first message in a conversation.
     assert recipient.type == Recipient.DIRECT_MESSAGE_GROUP
-    previous_messages_exist = Message.objects.filter(
-        realm=realm,
-        recipient=recipient,
-    ).exists()
-    if not previous_messages_exist:
+    if not dm_conversation_exists(realm.id, recipient.id, use_rust=use_rust):
         raise DirectMessageInitiationError
 
 
@@ -1917,6 +1920,7 @@ def check_message(
     no_previews: bool = False,
     acting_user: UserProfile | None = None,
     use_rust_for_group_creation: bool = False,
+    use_rust_for_send_permissions: bool = False,
 ) -> SendMessageRequest:
     """See
     https://zulip.readthedocs.io/en/latest/subsystems/sending-messages.html
@@ -1976,6 +1980,7 @@ def check_message(
                 archived_channel_notice=archived_channel_notice,
                 user_group_membership_details=user_group_membership_details,
                 system_groups_name_dict=system_groups_name_dict,
+                use_rust=use_rust_for_send_permissions,
             )
             sender_is_subscribed = stream_access_result["is_subscribed"]
         else:
@@ -1991,6 +1996,7 @@ def check_message(
             topic_name=topic_name,
             user_group_membership_details=user_group_membership_details,
             system_groups_name_dict=system_groups_name_dict,
+            use_rust=use_rust_for_send_permissions,
         )
 
         topics_policy = get_stream_topics_policy(realm, stream)
@@ -2024,7 +2030,9 @@ def check_message(
             assert isinstance(e.messages[0], str)
             raise JsonableError(e.messages[0])
 
-        check_can_send_direct_message(realm, sender, recipient_users, recipient)
+        check_can_send_direct_message(
+            realm, sender, recipient_users, recipient, use_rust=use_rust_for_send_permissions
+        )
     else:
         # This is defensive code--Addressee already validates
         # the message type.

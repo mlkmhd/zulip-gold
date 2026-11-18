@@ -22,12 +22,14 @@ from django.utils.timezone import now as timezone_now
 from typing_extensions import override
 
 from zerver.actions.message_send import check_message
+from zerver.actions.realm_settings import do_change_realm_permission_group_setting
 from zerver.actions.scheduled_messages import (
     SCHEDULED_MESSAGE_LATE_CUTOFF_MINUTES,
     do_schedule_messages,
     edit_scheduled_message,
     try_deliver_one_scheduled_message,
 )
+from zerver.actions.streams import do_change_stream_group_based_setting
 from zerver.actions.users import change_user_is_active
 from zerver.lib.addressee import Addressee
 from zerver.lib.message import is_message_to_self
@@ -35,9 +37,11 @@ from zerver.lib.test_classes import ZulipTestCase, ZulipTransactionTestCase
 from zerver.lib.test_helpers import most_recent_message
 from zerver.lib.test_rust_http import request_test_http, rust_http_service
 from zerver.lib.timestamp import timestamp_to_datetime
+from zerver.lib.types import UserGroupMembersData
 from zerver.models import (
     Attachment,
     Message,
+    NamedUserGroup,
     Recipient,
     ScheduledMessage,
     Subscription,
@@ -45,6 +49,7 @@ from zerver.models import (
     UserProfile,
 )
 from zerver.models.clients import get_client
+from zerver.models.groups import SystemGroups
 from zerver.models.recipients import get_direct_message_group, get_or_create_direct_message_group
 from zerver.models.streams import get_stream
 from zerver.models.users import get_system_bot
@@ -289,6 +294,110 @@ class ScheduledMessageTest(ZulipTestCase):
                 ),
                 [(member_id, True, True) for member_id in members],
             )
+
+    def test_schedule_channel_posting_and_topic_permissions(self) -> None:
+        sender = self.example_user("hamlet")
+        admin = self.example_user("iago")
+        bot = self.create_test_bot("scheduled-authorization", sender)
+        stream = get_stream("Verona", sender.realm)
+        members = NamedUserGroup.objects.get(name="hamletcharacters", realm=sender.realm)
+        nobody = NamedUserGroup.objects.get(
+            name=SystemGroups.NOBODY, realm=sender.realm, is_system_group=True
+        )
+        topic_name = "Scheduled %_ Topic"
+        self.send_stream_message(sender, stream.name, topic_name=topic_name)
+        do_change_stream_group_based_setting(
+            stream,
+            "can_send_message_group",
+            UserGroupMembersData(direct_members=[], direct_subgroups=[members.id]),
+            acting_user=admin,
+        )
+        do_change_stream_group_based_setting(
+            stream, "can_create_topic_group", nobody, acting_user=admin
+        )
+        payload = {
+            "type": "channel",
+            "to": str(stream.id),
+            "topic": topic_name.lower(),
+            "content": "Scheduled reply",
+            "scheduled_delivery_timestamp": int(time.time()) + 86400,
+        }
+
+        response = self.api_post(admin, "/api/v1/scheduled_messages", payload)
+        self.assert_json_error(response, "You do not have permission to post in this channel.")
+        response = self.api_post(
+            sender, "/api/v1/scheduled_messages", {**payload, "topic": "Scheduled XY Topic"}
+        )
+        self.assert_json_error(
+            response, "You do not have permission to create new topics in this channel."
+        )
+        self.assertFalse(ScheduledMessage.objects.exists())
+
+        for author in [sender, bot]:
+            response = self.api_post(author, "/api/v1/scheduled_messages", payload)
+            job = ScheduledMessage.objects.get(
+                id=self.assert_json_success(response)["scheduled_message_id"]
+            )
+            self.assertEqual(job.sender, author)
+            self.assertEqual(job.topic_name(), topic_name.lower())
+            self.assertEqual(job.stream, stream)
+
+    def test_schedule_direct_message_authorization_and_history(self) -> None:
+        sender = self.example_user("hamlet")
+        admin = self.example_user("iago")
+        other = self.example_user("othello")
+        realm = sender.realm
+        administrators = NamedUserGroup.objects.get(
+            name=SystemGroups.ADMINISTRATORS, realm=realm, is_system_group=True
+        )
+        authorizers = self.create_or_update_anonymous_group_for_setting([], [administrators])
+        initiators = self.create_or_update_anonymous_group_for_setting([admin], [])
+        for setting, group in [
+            ("direct_message_permission_group", authorizers),
+            ("direct_message_initiator_group", initiators),
+        ]:
+            do_change_realm_permission_group_setting(realm, setting, group, acting_user=None)
+        payload = {
+            "type": "direct",
+            "to": orjson.dumps([admin.id, other.id]).decode(),
+            "content": "Scheduled reply",
+            "scheduled_delivery_timestamp": int(time.time()) + 86400,
+        }
+
+        response = self.api_post(
+            sender,
+            "/api/v1/scheduled_messages",
+            {**payload, "to": orjson.dumps([other.id]).decode()},
+        )
+        self.assert_json_error(
+            response, "This conversation does not include any users who can authorize it."
+        )
+        self.assert_json_error(
+            self.api_post(sender, "/api/v1/scheduled_messages", payload),
+            "You do not have permission to initiate direct message conversations.",
+        )
+        self.assertFalse(ScheduledMessage.objects.exists())
+
+        response = self.api_post(
+            admin,
+            "/api/v1/scheduled_messages",
+            {**payload, "to": orjson.dumps([sender.id, other.id]).decode()},
+        )
+        pending_job = ScheduledMessage.objects.get(
+            id=self.assert_json_success(response)["scheduled_message_id"]
+        )
+        self.assert_json_error(
+            self.api_post(sender, "/api/v1/scheduled_messages", payload),
+            "You do not have permission to initiate direct message conversations.",
+        )
+
+        self.send_group_direct_message(admin, [sender, other])
+        response = self.api_post(sender, "/api/v1/scheduled_messages", payload)
+        job = ScheduledMessage.objects.get(
+            id=self.assert_json_success(response)["scheduled_message_id"]
+        )
+        self.assertEqual(job.sender, sender)
+        self.assertEqual(job.recipient, pending_job.recipient)
 
     def test_schedule_message_validates_strict_json_arguments(self) -> None:
         owner = self.example_user("hamlet")

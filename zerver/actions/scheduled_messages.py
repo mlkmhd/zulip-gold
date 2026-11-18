@@ -47,6 +47,7 @@ from zerver.tornado.django_api import send_event_on_commit
 
 SCHEDULED_MESSAGE_LATE_CUTOFF_MINUTES = 10
 USE_RUST_FOR_SCHEDULED_DM_GROUPS = os.environ.get("ZULIP_RUST_SCHEDULED_DM_GROUPS") == "1"
+USE_RUST_FOR_SEND_PERMISSIONS = os.environ.get("ZULIP_RUST_SCHEDULED_SEND_PERMISSIONS") == "1"
 
 _rust_scheduled_job_creation = (
     import_module("_zulip_backend")
@@ -91,6 +92,7 @@ def check_schedule_message(
         message_content,
         realm=realm,
         use_rust_for_group_creation=USE_RUST_FOR_SCHEDULED_DM_GROUPS,
+        use_rust_for_send_permissions=USE_RUST_FOR_SEND_PERMISSIONS,
     )
     send_request.deliver_at = deliver_at
 
@@ -303,6 +305,7 @@ def edit_scheduled_message(
             updated_content,
             realm=realm,
             use_rust_for_group_creation=USE_RUST_FOR_SCHEDULED_DM_GROUPS,
+            use_rust_for_send_permissions=USE_RUST_FOR_SEND_PERMISSIONS,
         )
 
     if recipient_type_name is not None or message_to is not None:
@@ -483,6 +486,7 @@ def send_scheduled_message(scheduled_message: ScheduledMessage) -> None:
         scheduled_message.content,
         scheduled_message.realm,
         use_rust_for_group_creation=USE_RUST_FOR_SCHEDULED_DM_GROUPS,
+        use_rust_for_send_permissions=USE_RUST_FOR_SEND_PERMISSIONS,
     )
 
     sent_message_result = do_send_messages(

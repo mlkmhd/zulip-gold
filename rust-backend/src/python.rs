@@ -10,7 +10,6 @@ use pyo3::types::{PyDict, PyList, PyString};
 use crate::draft_fields::{DraftFields, Recipients};
 use crate::draft_input::{self, DraftInput, Location, ParseError, Timestamp};
 use crate::draft_recipients::{DirectRecipient, DirectRecipientError, validate_direct_recipients};
-use crate::reminder_quote;
 use crate::scheduled_fields::{MessageFields, Recipient, ScheduledJob};
 use crate::scheduled_input::{self, ArgumentKind, ScheduledArgument};
 use crate::scheduled_validation::{self, RecipientError, RecipientKind};
@@ -18,6 +17,7 @@ use crate::{
     alert_words, bot_storage, client_defaults, direct_message_group, draft_text, draft_timestamp,
     memcached, message_topic, stream_color, user_status,
 };
+use crate::{reminder_quote, send_permissions};
 
 type DraftParseResult<T> = (Option<T>, Option<(&'static str, Vec<Location>)>);
 
@@ -238,6 +238,71 @@ mod _zulip_backend {
         )?;
         let (recipient_id,) = cursor.call_method0("fetchone")?.extract()?;
         Ok((group_id, Some(recipient_id)))
+    }
+
+    #[pyfunction]
+    fn channel_permission_group_ids(
+        cursor: &Bound<'_, PyAny>,
+        user_id: i32,
+    ) -> PyResult<HashSet<i32>> {
+        cursor.call_method1(
+            "execute",
+            (send_permissions::RECURSIVE_GROUP_IDS_SQL, (user_id,)),
+        )?;
+        let rows: Vec<(i32,)> = cursor.call_method0("fetchall")?.extract()?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
+    #[pyfunction]
+    fn dm_group_has_active_member(
+        cursor: &Bound<'_, PyAny>,
+        group_id: i32,
+        user_ids: Vec<i32>,
+    ) -> PyResult<bool> {
+        cursor.call_method1(
+            "execute",
+            (
+                send_permissions::HAS_ACTIVE_MEMBER_SQL,
+                (group_id, user_ids),
+            ),
+        )?;
+        let (exists,): (bool,) = cursor.call_method0("fetchone")?.extract()?;
+        Ok(exists)
+    }
+
+    #[pyfunction]
+    fn channel_topic_exists(
+        cursor: &Bound<'_, PyAny>,
+        realm_id: i32,
+        recipient_id: i32,
+        topic_name: &str,
+    ) -> PyResult<bool> {
+        cursor.call_method1(
+            "execute",
+            (
+                send_permissions::CHANNEL_TOPIC_EXISTS_SQL,
+                (realm_id, recipient_id, topic_name),
+            ),
+        )?;
+        let (exists,): (bool,) = cursor.call_method0("fetchone")?.extract()?;
+        Ok(exists)
+    }
+
+    #[pyfunction]
+    fn dm_conversation_exists(
+        cursor: &Bound<'_, PyAny>,
+        realm_id: i32,
+        recipient_id: i32,
+    ) -> PyResult<bool> {
+        cursor.call_method1(
+            "execute",
+            (
+                send_permissions::CONVERSATION_EXISTS_SQL,
+                (realm_id, recipient_id),
+            ),
+        )?;
+        let (exists,): (bool,) = cursor.call_method0("fetchone")?.extract()?;
+        Ok(exists)
     }
 
     #[pyfunction]

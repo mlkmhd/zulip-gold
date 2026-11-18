@@ -23,6 +23,7 @@ from zerver.lib.exceptions import (
 )
 from zerver.lib.internal_event_types import InternalStreamCreateEvent, InternalStreamDeleteEvent
 from zerver.lib.partial import partial
+from zerver.lib.send_permission_queries import channel_permission_group_ids, channel_topic_exists
 from zerver.lib.stream_subscription import (
     get_guest_user_ids_for_streams,
     get_subscribed_stream_ids_for_user,
@@ -31,7 +32,7 @@ from zerver.lib.stream_subscription import (
 from zerver.lib.stream_traffic import get_average_weekly_stream_traffic, get_streams_traffic
 from zerver.lib.string_validation import check_stream_name
 from zerver.lib.timestamp import datetime_to_timestamp
-from zerver.lib.topic import get_topic_display_name, messages_for_topic
+from zerver.lib.topic import get_topic_display_name
 from zerver.lib.types import APIStreamDict, UserGroupMembersData
 from zerver.lib.user_groups import (
     UserGroupMembershipDetails,
@@ -615,6 +616,8 @@ def check_stream_access_based_on_can_send_message_group(
     stream: Stream,
     user_group_membership_details: UserGroupMembershipDetails,
     system_groups_name_dict: dict[int, str],
+    *,
+    use_rust: bool = False,
 ) -> None:
     if is_cross_realm_bot_email(sender.delivery_email):
         return
@@ -626,16 +629,16 @@ def check_stream_access_based_on_can_send_message_group(
         return
 
     if user_group_membership_details.user_recursive_group_ids is None:
-        user_group_membership_details.user_recursive_group_ids = set(
-            get_recursive_membership_groups(sender).values_list("id", flat=True)
+        user_group_membership_details.user_recursive_group_ids = channel_permission_group_ids(
+            sender, use_rust=use_rust
         )
 
     if stream.can_send_message_group_id in user_group_membership_details.user_recursive_group_ids:
         return
 
     if sender.is_bot and sender.bot_owner is not None:
-        bot_owner_recursive_group_ids = set(
-            get_recursive_membership_groups(sender.bot_owner).values_list("id", flat=True)
+        bot_owner_recursive_group_ids = channel_permission_group_ids(
+            sender.bot_owner, use_rust=use_rust
         )
         if stream.can_send_message_group_id in bot_owner_recursive_group_ids:
             return
@@ -650,6 +653,8 @@ def access_stream_for_send_message(
     archived_channel_notice: bool = False,
     user_group_membership_details: UserGroupMembershipDetails | None = None,
     system_groups_name_dict: dict[int, str] | None = None,
+    *,
+    use_rust: bool = False,
 ) -> dict[str, bool | None]:
     """Raises JsonableError if the sender may not send to the stream, and
     returns {"is_subscribed": ...} -- whether the sender is subscribed to
@@ -665,7 +670,7 @@ def access_stream_for_send_message(
         user_group_membership_details = UserGroupMembershipDetails(user_recursive_group_ids=None)
 
     check_stream_access_based_on_can_send_message_group(
-        sender, stream, user_group_membership_details, system_groups_name_dict
+        sender, stream, user_group_membership_details, system_groups_name_dict, use_rust=use_rust
     )
 
     # forwarder_user_profile cases should be analyzed first, as incorrect
@@ -721,8 +726,8 @@ def access_stream_for_send_message(
 
     if stream.history_public_to_subscribers and not sender.is_guest:
         if user_group_membership_details.user_recursive_group_ids is None:
-            user_group_membership_details.user_recursive_group_ids = set(
-                get_recursive_membership_groups(sender).values_list("id", flat=True)
+            user_group_membership_details.user_recursive_group_ids = channel_permission_group_ids(
+                sender, use_rust=use_rust
             )
 
         if is_user_in_groups_granting_content_access(
@@ -742,6 +747,8 @@ def check_for_can_create_topic_group_violation(
     topic_name: str,
     user_group_membership_details: UserGroupMembershipDetails,
     system_groups_name_dict: dict[int, str],
+    *,
+    use_rust: bool = False,
 ) -> None:
     if is_cross_realm_bot_email(user_profile.delivery_email):
         return
@@ -753,24 +760,24 @@ def check_for_can_create_topic_group_violation(
         return
 
     if user_group_membership_details.user_recursive_group_ids is None:
-        user_group_membership_details.user_recursive_group_ids = set(
-            get_recursive_membership_groups(user_profile).values_list("id", flat=True)
+        user_group_membership_details.user_recursive_group_ids = channel_permission_group_ids(
+            user_profile, use_rust=use_rust
         )
 
     if stream.can_create_topic_group_id in user_group_membership_details.user_recursive_group_ids:
         return
 
     assert stream.recipient_id is not None
-    topic_exists = messages_for_topic(
-        realm_id=stream.realm_id, stream_recipient_id=stream.recipient_id, topic_name=topic_name
-    ).exists()
+    topic_exists = channel_topic_exists(
+        stream.realm_id, stream.recipient_id, topic_name, use_rust=use_rust
+    )
 
     if topic_exists:
         return
 
     if user_profile.is_bot and user_profile.bot_owner is not None:
-        bot_owner_recursive_group_ids = set(
-            get_recursive_membership_groups(user_profile.bot_owner).values_list("id", flat=True)
+        bot_owner_recursive_group_ids = channel_permission_group_ids(
+            user_profile.bot_owner, use_rust=use_rust
         )
         if stream.can_create_topic_group_id in bot_owner_recursive_group_ids:
             return
