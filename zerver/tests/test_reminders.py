@@ -594,6 +594,7 @@ class RemindersTest(ZulipTestCase):
         result = self.do_schedule_reminder(message_id, scheduled_delivery_timestamp, note)
         self.assert_json_success(result)
         scheduled_message = self.last_scheduled_reminder()
+        self.assertEqual(scheduled_message.reminder_note, note)
         self.assertEqual(
             scheduled_message.content,
             f"You requested a reminder for the following message. Note:\n > {note}\n\n"
@@ -615,6 +616,7 @@ class RemindersTest(ZulipTestCase):
         result = self.do_schedule_reminder(message_id, scheduled_delivery_timestamp)
         self.assert_json_success(result)
         scheduled_message = self.last_scheduled_reminder()
+        self.assertEqual(scheduled_message.reminder_note, "")
         self.assertEqual(
             scheduled_message.content,
             self.get_dm_reminder_content(content, message_id, [self.example_user("othello")]),

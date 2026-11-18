@@ -21,11 +21,14 @@ from django.test import LiveServerTestCase
 from django.utils.timezone import now as timezone_now
 from typing_extensions import override
 
+from zerver.actions.message_send import check_message
 from zerver.actions.scheduled_messages import (
     SCHEDULED_MESSAGE_LATE_CUTOFF_MINUTES,
+    do_schedule_messages,
     try_deliver_one_scheduled_message,
 )
 from zerver.actions.users import change_user_is_active
+from zerver.lib.addressee import Addressee
 from zerver.lib.message import is_message_to_self
 from zerver.lib.test_classes import ZulipTestCase, ZulipTransactionTestCase
 from zerver.lib.test_helpers import most_recent_message
@@ -255,6 +258,75 @@ class ScheduledMessageTest(ZulipTestCase):
             "direct", [othello.email], f"{content} 4", scheduled_delivery_timestamp
         )
         self.assert_json_error(result, 'to["int"] is not an integer')
+
+    def test_scheduled_batch_preserves_order_and_rolls_back_attachment_claims(self) -> None:
+        self.login("hamlet")
+        owner = self.example_user("hamlet")
+        other = self.example_user("othello")
+        client = get_client("website")
+        stream = get_stream("Verona", owner.realm)
+        attachment_file = StringIO("zulip")
+        attachment_file.name = "schedule.txt"
+        upload = self.assert_json_success(
+            self.client_post("/json/user_uploads", {"file": attachment_file})
+        )
+        attachment = Attachment.objects.get(path_id=upload["url"].removeprefix("/user_uploads/"))
+        later = timezone_now() + timedelta(days=2)
+        earlier = later - timedelta(days=1)
+        first = check_message(
+            owner,
+            client,
+            Addressee.for_stream(stream, "Batch topic"),
+            f"[Attachment](http://{owner.realm.host}{upload['url']})",
+        )
+        first.deliver_at = later
+        second = check_message(owner, client, Addressee.for_user_profile(other), "Second message")
+        second.deliver_at = earlier
+
+        with (
+            self.capture_send_event_calls(expected_num_events=0),
+            mock.patch.object(
+                ScheduledMessage, "to_dict", side_effect=ValueError("Serialization failed")
+            ),
+            self.assertRaisesRegex(ValueError, "Serialization failed"),
+        ):
+            do_schedule_messages([first, second], owner, delivery_type=ScheduledMessage.SEND_LATER)
+        self.assertFalse(ScheduledMessage.objects.exists())
+        self.assertFalse(attachment.scheduled_messages.exists())
+
+        with self.capture_send_event_calls(expected_num_events=1) as events:
+            ids = do_schedule_messages(
+                [first, second],
+                owner,
+                read_by_sender=True,
+                delivery_type=ScheduledMessage.SEND_LATER,
+            )
+        first_id, second_id = ids
+        stored = ScheduledMessage.objects.in_bulk(ids)
+        self.assertEqual(stored[first_id].scheduled_timestamp, later)
+        self.assertEqual(stored[second_id].scheduled_timestamp, earlier)
+        self.assertEqual(stored[first_id].stream_id, stream.id)
+        self.assertIsNone(stored[second_id].stream_id)
+        self.assertTrue(stored[first_id].has_attachment)
+        self.assertFalse(stored[second_id].has_attachment)
+        self.assertTrue(stored[first_id].read_by_sender)
+        self.assertTrue(stored[second_id].read_by_sender)
+        self.assertEqual(
+            list(attachment.scheduled_messages.values_list("id", flat=True)), [first_id]
+        )
+        self.assertEqual(
+            events,
+            [
+                {
+                    "event": {
+                        "type": "scheduled_messages",
+                        "op": "add",
+                        "scheduled_messages": [stored[id].to_dict() for id in ids],
+                    },
+                    "users": [owner.id],
+                }
+            ],
+        )
 
     def create_scheduled_message(self) -> None:
         content = "Test message"

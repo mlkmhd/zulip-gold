@@ -293,6 +293,52 @@ mod _zulip_backend {
     }
 
     #[pyfunction]
+    fn insert_scheduled_jobs(
+        cursor: &Bound<'_, PyAny>,
+        columns: &Bound<'_, PyDict>,
+    ) -> PyResult<Vec<(i64,)>> {
+        cursor.call_method1(
+            "execute",
+            (
+                "WITH jobs AS MATERIALIZED (
+                    SELECT nextval(pg_get_serial_sequence('zulip.zerver_scheduledmessage', 'id')) AS id,
+                           job.*
+                    FROM unnest(
+                        %(sender_id)s::integer[], %(recipient_id)s::integer[],
+                        %(subject)s::text[], %(content)s::text[], %(rendered_content)s::text[],
+                        %(sending_client_id)s::integer[], %(stream_id)s::bigint[],
+                        %(realm_id)s::integer[], %(scheduled_timestamp)s::timestamptz[],
+                        %(read_by_sender)s::boolean[], %(request_timestamp)s::timestamptz[],
+                        %(delivery_type)s::smallint[], %(reminder_target_message_id)s::integer[],
+                        %(reminder_note)s::text[]
+                    ) WITH ORDINALITY AS job(
+                        sender_id, recipient_id, subject, content, rendered_content, sending_client_id,
+                        stream_id, realm_id, scheduled_timestamp, read_by_sender, request_timestamp,
+                        delivery_type, reminder_target_message_id, reminder_note, position
+                    )
+                    ORDER BY position
+                ), inserted AS (
+                    INSERT INTO zulip.zerver_scheduledmessage (
+                        id, sender_id, recipient_id, subject, content, rendered_content, sending_client_id,
+                        stream_id, realm_id, scheduled_timestamp, read_by_sender, request_timestamp,
+                        delivery_type, reminder_target_message_id, reminder_note,
+                        delivered, has_attachment, failed
+                    )
+                    SELECT id, sender_id, recipient_id, subject, content, rendered_content, sending_client_id,
+                           stream_id, realm_id, scheduled_timestamp, read_by_sender, request_timestamp,
+                           delivery_type, reminder_target_message_id, reminder_note, false, false, false
+                    FROM jobs
+                    RETURNING id
+                )
+                SELECT inserted.id FROM inserted JOIN jobs USING (id)
+                ORDER BY jobs.position",
+                columns,
+            ),
+        )?;
+        cursor.call_method0("fetchall")?.extract()
+    }
+
+    #[pyfunction]
     fn update_draft(
         cursor: &Bound<'_, PyAny>,
         user_id: i32,

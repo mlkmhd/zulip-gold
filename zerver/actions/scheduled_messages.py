@@ -1,9 +1,12 @@
 import logging
+import os
 from collections.abc import Sequence
 from datetime import datetime, timedelta
+from importlib import import_module
+from typing import cast
 
 from django.conf import settings
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils.timezone import now as timezone_now
 from django.utils.translation import gettext as _
 from django.utils.translation import override as override_language
@@ -41,6 +44,12 @@ from zerver.models.users import get_system_bot, is_cross_realm_bot_email
 from zerver.tornado.django_api import send_event_on_commit
 
 SCHEDULED_MESSAGE_LATE_CUTOFF_MINUTES = 10
+
+_rust_scheduled_job_creation = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_SCHEDULED_JOB_CREATION") == "1"
+    else None
+)
 
 
 def check_schedule_message(
@@ -102,6 +111,44 @@ def notify_new_reminder(user_profile: UserProfile, reminders: list[ScheduledMess
     send_event_on_commit(user_profile.realm, event, [user_profile.id])
 
 
+def insert_scheduled_messages(messages: list[ScheduledMessage]) -> None:
+    if _rust_scheduled_job_creation is None:
+        ScheduledMessage.objects.bulk_create(messages)
+        return
+    if not messages:
+        return
+
+    with connection.cursor() as cursor:
+        rows = cast(
+            list[tuple[int]],
+            _rust_scheduled_job_creation.insert_scheduled_jobs(
+                cursor,
+                {
+                    "sender_id": [message.sender_id for message in messages],
+                    "recipient_id": [message.recipient_id for message in messages],
+                    "subject": [message.subject for message in messages],
+                    "content": [message.content for message in messages],
+                    "rendered_content": [message.rendered_content for message in messages],
+                    "sending_client_id": [message.sending_client_id for message in messages],
+                    "stream_id": [message.stream_id for message in messages],
+                    "realm_id": [message.realm_id for message in messages],
+                    "scheduled_timestamp": [message.scheduled_timestamp for message in messages],
+                    "read_by_sender": [message.read_by_sender for message in messages],
+                    "request_timestamp": [message.request_timestamp for message in messages],
+                    "delivery_type": [message.delivery_type for message in messages],
+                    "reminder_target_message_id": [
+                        message.reminder_target_message_id for message in messages
+                    ],
+                    "reminder_note": [message.reminder_note for message in messages],
+                },
+            ),
+        )
+    for message, (message_id,) in zip(messages, rows, strict=True):
+        message.id = message_id
+        message._state.adding = False
+        message._state.db = connection.alias
+
+
 def do_schedule_messages(
     send_message_requests: Sequence[SendMessageRequest],
     sender: UserProfile,
@@ -138,7 +185,7 @@ def do_schedule_messages(
         scheduled_message_objects = [
             scheduled_message for scheduled_message, ignored in scheduled_messages
         ]
-        ScheduledMessage.objects.bulk_create(scheduled_message_objects)
+        insert_scheduled_messages(scheduled_message_objects)
         for scheduled_message, send_request in scheduled_messages:
             if do_claim_attachments(
                 scheduled_message, send_request.rendering_result.potential_attachment_path_ids
