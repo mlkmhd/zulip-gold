@@ -11,11 +11,13 @@ fn is_numbered_list_item(line: &str) -> Result<Option<bool>, ()> {
     let Some(captures) = LIST_ITEM.captures(line) else {
         return Ok(None);
     };
-    // These decimal digits postdate Python 3.12's Unicode 15.0 database.
+    // These decimal digits postdate Python 3.10's Unicode 13.0 database.
     // Delegate them so the active Python runtime decides their list semantics.
     if matches!(
         captures[1].chars().next().expect("list marker"),
-        '\u{10d40}'..='\u{10d49}' | '\u{116d0}'..='\u{116e3}'
+        '\u{11f50}'..='\u{11f59}' | '\u{16ac0}'..='\u{16ac9}'
+            | '\u{1e4f0}'..='\u{1e4f9}'
+            | '\u{10d40}'..='\u{10d49}' | '\u{116d0}'..='\u{116e3}'
             | '\u{11bf0}'..='\u{11bf9}' | '\u{16130}'..='\u{16139}'
             | '\u{16d70}'..='\u{16d79}' | '\u{1ccf0}'..='\u{1ccf9}'
             | '\u{1e5f1}'..='\u{1e5fa}'
@@ -91,6 +93,9 @@ mod tests {
     #[test]
     fn delegates_decimal_markers_added_after_the_python_baseline() {
         for character in [
+            '\u{11f50}',
+            '\u{16ac0}',
+            '\u{1e4f0}',
             '\u{10d40}',
             '\u{116d0}',
             '\u{11bf0}',

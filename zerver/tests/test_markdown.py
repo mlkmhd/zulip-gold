@@ -603,7 +603,6 @@ class MarkdownListPreprocessorTest(ZulipTestCase):
             (["* one", "۳. two", "- three"], ["* one", "", "۳. two", "", "- three"]),
             (["intro", "12. two"], ["intro", "12. two"]),
             (["intro", "². two"], ["intro", "². two"]),
-            (["intro", "\U00010d40. two"], ["intro", "\U00010d40. two"]),
             (["intro", "*\tone"], ["intro", "*\tone"]),
             (["intro", "\t* one"], ["intro", "\t* one"]),
             (["intro\n", " * one"], ["intro\n", "", " * one"]),
@@ -615,6 +614,11 @@ class MarkdownListPreprocessorTest(ZulipTestCase):
         preprocessor = MarkdownListPreprocessor()
         for original, expected in cases:
             with self.subTest(original=original):
+                self.assertEqual(preprocessor.run(original), expected)
+        for digit in ["\U00011f50", "\U00016ac0", "\U0001e4f0", "\U00010d40"]:
+            with self.subTest(digit=digit):
+                original = ["intro", f"{digit}. item"]
+                expected = ["intro", "", original[1]] if digit.isdecimal() else original
                 self.assertEqual(preprocessor.run(original), expected)
 
     def test_list_in_code(self) -> None:
