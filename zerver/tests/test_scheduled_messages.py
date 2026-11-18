@@ -384,6 +384,44 @@ class ScheduledMessageTest(ZulipTestCase):
                 sender_user_message.flags.read, not is_message_to_self(delivered_message)
             )
 
+    def test_claim_due_jobs_in_id_order(self) -> None:
+        self.create_scheduled_message()
+        delivered = self.last_scheduled_message()
+        self.create_scheduled_message()
+        failed = self.last_scheduled_message()
+        self.create_scheduled_message()
+        first = self.last_scheduled_message()
+        self.create_scheduled_message()
+        second = self.last_scheduled_message()
+        self.create_scheduled_message()
+        future = self.last_scheduled_message()
+
+        now = timezone_now()
+        ScheduledMessage.objects.exclude(id=future.id).update(
+            scheduled_timestamp=now - timedelta(minutes=1)
+        )
+        ScheduledMessage.objects.filter(id=second.id).update(
+            scheduled_timestamp=now - timedelta(minutes=2)
+        )
+        ScheduledMessage.objects.filter(id=delivered.id).update(delivered=True)
+        ScheduledMessage.objects.filter(id=failed.id).update(failed=True)
+        with (
+            time_machine.travel(now, tick=False),
+            mock.patch("zerver.actions.scheduled_messages.send_scheduled_message") as send,
+        ):
+            self.assertTrue(try_deliver_one_scheduled_message())
+            send.assert_called_once_with(first)
+
+            ScheduledMessage.objects.filter(id=first.id).update(delivered=True)
+            send.reset_mock()
+            self.assertTrue(try_deliver_one_scheduled_message())
+            send.assert_called_once_with(second)
+
+            ScheduledMessage.objects.filter(id=second.id).update(delivered=True)
+            send.reset_mock()
+            self.assertFalse(try_deliver_one_scheduled_message())
+            send.assert_not_called()
+
     def test_successful_deliver_stream_scheduled_message(self) -> None:
         # No scheduled message
         result = try_deliver_one_scheduled_message()

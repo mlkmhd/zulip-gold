@@ -55,6 +55,11 @@ _rust_scheduled_message_edit = (
     if os.environ.get("ZULIP_RUST_SCHEDULED_MESSAGE_EDIT") == "1"
     else None
 )
+_rust_scheduled_job_claim = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_SCHEDULED_JOB_CLAIM") == "1"
+    else None
+)
 
 
 def check_schedule_message(
@@ -507,15 +512,23 @@ def send_failed_scheduled_message_notification(
 def try_deliver_one_scheduled_message() -> bool:
     # Returns whether there was a scheduled message to attempt
     # delivery on, regardless of whether delivery succeeded.
-    scheduled_message = (
-        ScheduledMessage.objects.filter(
-            scheduled_timestamp__lte=timezone_now(),
-            delivered=False,
-            failed=False,
+    if _rust_scheduled_job_claim is None:
+        scheduled_message = (
+            ScheduledMessage.objects.filter(
+                scheduled_timestamp__lte=timezone_now(),
+                delivered=False,
+                failed=False,
+            )
+            .select_for_update(no_key=True)
+            .first()
         )
-        .select_for_update(no_key=True)
-        .first()
-    )
+    else:
+        scheduled_message = cast(
+            ScheduledMessage | None,
+            _rust_scheduled_job_claim.lock_due_scheduled_job(
+                ScheduledMessage.objects.using(connection.alias), timezone_now()
+            ),
+        )
 
     if scheduled_message is None:
         return False

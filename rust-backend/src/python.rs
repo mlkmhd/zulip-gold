@@ -362,6 +362,23 @@ mod _zulip_backend {
     }
 
     #[pyfunction]
+    fn lock_due_scheduled_job<'py>(
+        queryset: &Bound<'py, PyAny>,
+        now: &Bound<'py, PyAny>,
+    ) -> PyResult<Option<Bound<'py, PyAny>>> {
+        let rows = queryset.call_method1(
+            "raw",
+            (
+                "SELECT * FROM zulip.zerver_scheduledmessage
+                 WHERE scheduled_timestamp <= %s AND NOT delivered AND NOT failed
+                 ORDER BY id LIMIT 1 FOR NO KEY UPDATE",
+                (now,),
+            ),
+        )?;
+        rows.try_iter()?.next().transpose()
+    }
+
+    #[pyfunction]
     fn update_draft(
         cursor: &Bound<'_, PyAny>,
         user_id: i32,
