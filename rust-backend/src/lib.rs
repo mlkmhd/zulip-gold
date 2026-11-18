@@ -6,6 +6,9 @@ pub mod draft_timestamp;
 pub mod stream_color;
 pub mod user_status;
 
+#[cfg(feature = "python")]
+mod attachment_access;
+
 #[cfg(any(feature = "python", test))]
 mod client_defaults;
 

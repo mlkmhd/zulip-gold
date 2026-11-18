@@ -32,6 +32,7 @@ def do_claim_attachments(
     potential_path_ids: list[str],
     *,
     use_rust_for_scheduled_attachments: bool = False,
+    use_rust_for_scheduled_attachment_access: bool = False,
 ) -> bool:
     if len(potential_path_ids) == 0:
         return False
@@ -54,7 +55,9 @@ def do_claim_attachments(
         )
 
     for path_id in potential_path_ids:
-        is_valid, attachment = validate_attachment_request(user_profile, path_id)
+        is_valid, attachment = validate_attachment_request(
+            user_profile, path_id, use_rust=use_rust_for_scheduled_attachment_access
+        )
         if not is_valid:
             # Technically, there are 2 cases here:
             # * The user put something in their message that has the form
@@ -125,6 +128,7 @@ def check_attachment_reference_change(
     rendering_result: MessageRenderingResult,
     *,
     use_rust_for_scheduled_attachments: bool = False,
+    use_rust_for_scheduled_attachment_access: bool = False,
 ) -> AttachmentChangeResult:
     # For an unsaved message edit (message.* has been updated, but not
     # saved to the database), adjusts Attachment data to correspond to
@@ -158,7 +162,10 @@ def check_attachment_reference_change(
     to_add = list(new_attachments - prev_attachments)
     if len(to_add) > 0:
         do_claim_attachments(
-            message, to_add, use_rust_for_scheduled_attachments=use_rust_for_scheduled_attachments
+            message,
+            to_add,
+            use_rust_for_scheduled_attachments=use_rust_for_scheduled_attachments,
+            use_rust_for_scheduled_attachment_access=use_rust_for_scheduled_attachment_access,
         )
 
     return AttachmentChangeResult(message.attachment_set.exists(), detached_attachments)

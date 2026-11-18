@@ -14,8 +14,9 @@ use crate::scheduled_fields::{MessageFields, Recipient, ScheduledJob};
 use crate::scheduled_input::{self, ArgumentKind, ScheduledArgument};
 use crate::scheduled_validation::{self, RecipientError, RecipientKind};
 use crate::{
-    alert_words, bot_storage, client_defaults, direct_message_group, draft_text, draft_timestamp,
-    memcached, message_topic, role_permissions, stream_color, url_fragments, user_status,
+    alert_words, attachment_access, bot_storage, client_defaults, direct_message_group, draft_text,
+    draft_timestamp, memcached, message_topic, role_permissions, stream_color, url_fragments,
+    user_status,
 };
 use crate::{
     markdown_alerts, markdown_channel_links, markdown_upload, reminder_access, reminder_context,
@@ -318,6 +319,41 @@ mod _zulip_backend {
         )?;
         let (exists,): (bool,) = cursor.call_method0("fetchone")?.extract()?;
         Ok(exists)
+    }
+
+    #[pyfunction]
+    fn refresh_attachment_realm_public(
+        cursor: &Bound<'_, PyAny>,
+        attachment_id: i32,
+        realm_id: i32,
+    ) -> PyResult<()> {
+        cursor.call_method1(
+            "execute",
+            (
+                attachment_access::REFRESH_REALM_PUBLIC_SQL,
+                (realm_id, attachment_id),
+            ),
+        )?;
+        Ok(())
+    }
+
+    #[pyfunction]
+    fn attachment_message_access(
+        cursor: &Bound<'_, PyAny>,
+        attachment_id: i32,
+        user_id: i32,
+        is_guest: bool,
+        channel_type: i16,
+    ) -> PyResult<bool> {
+        cursor.call_method1(
+            "execute",
+            (
+                attachment_access::MESSAGE_ACCESS_SQL,
+                (attachment_id, user_id, is_guest, channel_type),
+            ),
+        )?;
+        let (allowed,): (bool,) = cursor.call_method0("fetchone")?.extract()?;
+        Ok(allowed)
     }
 
     #[pyfunction]

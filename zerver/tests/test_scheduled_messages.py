@@ -37,7 +37,8 @@ from zerver.actions.streams import (
     do_deactivate_stream,
     do_set_stream_property,
 )
-from zerver.actions.users import change_user_is_active
+from zerver.actions.user_groups import check_add_user_group
+from zerver.actions.users import change_user_is_active, do_change_user_role
 from zerver.lib.addressee import Addressee
 from zerver.lib.message import is_message_to_self
 from zerver.lib.test_classes import ZulipTestCase, ZulipTransactionTestCase
@@ -1555,6 +1556,138 @@ class ScheduledMessageTest(ZulipTestCase):
         # Already deleted.
         result = self.client_delete(f"/json/scheduled_messages/{scheduled_message.id}")
         self.assert_json_error(result, "Scheduled message does not exist", 404)
+
+    def test_scheduled_attachment_rechecks_history_and_group_access(self) -> None:
+        owner = self.example_user("hamlet")
+        sender = self.example_user("othello")
+        admin = self.example_user("iago")
+        stream = self.make_stream(
+            "scheduled-attachment-access",
+            realm=owner.realm,
+            invite_only=True,
+            history_public_to_subscribers=False,
+        )
+        self.subscribe(owner, stream.name)
+        path = self.create_attachment_helper(owner)
+        attachment = Attachment.objects.get(path_id=path.removeprefix("/user_uploads/"))
+        content = f"[Upload](http://{owner.realm.host}{path})"
+        self.send_stream_message(owner, stream.name, content)
+
+        def check_claim(expected: bool) -> None:
+            result = self.api_post(
+                sender,
+                "/api/v1/scheduled_messages",
+                {
+                    "type": "direct",
+                    "to": orjson.dumps([owner.id]).decode(),
+                    "content": content,
+                    "scheduled_delivery_timestamp": int(time.time()) + 86400,
+                },
+            )
+            job_id = self.assert_json_success(result)["scheduled_message_id"]
+            job = ScheduledMessage.objects.get(id=job_id)
+            self.assertEqual(job.has_attachment, expected)
+            self.assertEqual(job.attachment_set.filter(id=attachment.id).exists(), expected)
+            self.assert_json_success(
+                self.api_patch(
+                    sender, f"/api/v1/scheduled_messages/{job_id}", {"content": "No file"}
+                )
+            )
+            job.refresh_from_db()
+            self.assertFalse(job.has_attachment)
+            self.assertFalse(job.attachment_set.exists())
+            self.assert_json_success(
+                self.api_patch(sender, f"/api/v1/scheduled_messages/{job_id}", {"content": content})
+            )
+            job.refresh_from_db()
+            self.assertEqual(job.has_attachment, expected)
+            self.assertEqual(job.attachment_set.filter(id=attachment.id).exists(), expected)
+            attachment.refresh_from_db()
+            self.assertFalse(attachment.is_realm_public)
+            self.assertFalse(attachment.is_web_public)
+            job.delete()
+
+        check_claim(False)
+        self.subscribe(sender, stream.name)
+        check_claim(False)
+        message_id = self.send_stream_message(owner, stream.name, content)
+        check_claim(True)
+        self.unsubscribe(sender, stream.name)
+        check_claim(False)
+        members = check_add_user_group(
+            owner.realm, "attachment-access", [sender], acting_user=admin
+        )
+        do_change_stream_group_based_setting(
+            stream,
+            "can_subscribe_group",
+            UserGroupMembersData(direct_members=[], direct_subgroups=[members.id]),
+            acting_user=admin,
+        )
+        check_claim(True)
+        UserMessage.objects.filter(user_profile=sender, message_id=message_id).delete()
+        check_claim(False)
+        do_set_stream_property(stream, "history_public_to_subscribers", True, acting_user=admin)
+        check_claim(True)
+        do_change_user_role(sender, UserProfile.ROLE_GUEST, acting_user=admin, notify=False)
+        check_claim(False)
+        self.subscribe(sender, stream.name)
+        check_claim(True)
+        self.unsubscribe(sender, stream.name)
+        check_claim(False)
+        do_change_user_role(sender, UserProfile.ROLE_MEMBER, acting_user=admin, notify=False)
+        nobody = NamedUserGroup.objects.get(
+            name=SystemGroups.NOBODY, realm=owner.realm, is_system_group=True
+        )
+        do_change_stream_group_based_setting(
+            stream, "can_subscribe_group", nobody, acting_user=admin
+        )
+        check_claim(False)
+        do_change_stream_group_based_setting(
+            stream,
+            "can_add_subscribers_group",
+            UserGroupMembersData(direct_members=[], direct_subgroups=[members.id]),
+            acting_user=admin,
+        )
+        check_claim(True)
+        do_set_stream_property(stream, "history_public_to_subscribers", False, acting_user=admin)
+        check_claim(False)
+        self.subscribe(sender, stream.name)
+        self.send_stream_message(owner, stream.name, content)
+        self.unsubscribe(sender, stream.name)
+        check_claim(True)
+        do_change_stream_group_based_setting(
+            stream, "can_add_subscribers_group", nobody, acting_user=admin
+        )
+        check_claim(False)
+        self.send_personal_message(owner, sender, content)
+        check_claim(True)
+
+    def test_scheduled_attachment_refills_public_cache(self) -> None:
+        owner = self.example_user("hamlet")
+        sender = self.example_user("othello")
+        path = self.create_attachment_helper(owner)
+        content = f"[Upload](http://{owner.realm.host}{path})"
+        self.send_stream_message(owner, "Verona", content)
+        attachment = Attachment.objects.get(path_id=path.removeprefix("/user_uploads/"))
+        Attachment.objects.filter(id=attachment.id).update(is_realm_public=None)
+        payload = {
+            "type": "direct",
+            "to": orjson.dumps([owner.id]).decode(),
+            "content": content,
+            "scheduled_delivery_timestamp": int(time.time()) + 86400,
+        }
+        job_id = self.assert_json_success(
+            self.api_post(sender, "/api/v1/scheduled_messages", payload)
+        )["scheduled_message_id"]
+        self.assertTrue(ScheduledMessage.objects.get(id=job_id).has_attachment)
+        attachment.refresh_from_db()
+        self.assertTrue(attachment.is_realm_public)
+        Attachment.objects.filter(id=attachment.id).update(is_realm_public=None)
+        with mock.patch.object(Attachment, "refresh_from_db", side_effect=Attachment.DoesNotExist):
+            job_id = self.assert_json_success(
+                self.api_post(sender, "/api/v1/scheduled_messages", payload)
+            )["scheduled_message_id"]
+        self.assertFalse(ScheduledMessage.objects.get(id=job_id).has_attachment)
 
     def test_scheduled_attachment_keeps_existing_visibility_and_other_jobs(self) -> None:
         owner = self.example_user("hamlet")

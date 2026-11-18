@@ -1,8 +1,10 @@
 from datetime import timedelta
+from importlib import import_module
 from typing import Any
 
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
+from django.db import connection
 from django.db.models import Exists, OuterRef, QuerySet
 from django.utils.timezone import now as timezone_now
 from django.utils.translation import gettext as _
@@ -107,6 +109,8 @@ def validate_attachment_request(
     maybe_user_profile: UserProfile | AnonymousUser,
     path_id: str,
     realm: Realm | None = None,
+    *,
+    use_rust: bool = False,
 ) -> tuple[bool, Attachment | None]:
     try:
         attachment = Attachment.objects.get(path_id=path_id)
@@ -131,16 +135,22 @@ def validate_attachment_request(
         # Fill the cache in a single query. This is important to avoid
         # a potential race condition between checking and setting,
         # where the attachment could have been moved again.
-        Attachment.objects.filter(id=attachment.id, is_realm_public__isnull=True).update(
-            is_realm_public=Exists(
-                Message.objects.filter(
-                    # Uses index: zerver_attachment_messages_attachment_id_message_id_key
-                    realm_id=user_profile.realm_id,
-                    attachment=OuterRef("id"),
-                    recipient__stream__invite_only=False,
+        if use_rust:
+            with connection.cursor() as cursor:
+                import_module("_zulip_backend").refresh_attachment_realm_public(
+                    cursor, attachment.id, user_profile.realm_id
+                )
+        else:
+            Attachment.objects.filter(id=attachment.id, is_realm_public__isnull=True).update(
+                is_realm_public=Exists(
+                    Message.objects.filter(
+                        # Uses index: zerver_attachment_messages_attachment_id_message_id_key
+                        realm_id=user_profile.realm_id,
+                        attachment=OuterRef("id"),
+                        recipient__stream__invite_only=False,
+                    ),
                 ),
-            ),
-        )
+            )
         try:
             attachment.refresh_from_db()
         except Attachment.DoesNotExist:
@@ -159,6 +169,13 @@ def validate_attachment_request(
     ):
         # Any user in the realm can access realm-public files
         return True, attachment
+
+    if use_rust:
+        with connection.cursor() as cursor:
+            allowed = import_module("_zulip_backend").attachment_message_access(
+                cursor, attachment.id, user_profile.id, user_profile.is_guest, Recipient.STREAM
+            )
+        return allowed, attachment
 
     messages = attachment.messages.all().select_related("recipient")
 
