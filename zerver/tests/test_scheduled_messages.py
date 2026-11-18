@@ -22,14 +22,21 @@ from django.utils.timezone import now as timezone_now
 from typing_extensions import override
 
 from zerver.actions.message_send import check_message
-from zerver.actions.realm_settings import do_change_realm_permission_group_setting
+from zerver.actions.realm_settings import (
+    do_change_realm_permission_group_setting,
+    do_set_realm_property,
+)
 from zerver.actions.scheduled_messages import (
     SCHEDULED_MESSAGE_LATE_CUTOFF_MINUTES,
     do_schedule_messages,
     edit_scheduled_message,
     try_deliver_one_scheduled_message,
 )
-from zerver.actions.streams import do_change_stream_group_based_setting, do_deactivate_stream
+from zerver.actions.streams import (
+    do_change_stream_group_based_setting,
+    do_deactivate_stream,
+    do_set_stream_property,
+)
 from zerver.actions.users import change_user_is_active
 from zerver.lib.addressee import Addressee
 from zerver.lib.message import is_message_to_self
@@ -50,8 +57,9 @@ from zerver.models import (
 )
 from zerver.models.clients import get_client
 from zerver.models.groups import SystemGroups
+from zerver.models.realms import RealmTopicsPolicyEnum
 from zerver.models.recipients import get_direct_message_group, get_or_create_direct_message_group
-from zerver.models.streams import get_stream
+from zerver.models.streams import StreamTopicsPolicyEnum, get_stream
 from zerver.models.users import get_system_bot
 
 if TYPE_CHECKING:
@@ -341,6 +349,67 @@ class ScheduledMessageTest(ZulipTestCase):
             self.assertEqual(job.sender, author)
             self.assertEqual(job.topic_name(), topic_name.lower())
             self.assertEqual(job.stream, stream)
+
+    def test_scheduled_channel_topic_policy_applies_on_create_and_edit(self) -> None:
+        sender = self.example_user("hamlet")
+        admin = self.example_user("iago")
+        realm = sender.realm
+        stream = get_stream("Verona", realm)
+        do_set_stream_property(stream, "topics_policy", StreamTopicsPolicyEnum.inherit.value, admin)
+        do_set_realm_property(
+            realm, "topics_policy", RealmTopicsPolicyEnum.disable_empty_topic, acting_user=admin
+        )
+        endpoint = "/api/v1/scheduled_messages"
+        payload = {
+            "type": "channel",
+            "to": str(stream.id),
+            "topic": "(no topic)",
+            "content": "Scheduled topic policy test",
+            "scheduled_delivery_timestamp": int(time.time()) + 86400,
+        }
+        nobody = NamedUserGroup.objects.get(
+            name=SystemGroups.NOBODY, realm=realm, is_system_group=True
+        )
+        do_change_stream_group_based_setting(
+            stream, "can_create_topic_group", nobody, acting_user=admin
+        )
+        self.assert_json_error(
+            self.api_post(sender, endpoint, payload),
+            "You do not have permission to create new topics in this channel.",
+        )
+        everyone = NamedUserGroup.objects.get(
+            name=SystemGroups.EVERYONE, realm=realm, is_system_group=True
+        )
+        do_change_stream_group_based_setting(
+            stream, "can_create_topic_group", everyone, acting_user=admin
+        )
+        self.assert_json_error(
+            self.api_post(sender, endpoint, payload),
+            "Sending messages to the general chat is not allowed in this channel.",
+        )
+        self.assertFalse(ScheduledMessage.objects.exists())
+
+        do_set_stream_property(
+            stream, "topics_policy", StreamTopicsPolicyEnum.allow_empty_topic.value, admin
+        )
+        job_id = self.assert_json_success(self.api_post(sender, endpoint, payload))[
+            "scheduled_message_id"
+        ]
+        do_set_stream_property(
+            stream, "topics_policy", StreamTopicsPolicyEnum.empty_topic_only.value, admin
+        )
+        self.assert_json_error(
+            self.api_patch(
+                sender, f"{endpoint}/{job_id}", {"topic": "named topic", "content": "Edited"}
+            ),
+            "Only the general chat topic is allowed in this channel.",
+        )
+        self.assert_json_success(
+            self.api_patch(sender, f"{endpoint}/{job_id}", {"content": "Edited general chat"})
+        )
+        job = ScheduledMessage.objects.get(id=job_id)
+        self.assertEqual(job.topic_name(), "")
+        self.assertEqual(job.content, "Edited general chat")
 
     def test_scheduled_channel_permission_is_rechecked_on_edit_and_delivery(self) -> None:
         sender = self.example_user("hamlet")

@@ -4,6 +4,7 @@ from collections.abc import Callable, Collection, Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from datetime import timedelta
+from importlib import import_module
 from typing import Any, Literal, TypedDict, cast
 
 import orjson
@@ -1999,13 +2000,26 @@ def check_message(
             use_rust=use_rust_for_send_permissions,
         )
 
-        topics_policy = get_stream_topics_policy(realm, stream)
-        empty_topic_display_name = get_topic_display_name("", sender.default_language)
-        if topics_policy == StreamTopicsPolicyEnum.disable_empty_topic.value and topic_name == "":
-            raise MessagesNotAllowedInEmptyTopicError(empty_topic_display_name)
-
-        if topics_policy == StreamTopicsPolicyEnum.empty_topic_only.value and topic_name != "":
-            raise TopicsNotAllowedError(empty_topic_display_name)
+        if use_rust_for_send_permissions:
+            violated_policy = import_module("_zulip_backend").channel_topic_policy_violation(
+                stream.topics_policy, realm.topics_policy, topic_name == ""
+            )
+        else:
+            topics_policy = get_stream_topics_policy(realm, stream)
+            violated_policy = None
+            if (
+                topics_policy == StreamTopicsPolicyEnum.disable_empty_topic.value
+                and topic_name == ""
+            ):
+                violated_policy = topics_policy
+            if topics_policy == StreamTopicsPolicyEnum.empty_topic_only.value and topic_name != "":
+                violated_policy = topics_policy
+        if violated_policy == StreamTopicsPolicyEnum.disable_empty_topic.value:
+            raise MessagesNotAllowedInEmptyTopicError(
+                get_topic_display_name("", sender.default_language)
+            )
+        if violated_policy == StreamTopicsPolicyEnum.empty_topic_only.value:
+            raise TopicsNotAllowedError(get_topic_display_name("", sender.default_language))
 
     elif addressee.is_private():
         recipient_users = addressee.user_profiles()

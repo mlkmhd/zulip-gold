@@ -347,6 +347,15 @@ mod _zulip_backend {
     }
 
     #[pyfunction]
+    fn channel_topic_policy_violation(
+        channel_policy: i16,
+        realm_policy: i16,
+        empty_topic: bool,
+    ) -> Option<i16> {
+        message_topic::channel_topic_policy_violation(channel_policy, realm_policy, empty_topic)
+    }
+
+    #[pyfunction]
     fn normalize_channel_message_topic(
         topic: &Bound<'_, PyString>,
         empty_topic_fallback: &str,

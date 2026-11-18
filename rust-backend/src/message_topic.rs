@@ -1,5 +1,26 @@
 use crate::draft_text::is_python_whitespace;
 
+// Stored values match StreamTopicsPolicyEnum and RealmTopicsPolicyEnum.
+const INHERIT_TOPICS_POLICY: i16 = 1;
+const DISABLE_EMPTY_TOPIC: i16 = 3;
+const EMPTY_TOPIC_ONLY: i16 = 4;
+
+pub(crate) fn channel_topic_policy_violation(
+    channel_policy: i16,
+    realm_policy: i16,
+    empty_topic: bool,
+) -> Option<i16> {
+    let policy = if channel_policy == INHERIT_TOPICS_POLICY {
+        realm_policy
+    } else {
+        channel_policy
+    };
+    match (policy, empty_topic) {
+        (DISABLE_EMPTY_TOPIC, true) | (EMPTY_TOPIC_ONLY, false) => Some(policy),
+        _ => None,
+    }
+}
+
 pub(crate) fn normalize_channel_topic<'a>(
     topic: &'a str,
     empty_topic_fallback: &str,
@@ -21,6 +42,16 @@ pub(crate) fn normalize_channel_topic<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn enforces_inherited_and_explicit_topic_policies() {
+        assert_eq!(channel_topic_policy_violation(1, 3, true), Some(3));
+        assert_eq!(channel_topic_policy_violation(1, 3, false), None);
+        assert_eq!(channel_topic_policy_violation(2, 3, true), None);
+        assert_eq!(channel_topic_policy_violation(3, 2, true), Some(3));
+        assert_eq!(channel_topic_policy_violation(4, 2, false), Some(4));
+        assert_eq!(channel_topic_policy_violation(4, 3, true), None);
+    }
 
     #[test]
     fn trims_whitespace_and_recognizes_empty_topic_aliases() {
