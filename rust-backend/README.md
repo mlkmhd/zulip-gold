@@ -1008,6 +1008,36 @@ host and port resolve to the same organization in both services. `PATCH`,
 remove the development option or the `channel-folders-routes.conf` include
 and reload nginx after validation.
 
+## Run scheduled job database operations through Rust
+
+Install a fresh PyO3 wheel in the Zulip environment, then set any of these
+flags to `1` in the relevant Django or delivery worker process.
+
+| Environment variable                | Database operation                                                                           |
+| ----------------------------------- | -------------------------------------------------------------------------------------------- |
+| `ZULIP_RUST_SCHEDULED_JOB_CREATION` | Insert validated scheduled messages and reminders in request order.                          |
+| `ZULIP_RUST_SCHEDULED_MESSAGE_EDIT` | Save edits to a scheduled message after Django locks and validates it.                       |
+| `ZULIP_RUST_SCHEDULED_JOB_CLAIM`    | Select the first due, undelivered, non-failed job by ID and acquire its PostgreSQL row lock. |
+| `ZULIP_RUST_SCHEDULED_JOB_RESULT`   | Store the delivered message ID or delivery failure on the locked row.                        |
+
+All operations use Django's existing database transaction. Django checks
+permissions, renders content, claims attachments, sends messages, and
+publishes owner events after commit. The worker's lock remains held through
+delivery and the result write. Remove a flag and restart the corresponding
+process to return that operation to Django.
+
+```sh
+for mode in 0 1; do
+    ZULIP_RUST_SCHEDULED_JOB_CREATION=$mode \
+        ZULIP_RUST_SCHEDULED_MESSAGE_EDIT=$mode \
+        ZULIP_RUST_SCHEDULED_JOB_CLAIM=$mode \
+        ZULIP_RUST_SCHEDULED_JOB_RESULT=$mode ./tools/test-backend \
+        zerver.tests.test_scheduled_messages zerver.tests.test_reminders \
+        zerver.tests.test_events.ScheduledMessagesEventsTest \
+        zerver.tests.test_events.RemindersEventsTest
+done
+```
+
 ## Read scheduled messages and reminders through Rust
 
 The listener serves `GET` and `HEAD` on `/api/v1/scheduled_messages` and
