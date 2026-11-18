@@ -39,7 +39,7 @@ from zerver.lib.emoji import EMOTICON_RE, codepoint_to_name, name_to_codepoint, 
 from zerver.lib.emoji_utils import emoji_to_hex_codepoint, unqualify_emoji
 from zerver.lib.exceptions import MarkdownRenderingError
 from zerver.lib.markdown import fenced_code
-from zerver.lib.markdown.fenced_code import FENCE_RE
+from zerver.lib.markdown.fenced_code import parse_fence_line
 from zerver.lib.mention import (
     BEFORE_LINK_PRODUCING_MENTION_ALLOWED_REGEX,
     ChannelTopicInfo,
@@ -1575,10 +1575,9 @@ class MarkdownListPreprocessor(markdown.preprocessors.Preprocessor):
         for i in range(len(lines) - 1):
             # Ignore anything that is inside a fenced code block but not quoted.
             # We ignore all lines where some parent is a non-quote code block.
-            m = FENCE_RE.match(lines[i])
-            if m:
-                fence_str = m.group("fence")
-                lang: str | None = m.group("lang")
+            parsed_fence = parse_fence_line(lines[i])
+            if parsed_fence is not None:
+                fence_str, lang, _header = parsed_fence
                 is_code = lang not in ("quote", "quoted")
                 matches_last_fence = (
                     fence_str == open_fences[-1].fence_str if open_fences else False

@@ -51,7 +51,11 @@ from zerver.lib.markdown import (
     url_embed_preview_enabled,
     url_to_a,
 )
-from zerver.lib.markdown.fenced_code import FencedBlockPreprocessor, close_unclosed_fences
+from zerver.lib.markdown.fenced_code import (
+    FencedBlockPreprocessor,
+    close_unclosed_fences,
+    parse_fence_line,
+)
 from zerver.lib.markdown.from_html import convert_html_to_markdown
 from zerver.lib.mdiff import diff_strings
 from zerver.lib.mention import (
@@ -210,6 +214,27 @@ class FencedBlockPreprocessorTest(ZulipTestCase):
         ]
         lines = processor.run(markdown_input)
         self.assertEqual(lines, expected)
+
+    def test_fence_header_parsing(self) -> None:
+        cases = [
+            ("```", ("```", None, None)),
+            ("~~~   .py", ("~~~", "py", None)),
+            ("```{python}", ("```", "python", "}")),
+            ("```spoiler Header 📝", ("```", "spoiler", "Header 📝")),
+            ("```lang,part", ("```", "lang,part", None)),
+            ("```lang Header\n", ("```", "lang", "Header\n")),
+            ("```\n", ("```", None, None)),
+            ("```python\t", ("```", "python", "\t")),
+            ("```spoiler \ud800", ("```", "spoiler", "\ud800")),
+            ("``", None),
+            (" ```", None),
+            ("```quote~", None),
+            ("```\tpy", None),
+            ("```ش", None),
+        ]
+        for line, expected in cases:
+            with self.subTest(line=line):
+                self.assertEqual(parse_fence_line(line), expected)
 
     def test_close_unclosed_fences(self) -> None:
         cases = [

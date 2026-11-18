@@ -256,6 +256,13 @@ def generic_handler(
         return CodeHandler(processor, output, fence, lang, run_content_validators)
 
 
+def parse_fence_line(line: str) -> tuple[str, str | None, str | None] | None:
+    match = FENCE_RE.match(line)
+    if match is None:
+        return None
+    return match.group("fence"), match.group("lang"), match.group("header")
+
+
 def check_for_new_fence(
     processor: "FencedBlockPreprocessor",
     output: MutableSequence[str],
@@ -263,11 +270,9 @@ def check_for_new_fence(
     run_content_validators: bool = False,
     default_language: str | None = None,
 ) -> None:
-    m = FENCE_RE.match(line)
-    if m:
-        fence = m.group("fence")
-        lang: str | None = m.group("lang")
-        header: str | None = m.group("header")
+    parsed_fence = parse_fence_line(line)
+    if parsed_fence is not None:
+        fence, lang, header = parsed_fence
         if not lang and default_language:
             lang = default_language
         handler = generic_handler(
