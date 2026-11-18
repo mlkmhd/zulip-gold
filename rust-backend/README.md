@@ -1008,6 +1008,15 @@ host and port resolve to the same organization in both services. `PATCH`,
 remove the development option or the `channel-folders-routes.conf` include
 and reload nginx after validation.
 
+## Parse scheduled job input through Rust
+
+Install a fresh PyO3 wheel and set `ZULIP_RUST_SCHEDULED_JOB_INPUT=1`
+to parse strict JSON integers, recipient IDs or arrays, and booleans at
+the scheduled-message and reminder endpoints. Pydantic handles malformed
+values, invalid argument types, and integers outside the signed 64-bit
+range. Unset the flag and restart Django to roll back independently of
+the database flags below.
+
 ## Run scheduled job database operations through Rust
 
 Install a fresh PyO3 wheel in the Zulip environment, then set any of these
@@ -1028,7 +1037,8 @@ process to return that operation to Django.
 
 ```sh
 for mode in 0 1; do
-    ZULIP_RUST_SCHEDULED_JOB_CREATION=$mode \
+    ZULIP_RUST_SCHEDULED_JOB_INPUT=$mode \
+        ZULIP_RUST_SCHEDULED_JOB_CREATION=$mode \
         ZULIP_RUST_SCHEDULED_MESSAGE_EDIT=$mode \
         ZULIP_RUST_SCHEDULED_JOB_CLAIM=$mode \
         ZULIP_RUST_SCHEDULED_JOB_RESULT=$mode ./tools/test-backend \
