@@ -1,8 +1,9 @@
 import logging
 from dataclasses import dataclass
+from importlib import import_module
 from typing import Any
 
-from django.db import transaction
+from django.db import connection, transaction
 
 from zerver.lib.attachments import get_old_unclaimed_attachments, validate_attachment_request
 from zerver.lib.event_types import Attachment as AttachmentData
@@ -27,7 +28,10 @@ class AttachmentChangeResult:
 
 
 def do_claim_attachments(
-    message: Message | ScheduledMessage, potential_path_ids: list[str]
+    message: Message | ScheduledMessage,
+    potential_path_ids: list[str],
+    *,
+    use_rust_for_scheduled_attachments: bool = False,
 ) -> bool:
     if len(potential_path_ids) == 0:
         return False
@@ -71,9 +75,16 @@ def do_claim_attachments(
 
         assert attachment is not None
         claimed = True
-        attachment = claim_attachment(
-            attachment, message, is_message_realm_public, is_message_web_public
-        )
+        if use_rust_for_scheduled_attachments:
+            assert isinstance(message, ScheduledMessage)
+            with connection.cursor() as cursor:
+                import_module("_zulip_backend").link_scheduled_attachment(
+                    cursor, attachment.id, message.id
+                )
+        else:
+            attachment = claim_attachment(
+                attachment, message, is_message_realm_public, is_message_web_public
+            )
         if not isinstance(message, ScheduledMessage):
             # attachment update events don't say anything about scheduled messages,
             # so sending an event is pointless.
@@ -110,7 +121,10 @@ def do_delete_old_unclaimed_attachments(weeks_ago: int) -> None:
 
 
 def check_attachment_reference_change(
-    message: Message | ScheduledMessage, rendering_result: MessageRenderingResult
+    message: Message | ScheduledMessage,
+    rendering_result: MessageRenderingResult,
+    *,
+    use_rust_for_scheduled_attachments: bool = False,
 ) -> AttachmentChangeResult:
     # For an unsaved message edit (message.* has been updated, but not
     # saved to the database), adjusts Attachment data to correspond to
@@ -123,10 +137,17 @@ def check_attachment_reference_change(
 
     to_remove = list(prev_attachments - new_attachments)
     if len(to_remove) > 0:
-        attachments_to_update = Attachment.objects.filter(path_id__in=to_remove).select_for_update(
-            no_key=True
-        )
-        message.attachment_set.remove(*attachments_to_update)
+        if use_rust_for_scheduled_attachments:
+            assert isinstance(message, ScheduledMessage)
+            with connection.cursor() as cursor:
+                import_module("_zulip_backend").unlink_scheduled_attachments(
+                    cursor, to_remove, message.id
+                )
+        else:
+            attachments_to_update = Attachment.objects.filter(
+                path_id__in=to_remove
+            ).select_for_update(no_key=True)
+            message.attachment_set.remove(*attachments_to_update)
 
     sender = message.sender
     detached_attachments_query = Attachment.objects.filter(
@@ -136,6 +157,8 @@ def check_attachment_reference_change(
 
     to_add = list(new_attachments - prev_attachments)
     if len(to_add) > 0:
-        do_claim_attachments(message, to_add)
+        do_claim_attachments(
+            message, to_add, use_rust_for_scheduled_attachments=use_rust_for_scheduled_attachments
+        )
 
     return AttachmentChangeResult(message.attachment_set.exists(), detached_attachments)

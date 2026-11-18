@@ -17,7 +17,7 @@ use crate::{
     alert_words, bot_storage, client_defaults, direct_message_group, draft_text, draft_timestamp,
     memcached, message_topic, stream_color, user_status,
 };
-use crate::{reminder_quote, send_permissions};
+use crate::{reminder_quote, scheduled_attachments, send_permissions};
 
 type DraftParseResult<T> = (Option<T>, Option<(&'static str, Vec<Location>)>);
 
@@ -488,6 +488,38 @@ mod _zulip_backend {
                 fields,
             },
         })
+    }
+
+    #[pyfunction]
+    fn link_scheduled_attachment(
+        cursor: &Bound<'_, PyAny>,
+        attachment_id: i64,
+        scheduled_message_id: i64,
+    ) -> PyResult<()> {
+        cursor.call_method1(
+            "execute",
+            (
+                scheduled_attachments::LINK_SQL,
+                (attachment_id, scheduled_message_id),
+            ),
+        )?;
+        Ok(())
+    }
+
+    #[pyfunction]
+    fn unlink_scheduled_attachments(
+        cursor: &Bound<'_, PyAny>,
+        path_ids: Vec<String>,
+        scheduled_message_id: i64,
+    ) -> PyResult<()> {
+        cursor.call_method1(
+            "execute",
+            (
+                scheduled_attachments::UNLINK_SQL,
+                (path_ids, scheduled_message_id),
+            ),
+        )?;
+        Ok(())
     }
 
     #[pyfunction]

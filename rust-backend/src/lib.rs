@@ -33,6 +33,9 @@ mod python;
 #[cfg(any(feature = "python", test))]
 mod reminder_quote;
 
+#[cfg(feature = "python")]
+mod scheduled_attachments;
+
 #[cfg(any(feature = "http", feature = "python"))]
 mod scheduled_fields;
 

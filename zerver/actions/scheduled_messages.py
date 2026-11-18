@@ -48,6 +48,7 @@ from zerver.tornado.django_api import send_event_on_commit
 SCHEDULED_MESSAGE_LATE_CUTOFF_MINUTES = 10
 USE_RUST_FOR_SCHEDULED_DM_GROUPS = os.environ.get("ZULIP_RUST_SCHEDULED_DM_GROUPS") == "1"
 USE_RUST_FOR_SEND_PERMISSIONS = os.environ.get("ZULIP_RUST_SCHEDULED_SEND_PERMISSIONS") == "1"
+USE_RUST_FOR_ATTACHMENTS = os.environ.get("ZULIP_RUST_SCHEDULED_ATTACHMENTS") == "1"
 
 _rust_scheduled_job_creation = (
     import_module("_zulip_backend")
@@ -209,7 +210,9 @@ def do_schedule_messages(
         insert_scheduled_messages(scheduled_message_objects)
         for scheduled_message, send_request in scheduled_messages:
             if do_claim_attachments(
-                scheduled_message, send_request.rendering_result.potential_attachment_path_ids
+                scheduled_message,
+                send_request.rendering_result.potential_attachment_path_ids,
+                use_rust_for_scheduled_attachments=USE_RUST_FOR_ATTACHMENTS,
             ):
                 scheduled_message.has_attachment = True
                 scheduled_message.save(update_fields=["has_attachment"])
@@ -330,7 +333,9 @@ def edit_scheduled_message(
         scheduled_message_object.content = send_request.message.content
         scheduled_message_object.rendered_content = send_request.rendering_result.rendered_content
         attachment_reference_change = check_attachment_reference_change(
-            scheduled_message_object, send_request.rendering_result
+            scheduled_message_object,
+            send_request.rendering_result,
+            use_rust_for_scheduled_attachments=USE_RUST_FOR_ATTACHMENTS,
         )
         scheduled_message_object.has_attachment = attachment_reference_change.did_attachment_change
 

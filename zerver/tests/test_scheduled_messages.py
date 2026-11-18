@@ -1314,6 +1314,43 @@ class ScheduledMessageTest(ZulipTestCase):
         result = self.client_delete(f"/json/scheduled_messages/{scheduled_message.id}")
         self.assert_json_error(result, "Scheduled message does not exist", 404)
 
+    def test_scheduled_attachment_keeps_existing_visibility_and_other_jobs(self) -> None:
+        owner = self.example_user("hamlet")
+        other = self.example_user("othello")
+        stream = get_stream("Verona", owner.realm)
+        path_id = self.create_attachment_helper(owner)
+        attachment = Attachment.objects.get(path_id=path_id.removeprefix("/user_uploads/"))
+        payload = {
+            "type": "channel",
+            "to": str(stream.id),
+            "topic": "Scheduled attachment",
+            "content": f"[Upload](http://{owner.realm.host}{path_id})",
+            "scheduled_delivery_timestamp": int(time.time()) + 86400,
+        }
+        ids = [
+            self.assert_json_success(self.api_post(owner, "/api/v1/scheduled_messages", payload))[
+                "scheduled_message_id"
+            ]
+            for _ in range(2)
+        ]
+        unclaimed = self.assert_json_success(
+            self.api_post(other, "/api/v1/scheduled_messages", payload)
+        )["scheduled_message_id"]
+
+        self.assertTrue(ScheduledMessage.objects.get(id=ids[0]).has_attachment)
+        self.assertFalse(ScheduledMessage.objects.get(id=unclaimed).has_attachment)
+        attachment.refresh_from_db()
+        self.assertFalse(attachment.is_realm_public)
+        self.assertFalse(attachment.is_web_public)
+        self.assertCountEqual(attachment.scheduled_messages.values_list("id", flat=True), ids)
+
+        response = self.api_patch(
+            owner, f"/api/v1/scheduled_messages/{ids[0]}", {"content": "No upload"}
+        )
+        self.assert_json_success(response)
+        self.assertFalse(ScheduledMessage.objects.get(id=ids[0]).has_attachment)
+        self.assertEqual(list(attachment.scheduled_messages.values_list("id", flat=True)), ids[1:])
+
     def test_attachment_handling(self) -> None:
         self.login("hamlet")
         hamlet = self.example_user("hamlet")
