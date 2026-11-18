@@ -19,10 +19,10 @@ use crate::{
     url_fragments, user_status,
 };
 use crate::{
-    markdown_alerts, markdown_blocks, markdown_channel_links, markdown_fences, markdown_headings,
-    markdown_horizontal_rules, markdown_inline_mentions, markdown_lists, markdown_mentions,
-    markdown_paragraphs, markdown_upload, markdown_whitespace, reminder_access, reminder_context,
-    reminder_quote, scheduled_attachments, send_permissions,
+    markdown_alerts, markdown_blockquotes, markdown_blocks, markdown_channel_links,
+    markdown_fences, markdown_headings, markdown_horizontal_rules, markdown_inline_mentions,
+    markdown_lists, markdown_mentions, markdown_paragraphs, markdown_upload, markdown_whitespace,
+    reminder_access, reminder_context, reminder_quote, scheduled_attachments, send_permissions,
 };
 
 type DraftParseResult<T> = (Option<T>, Option<(&'static str, Vec<Location>)>);
@@ -181,6 +181,21 @@ mod _zulip_backend {
             .map(|line| line.to_str().ok())
             .collect::<Option<Vec<_>>>()?;
         markdown_lists::separator_positions(&lines)
+    }
+
+    #[pyfunction]
+    fn split_markdown_blockquote(block: &Bound<'_, PyString>) -> Option<(bool, String, String)> {
+        Some(
+            match markdown_blockquotes::split_quote(block.to_str().ok()?) {
+                Some((before, quote)) => (true, before.to_owned(), quote.to_owned()),
+                None => (false, String::new(), String::new()),
+            },
+        )
+    }
+
+    #[pyfunction]
+    fn strip_markdown_blockquote_marker(line: &Bound<'_, PyString>) -> Option<String> {
+        Some(markdown_blockquotes::strip_quote_marker(line.to_str().ok()?).to_owned())
     }
 
     #[pyfunction]

@@ -83,6 +83,11 @@ _rust_markdown_channel_links = (
 _rust_markdown_lists = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_MARKDOWN_LISTS") == "1" else None
 )
+_rust_markdown_blockquotes = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_MARKDOWN_BLOCKQUOTES") == "1"
+    else None
+)
 _rust_markdown_horizontal_rules = (
     import_module("_zulip_backend")
     if os.environ.get("ZULIP_RUST_MARKDOWN_HORIZONTAL_RULES") == "1"
@@ -1615,17 +1620,35 @@ class BlockQuoteProcessor(markdown.blockprocessors.BlockQuoteProcessor):
     # Original regex for blockquote is RE = re.compile(r'(^|\n)[ ]{0,3}>[ ]?(.*)')
     RE = re.compile(r"(^|\n)(?!(?:[ ]{0,3}>\s*(?:$|\n))*(?:$|\n))[ ]{0,3}>[ ]?(.*)")
 
+    @override
+    def test(self, parent: Element, block: str) -> bool:
+        if _rust_markdown_blockquotes is not None:
+            result = _rust_markdown_blockquotes.split_markdown_blockquote(block)
+            if result is not None:
+                return result[0] and not markdown.util.nearing_recursion_limit()
+        return bool(self.RE.search(block)) and not markdown.util.nearing_recursion_limit()
+
     # run() is very slightly forked from the base class; see notes below.
     @override
     def run(self, parent: Element, blocks: list[str]) -> None:
         block = blocks.pop(0)
-        m = self.RE.search(block)
-        if m:
-            before = block[: m.start()]  # Lines before blockquote
+        result = (
+            _rust_markdown_blockquotes.split_markdown_blockquote(block)
+            if _rust_markdown_blockquotes is not None
+            else None
+        )
+        if result is not None:
+            matched, before, quote_block = result
+        else:
+            m = self.RE.search(block)
+            matched = m is not None
+            before = block[: m.start()] if m else ""
+            quote_block = block[m.start() :] if m else block
+        if matched:
             # Pass lines before blockquote in recursively for parsing first.
             self.parser.parseBlocks(parent, [before])
             # Remove ``> `` from beginning of each line.
-            block = "\n".join([self.clean(line) for line in block[m.start() :].split("\n")])
+            block = "\n".join([self.clean(line) for line in quote_block.split("\n")])
 
         # Zulip modification: The next line is patched to match
         # CommonMark rather than original Markdown.  In original
@@ -1644,17 +1667,24 @@ class BlockQuoteProcessor(markdown.blockprocessors.BlockQuoteProcessor):
 
     @override
     def clean(self, line: str) -> str:
-        if _rust_markdown_quote_mentions is not None:
-            rust_result = _rust_markdown_quote_mentions.silence_quoted_markdown_mentions(line)
-            if rust_result is not None:
-                return super().clean(rust_result)
-
-        # Silence all the mentions inside blockquotes
-        line = mention.MENTIONS_RE.sub(lambda m: "@_**{}**".format(m.group("match")), line)
-        # Silence all the user group mentions inside blockquotes
-        line = mention.USER_GROUP_MENTIONS_RE.sub(lambda m: "@_*{}*".format(m.group("match")), line)
-
-        # And then run the upstream processor's code for removing the '>'
+        rust_result = (
+            _rust_markdown_quote_mentions.silence_quoted_markdown_mentions(line)
+            if _rust_markdown_quote_mentions is not None
+            else None
+        )
+        if rust_result is not None:
+            line = rust_result
+        else:
+            # Silence all the mentions inside blockquotes
+            line = mention.MENTIONS_RE.sub(lambda m: "@_**{}**".format(m.group("match")), line)
+            # Silence all the user group mentions inside blockquotes
+            line = mention.USER_GROUP_MENTIONS_RE.sub(
+                lambda m: "@_*{}*".format(m.group("match")), line
+            )
+        if _rust_markdown_blockquotes is not None:
+            result = _rust_markdown_blockquotes.strip_markdown_blockquote_marker(line)
+            if result is not None:
+                return result
         return super().clean(line)
 
 
