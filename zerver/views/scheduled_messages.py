@@ -3,7 +3,7 @@ from typing import Annotated
 from django.http import HttpRequest, HttpResponse
 from django.utils.timezone import now as timezone_now
 from django.utils.translation import gettext as _
-from pydantic import Json, NonNegativeInt
+from pydantic import NonNegativeInt
 
 from zerver.actions.scheduled_messages import (
     check_schedule_message,
@@ -15,6 +15,9 @@ from zerver.lib.recipient_parsing import extract_direct_message_recipient_ids, e
 from zerver.lib.request import RequestNotes
 from zerver.lib.response import json_success
 from zerver.lib.scheduled_messages import (
+    ScheduledJobBoolean,
+    ScheduledJobInteger,
+    ScheduledJobRecipients,
     get_undelivered_reminders,
     get_undelivered_scheduled_messages,
 )
@@ -63,9 +66,9 @@ def update_scheduled_message_backend(
         Annotated[str, check_string_in_validator(Message.API_RECIPIENT_TYPES)] | None,
         ApiParamConfig("type"),
     ] = None,
-    scheduled_delivery_timestamp: Json[int] | None = None,
+    scheduled_delivery_timestamp: ScheduledJobInteger | None = None,
     scheduled_message_id: PathOnly[NonNegativeInt],
-    to: Json[int | list[int]] | None = None,
+    to: ScheduledJobRecipients | None = None,
     topic_name: OptionalTopic = None,
 ) -> HttpResponse:
     if (
@@ -136,13 +139,13 @@ def create_scheduled_message_backend(
     user_profile: UserProfile,
     *,
     message_content: Annotated[str, ApiParamConfig("content")],
-    read_by_sender: Json[bool] | None = None,
-    req_to: Annotated[Json[int | list[int]], ApiParamConfig("to")],
+    read_by_sender: ScheduledJobBoolean | None = None,
+    req_to: Annotated[ScheduledJobRecipients, ApiParamConfig("to")],
     req_type: Annotated[
         Annotated[str, check_string_in_validator(Message.API_RECIPIENT_TYPES)],
         ApiParamConfig("type"),
     ],
-    scheduled_delivery_timestamp: Json[int],
+    scheduled_delivery_timestamp: ScheduledJobInteger,
     topic_name: OptionalTopic = None,
 ) -> HttpResponse:
     recipient_type_name = req_type

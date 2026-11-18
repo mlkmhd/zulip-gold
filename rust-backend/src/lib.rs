@@ -23,3 +23,6 @@ mod memcached;
 
 #[cfg(feature = "python")]
 mod python;
+
+#[cfg(feature = "python")]
+mod scheduled_input;

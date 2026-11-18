@@ -1,12 +1,47 @@
+import os
+from importlib import import_module
+from typing import Annotated, Literal
+
 from django.utils.translation import gettext as _
+from pydantic import Json, ValidatorFunctionWrapHandler, WrapValidator
 
 from zerver.lib.exceptions import ResourceNotFoundError
+from zerver.lib.partial import partial
 from zerver.models import ScheduledMessage, UserProfile
 from zerver.models.scheduled_jobs import (
     APIReminderDirectMessageDict,
     APIScheduledDirectMessageDict,
     APIScheduledStreamMessageDict,
 )
+
+_rust_scheduled_job_input = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_SCHEDULED_JOB_INPUT") == "1"
+    else None
+)
+
+
+def parse_scheduled_job_argument(
+    kind: Literal["integer", "recipients", "boolean"],
+    value: object,
+    handler: ValidatorFunctionWrapHandler,
+) -> object:
+    if _rust_scheduled_job_input is not None and isinstance(value, str):
+        argument = _rust_scheduled_job_input.parse_scheduled_job_argument(value, kind)
+        if argument is not None:
+            return argument
+    return handler(value)
+
+
+ScheduledJobInteger = Annotated[
+    Json[int], WrapValidator(partial(parse_scheduled_job_argument, "integer"))
+]
+ScheduledJobRecipients = Annotated[
+    Json[int | list[int]], WrapValidator(partial(parse_scheduled_job_argument, "recipients"))
+]
+ScheduledJobBoolean = Annotated[
+    Json[bool], WrapValidator(partial(parse_scheduled_job_argument, "boolean"))
+]
 
 
 def access_scheduled_message(

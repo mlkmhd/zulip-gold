@@ -1,12 +1,13 @@
 from django.http import HttpRequest, HttpResponse
 from django.utils.timezone import now as timezone_now
-from pydantic import Json, NonNegativeInt
+from pydantic import NonNegativeInt
 
 from zerver.actions.reminders import do_delete_reminder, schedule_reminder_for_message
 from zerver.lib.exceptions import DeliveryTimeNotInFutureError
 from zerver.lib.reminders import access_reminder
 from zerver.lib.request import RequestNotes
 from zerver.lib.response import json_success
+from zerver.lib.scheduled_messages import ScheduledJobInteger
 from zerver.lib.timestamp import timestamp_to_datetime
 from zerver.lib.typed_endpoint import PathOnly, typed_endpoint
 from zerver.models import UserProfile
@@ -17,8 +18,8 @@ def create_reminders_message_backend(
     request: HttpRequest,
     user_profile: UserProfile,
     *,
-    message_id: Json[int],
-    scheduled_delivery_timestamp: Json[int],
+    message_id: ScheduledJobInteger,
+    scheduled_delivery_timestamp: ScheduledJobInteger,
     note: str | None = None,
 ) -> HttpResponse:
     deliver_at = timestamp_to_datetime(scheduled_delivery_timestamp)

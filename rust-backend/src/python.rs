@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::{io, net::SocketAddr};
 
 use jiter::NumberInt;
+use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::{PyConnectionError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyString};
@@ -9,6 +10,7 @@ use pyo3::types::{PyDict, PyList, PyString};
 use crate::draft_fields::{DraftFields, Recipients};
 use crate::draft_input::{self, DraftInput, Location, ParseError, Timestamp};
 use crate::draft_recipients::{DirectRecipient, DirectRecipientError, validate_direct_recipients};
+use crate::scheduled_input::{self, ArgumentKind, ScheduledArgument};
 use crate::{
     alert_words, bot_storage, direct_message_group, draft_text, draft_timestamp, memcached,
     stream_color, user_status,
@@ -290,6 +292,33 @@ mod _zulip_backend {
             ),
         )?;
         cursor.call_method0("fetchall")?.extract()
+    }
+
+    #[pyfunction]
+    fn parse_scheduled_job_argument<'py>(
+        py: Python<'py>,
+        value: &Bound<'py, PyString>,
+        kind: &str,
+    ) -> PyResult<Option<Bound<'py, PyAny>>> {
+        let kind = match kind {
+            "integer" => ArgumentKind::Integer,
+            "recipients" => ArgumentKind::Recipients,
+            "boolean" => ArgumentKind::Boolean,
+            _ => return Err(PyValueError::new_err("Unknown scheduled job argument kind")),
+        };
+        let Some(argument) = value
+            .to_str()
+            .ok()
+            .and_then(|value| scheduled_input::parse(value, kind))
+        else {
+            return Ok(None);
+        };
+        let value = match argument {
+            ScheduledArgument::Integer(value) => value.into_bound_py_any(py)?,
+            ScheduledArgument::Recipients(value) => value.into_bound_py_any(py)?,
+            ScheduledArgument::Boolean(value) => value.into_bound_py_any(py)?,
+        };
+        Ok(Some(value))
     }
 
     #[pyfunction]

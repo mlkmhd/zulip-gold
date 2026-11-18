@@ -260,6 +260,43 @@ class ScheduledMessageTest(ZulipTestCase):
         )
         self.assert_json_error(result, 'to["int"] is not an integer')
 
+    def test_schedule_message_validates_strict_json_arguments(self) -> None:
+        owner = self.example_user("hamlet")
+        payload = {
+            "type": "channel",
+            "to": str(self.get_stream_id("Verona")),
+            "topic": "Strict JSON",
+            "content": "Scheduled content",
+            "scheduled_delivery_timestamp": str(int(time.time()) + 86400),
+        }
+        cases = [
+            ("to", "[true]", 'to["int"] is not an integer'),
+            ("to", "[1,", "to is not valid JSON"),
+            (
+                "scheduled_delivery_timestamp",
+                "42.0",
+                "scheduled_delivery_timestamp is not an integer",
+            ),
+            ("read_by_sender", "1", "read_by_sender is not a boolean"),
+        ]
+        for parameter, value, message in cases:
+            with self.subTest(parameter=parameter, value=value):
+                response = self.api_post(
+                    owner, "/api/v1/scheduled_messages", {**payload, parameter: value}
+                )
+                self.assert_json_error(response, message)
+        self.assertFalse(ScheduledMessage.objects.exists())
+
+        for read_by_sender in (False, True):
+            response = self.api_post(
+                owner,
+                "/api/v1/scheduled_messages",
+                {**payload, "read_by_sender": orjson.dumps(read_by_sender).decode()},
+            )
+            data = self.assert_json_success(response)
+            job = ScheduledMessage.objects.get(id=data["scheduled_message_id"])
+            self.assertEqual(job.read_by_sender, read_by_sender)
+
     def test_scheduled_batch_preserves_order_and_rolls_back_attachment_claims(self) -> None:
         self.login("hamlet")
         owner = self.example_user("hamlet")
