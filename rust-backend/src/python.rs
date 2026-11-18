@@ -244,6 +244,14 @@ mod _zulip_backend {
     }
 
     #[pyfunction]
+    fn normalize_message_body(
+        body: &Bound<'_, PyString>,
+        max_length: usize,
+    ) -> Option<(Option<String>, Option<&'static str>)> {
+        Some(normalize_draft_body(body.to_str().ok()?, max_length))
+    }
+
+    #[pyfunction]
     fn normalize_draft_topic(topic: &str, max_length: usize) -> Option<String> {
         draft_text::normalize_topic(topic, max_length).map(std::borrow::Cow::into_owned)
     }

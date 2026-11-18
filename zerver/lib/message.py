@@ -1,9 +1,12 @@
+import os
 import re
+import sys
 from collections import defaultdict
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, Literal, TypedDict
+from importlib import import_module
+from typing import Any, Literal, TypedDict, cast
 
 from django.conf import settings
 from django.db import connection
@@ -209,6 +212,10 @@ class OnlyMessageFields:
 # user has more older unread messages that were cut off.
 MAX_UNREAD_MESSAGES = 50000
 
+_rust_message_body = (
+    import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_MESSAGE_BODY") == "1" else None
+)
+
 
 def truncate_content(content: str, max_length: int, truncation_message: str) -> str:
     if len(content) > max_length:
@@ -217,12 +224,27 @@ def truncate_content(content: str, max_length: int, truncation_message: str) -> 
 
 
 def normalize_body(body: str) -> str:
+    max_length = settings.MAX_MESSAGE_LENGTH
+    if _rust_message_body is not None and 0 <= max_length <= sys.maxsize:
+        result = cast(
+            tuple[str | None, Literal["empty", "null_byte"] | None] | None,
+            _rust_message_body.normalize_message_body(body, max_length),
+        )
+        if result is not None:
+            normalized, error = result
+            if error == "empty":
+                raise JsonableError(_("Message must not be empty"))
+            if error == "null_byte":
+                raise JsonableError(_("Message must not contain null bytes"))
+            assert normalized is not None
+            return normalized
+
     body = body.rstrip().lstrip("\n")
     if len(body) == 0:
         raise JsonableError(_("Message must not be empty"))
     if "\x00" in body:
         raise JsonableError(_("Message must not contain null bytes"))
-    return truncate_content(body, settings.MAX_MESSAGE_LENGTH, "\n[message truncated]")
+    return truncate_content(body, max_length, "\n[message truncated]")
 
 
 def normalize_body_for_import(body: str) -> str:

@@ -1532,7 +1532,7 @@ class MessagePOSTTest(ZulipTestCase):
         """
         self.login("hamlet")
         MAX_MESSAGE_LENGTH = settings.MAX_MESSAGE_LENGTH
-        long_message = "A" * (MAX_MESSAGE_LENGTH + 1)
+        long_message = "\n" + "📝" * (MAX_MESSAGE_LENGTH + 1) + "\u3000"
         post_data = {
             "type": "channel",
             "to": orjson.dumps("Verona").decode(),
@@ -1544,7 +1544,7 @@ class MessagePOSTTest(ZulipTestCase):
 
         sent_message = self.get_last_message()
         self.assertEqual(
-            sent_message.content, "A" * (MAX_MESSAGE_LENGTH - 20) + "\n[message truncated]"
+            sent_message.content, "📝" * (MAX_MESSAGE_LENGTH - 20) + "\n[message truncated]"
         )
 
     def test_long_topic(self) -> None:
