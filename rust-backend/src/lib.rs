@@ -26,3 +26,6 @@ mod python;
 
 #[cfg(feature = "python")]
 mod scheduled_input;
+
+#[cfg(any(feature = "python", test))]
+mod scheduled_validation;

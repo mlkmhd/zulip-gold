@@ -1,7 +1,6 @@
 from typing import Annotated
 
 from django.http import HttpRequest, HttpResponse
-from django.utils.timezone import now as timezone_now
 from django.utils.translation import gettext as _
 from pydantic import NonNegativeInt
 
@@ -10,8 +9,7 @@ from zerver.actions.scheduled_messages import (
     delete_scheduled_message,
     edit_scheduled_message,
 )
-from zerver.lib.exceptions import DeliveryTimeNotInFutureError, JsonableError
-from zerver.lib.recipient_parsing import extract_direct_message_recipient_ids, extract_stream_id
+from zerver.lib.exceptions import JsonableError
 from zerver.lib.request import RequestNotes
 from zerver.lib.response import json_success
 from zerver.lib.scheduled_messages import (
@@ -20,8 +18,9 @@ from zerver.lib.scheduled_messages import (
     ScheduledJobRecipients,
     get_undelivered_reminders,
     get_undelivered_scheduled_messages,
+    parse_scheduled_message_recipient,
+    validate_scheduled_delivery_time,
 )
-from zerver.lib.timestamp import timestamp_to_datetime
 from zerver.lib.typed_endpoint import (
     ApiParamConfig,
     OptionalTopic,
@@ -110,9 +109,7 @@ def update_scheduled_message_backend(
 
     deliver_at = None
     if scheduled_delivery_timestamp is not None:
-        deliver_at = timestamp_to_datetime(scheduled_delivery_timestamp)
-        if deliver_at <= timezone_now():
-            raise DeliveryTimeNotInFutureError
+        deliver_at = validate_scheduled_delivery_time(scheduled_delivery_timestamp)
 
     sender = user_profile
     client = RequestNotes.get_notes(request).client
@@ -148,31 +145,13 @@ def create_scheduled_message_backend(
     scheduled_delivery_timestamp: ScheduledJobInteger,
     topic_name: OptionalTopic = None,
 ) -> HttpResponse:
-    recipient_type_name = req_type
-    if recipient_type_name == "direct":
-        # For now, use "private" from Message.API_RECIPIENT_TYPES.
-        # TODO: Use "direct" here, as well as in events and
-        # scheduled message objects/dicts.
-        recipient_type_name = "private"
-    elif recipient_type_name == "channel":
-        # For now, use "stream" from Message.API_RECIPIENT_TYPES.
-        # TODO: Use "channel" here, as well as in events and
-        # message (created, scheduled, drafts) objects/dicts.
-        recipient_type_name = "stream"
-
-    deliver_at = timestamp_to_datetime(scheduled_delivery_timestamp)
-    if deliver_at <= timezone_now():
-        raise DeliveryTimeNotInFutureError
+    deliver_at = validate_scheduled_delivery_time(scheduled_delivery_timestamp)
 
     sender = user_profile
     client = RequestNotes.get_notes(request).client
     assert client is not None
 
-    if recipient_type_name == "stream":
-        stream_id = extract_stream_id(req_to)
-        message_to = [stream_id]
-    else:
-        message_to = extract_direct_message_recipient_ids(req_to)
+    recipient_type_name, message_to = parse_scheduled_message_recipient(req_type, req_to)
 
     scheduled_message_id = check_schedule_message(
         sender,

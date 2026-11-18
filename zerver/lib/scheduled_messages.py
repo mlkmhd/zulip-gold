@@ -1,12 +1,16 @@
 import os
+from datetime import datetime, timedelta, timezone
 from importlib import import_module
 from typing import Annotated, Literal
 
+from django.utils.timezone import now as timezone_now
 from django.utils.translation import gettext as _
 from pydantic import Json, ValidatorFunctionWrapHandler, WrapValidator
 
-from zerver.lib.exceptions import ResourceNotFoundError
+from zerver.lib.exceptions import DeliveryTimeNotInFutureError, JsonableError, ResourceNotFoundError
 from zerver.lib.partial import partial
+from zerver.lib.recipient_parsing import extract_direct_message_recipient_ids, extract_stream_id
+from zerver.lib.timestamp import timestamp_to_datetime
 from zerver.models import ScheduledMessage, UserProfile
 from zerver.models.scheduled_jobs import (
     APIReminderDirectMessageDict,
@@ -19,6 +23,17 @@ _rust_scheduled_job_input = (
     if os.environ.get("ZULIP_RUST_SCHEDULED_JOB_INPUT") == "1"
     else None
 )
+_rust_scheduled_job_timestamp = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_SCHEDULED_JOB_TIMESTAMP") == "1"
+    else None
+)
+_rust_scheduled_message_recipient = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_SCHEDULED_MESSAGE_RECIPIENT") == "1"
+    else None
+)
+_UNIX_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 def parse_scheduled_job_argument(
@@ -42,6 +57,51 @@ ScheduledJobRecipients = Annotated[
 ScheduledJobBoolean = Annotated[
     Json[bool], WrapValidator(partial(parse_scheduled_job_argument, "boolean"))
 ]
+
+
+def validate_scheduled_delivery_time(timestamp: int) -> datetime:
+    if _rust_scheduled_job_timestamp is not None:
+        since_epoch = timezone_now() - _UNIX_EPOCH
+        now_microseconds = (
+            since_epoch.days * 86_400 + since_epoch.seconds
+        ) * 1_000_000 + since_epoch.microseconds
+        future = _rust_scheduled_job_timestamp.scheduled_delivery_time_is_future(
+            timestamp, now_microseconds
+        )
+        if future is not None:
+            if not future:
+                raise DeliveryTimeNotInFutureError
+            return _UNIX_EPOCH + timedelta(seconds=timestamp)
+
+    deliver_at = timestamp_to_datetime(timestamp)
+    if deliver_at <= timezone_now():
+        raise DeliveryTimeNotInFutureError
+    return deliver_at
+
+
+def parse_scheduled_message_recipient(
+    message_type: str, to: int | list[int]
+) -> tuple[str, list[int]]:
+    if _rust_scheduled_message_recipient is not None:
+        recipient_type, error = (
+            _rust_scheduled_message_recipient.classify_scheduled_message_recipient(
+                message_type, len(to) if isinstance(to, list) else None
+            )
+        )
+        if error == "channel_list":
+            raise JsonableError(_("Invalid data type for channel ID"))
+        if error == "direct_integer":
+            raise JsonableError(_("Invalid data type for recipients"))
+        if error == "empty_direct_list":
+            raise JsonableError(_("Message must have recipients"))
+        assert recipient_type in ("stream", "private")
+    else:
+        recipient_type = "stream" if message_type in ("channel", "stream") else "private"
+
+    if recipient_type == "stream":
+        return "stream", [extract_stream_id(to)]
+    # The first invalid user ID reported by Addressee depends on Python's set order.
+    return "private", extract_direct_message_recipient_ids(to)
 
 
 def access_scheduled_message(

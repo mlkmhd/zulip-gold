@@ -11,6 +11,7 @@ use crate::draft_fields::{DraftFields, Recipients};
 use crate::draft_input::{self, DraftInput, Location, ParseError, Timestamp};
 use crate::draft_recipients::{DirectRecipient, DirectRecipientError, validate_direct_recipients};
 use crate::scheduled_input::{self, ArgumentKind, ScheduledArgument};
+use crate::scheduled_validation::{self, RecipientError, RecipientKind};
 use crate::{
     alert_words, bot_storage, direct_message_group, draft_text, draft_timestamp, memcached,
     stream_color, user_status,
@@ -319,6 +320,26 @@ mod _zulip_backend {
             ScheduledArgument::Boolean(value) => value.into_bound_py_any(py)?,
         };
         Ok(Some(value))
+    }
+
+    #[pyfunction]
+    fn scheduled_delivery_time_is_future(timestamp: &Bound<'_, PyAny>, now: i64) -> Option<bool> {
+        scheduled_validation::delivery_time_is_future(timestamp.extract::<i64>().ok()?, now)
+    }
+
+    #[pyfunction]
+    fn classify_scheduled_message_recipient(
+        message_type: &str,
+        list_length: Option<usize>,
+    ) -> (Option<&'static str>, Option<&'static str>) {
+        match scheduled_validation::classify_recipient(message_type, list_length) {
+            Ok(RecipientKind::Channel) => (Some("stream"), None),
+            Ok(RecipientKind::Direct) => (Some("private"), None),
+            Err(RecipientError::ChannelList) => (None, Some("channel_list")),
+            Err(RecipientError::DirectInteger) => (None, Some("direct_integer")),
+            Err(RecipientError::EmptyDirectList) => (None, Some("empty_direct_list")),
+            Err(RecipientError::InvalidType) => (None, Some("invalid_type")),
+        }
     }
 
     #[pyfunction]

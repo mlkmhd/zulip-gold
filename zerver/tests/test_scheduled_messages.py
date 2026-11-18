@@ -297,6 +297,115 @@ class ScheduledMessageTest(ZulipTestCase):
             job = ScheduledMessage.objects.get(id=data["scheduled_message_id"])
             self.assertEqual(job.read_by_sender, read_by_sender)
 
+    def test_schedule_message_recipient_shapes_and_aliases(self) -> None:
+        self.login("hamlet")
+        hamlet = self.example_user("hamlet")
+        othello = self.example_user("othello")
+        channel = self.get_stream_id("Verona")
+        payload = {
+            "topic": "Recipient validation",
+            "content": "**Scheduled content**",
+            "scheduled_delivery_timestamp": str(int(time.time()) + 86400),
+        }
+        for recipient_type, to, error in [
+            ("channel", f"[{channel}]", "Invalid data type for channel ID"),
+            ("stream", "[]", "Invalid data type for channel ID"),
+            ("direct", str(othello.id), "Invalid data type for recipients"),
+            ("private", "[]", "Message must have recipients"),
+        ]:
+            with self.subTest(recipient_type=recipient_type, to=to):
+                self.assert_json_error(
+                    self.api_post(
+                        hamlet,
+                        "/api/v1/scheduled_messages",
+                        {**payload, "type": recipient_type, "to": to},
+                    ),
+                    error,
+                )
+        invalid_ids = [999_999_999, 999_999_998, 999_999_999]
+        self.assert_json_error(
+            self.api_post(
+                hamlet,
+                "/api/v1/scheduled_messages",
+                {**payload, "type": "direct", "to": orjson.dumps(invalid_ids).decode()},
+            ),
+            f"Invalid user ID {next(iter(set(invalid_ids)))}",
+        )
+        self.assertFalse(ScheduledMessage.objects.exists())
+
+        for recipient_type, to, expected_type, expected_users in [
+            ("stream", str(channel), Recipient.STREAM, []),
+            ("channel", str(channel), Recipient.STREAM, []),
+            (
+                "private",
+                f"[{othello.id},{othello.id}]",
+                Recipient.DIRECT_MESSAGE_GROUP,
+                [hamlet.id, othello.id],
+            ),
+            ("direct", f"[{hamlet.id},{hamlet.id}]", Recipient.DIRECT_MESSAGE_GROUP, [hamlet.id]),
+        ]:
+            with self.subTest(recipient_type=recipient_type, to=to):
+                data = self.assert_json_success(
+                    self.client_post(
+                        "/json/scheduled_messages",
+                        {**payload, "type": recipient_type, "to": to},
+                        HTTP_USER_AGENT="Mozilla/5.0",
+                    )
+                )
+                job = ScheduledMessage.objects.get(id=data["scheduled_message_id"])
+                self.assertEqual(job.recipient.type, expected_type)
+                self.assertEqual(job.rendered_content, "<p><strong>Scheduled content</strong></p>")
+                if expected_type == Recipient.STREAM:
+                    self.assertEqual(job.recipient.type_id, channel)
+                else:
+                    group = get_direct_message_group(expected_users)
+                    assert group is not None
+                    self.assertEqual(job.recipient_id, group.recipient_id)
+                self.assertEqual(job.read_by_sender, expected_users != [hamlet.id])
+
+    def test_schedule_message_delivery_time_precedes_recipient_lookup(self) -> None:
+        owner = self.example_user("hamlet")
+        timestamp = 2_000_000_000
+        deliver_at = timestamp_to_datetime(timestamp)
+        payload = {
+            "type": "channel",
+            "to": "[]",
+            "topic": "Delivery time",
+            "content": "Scheduled content",
+            "scheduled_delivery_timestamp": str(timestamp),
+        }
+        endpoint = "/api/v1/scheduled_messages"
+        with time_machine.travel(deliver_at, tick=False):
+            self.assert_json_error(
+                self.api_post(owner, endpoint, payload),
+                "Scheduled delivery time must be in the future.",
+            )
+            self.assert_json_error(
+                self.api_post(owner, endpoint, {**payload, "to": "[true]"}),
+                'to["int"] is not an integer',
+            )
+            self.assertFalse(ScheduledMessage.objects.exists())
+
+        with time_machine.travel(deliver_at - timedelta(microseconds=1), tick=False):
+            self.assert_json_error(
+                self.api_post(owner, endpoint, payload), "Invalid data type for channel ID"
+            )
+            data = self.assert_json_success(
+                self.api_post(owner, endpoint, {**payload, "to": str(self.get_stream_id("Verona"))})
+            )
+            job = ScheduledMessage.objects.get(id=data["scheduled_message_id"])
+            self.assertEqual(job.scheduled_timestamp, deliver_at)
+
+        with time_machine.travel(deliver_at, tick=False):
+            self.assert_json_error(
+                self.api_patch(
+                    owner, f"{endpoint}/{job.id}", {"scheduled_delivery_timestamp": str(timestamp)}
+                ),
+                "Scheduled delivery time must be in the future.",
+            )
+        job.refresh_from_db()
+        self.assertEqual(job.scheduled_timestamp, deliver_at)
+
     def test_scheduled_batch_preserves_order_and_rolls_back_attachment_claims(self) -> None:
         self.login("hamlet")
         owner = self.example_user("hamlet")
