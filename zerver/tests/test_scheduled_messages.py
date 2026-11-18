@@ -29,7 +29,7 @@ from zerver.actions.scheduled_messages import (
     edit_scheduled_message,
     try_deliver_one_scheduled_message,
 )
-from zerver.actions.streams import do_change_stream_group_based_setting
+from zerver.actions.streams import do_change_stream_group_based_setting, do_deactivate_stream
 from zerver.actions.users import change_user_is_active
 from zerver.lib.addressee import Addressee
 from zerver.lib.message import is_message_to_self
@@ -341,6 +341,49 @@ class ScheduledMessageTest(ZulipTestCase):
             self.assertEqual(job.sender, author)
             self.assertEqual(job.topic_name(), topic_name.lower())
             self.assertEqual(job.stream, stream)
+
+    def test_scheduled_channel_permission_is_rechecked_on_edit_and_delivery(self) -> None:
+        sender = self.example_user("hamlet")
+        admin = self.example_user("iago")
+        stream = get_stream("Verona", sender.realm)
+        members = NamedUserGroup.objects.get(name="hamletcharacters", realm=sender.realm)
+        do_change_stream_group_based_setting(
+            stream, "can_send_message_group", members, acting_user=admin
+        )
+        endpoint = "/api/v1/scheduled_messages"
+        content = "Scheduled before the channel was archived"
+        payload = {
+            "type": "channel",
+            "to": str(stream.id),
+            "topic": "Archive during scheduling",
+            "content": content,
+            "scheduled_delivery_timestamp": int(time.time()) + 86400,
+        }
+        job_id = self.assert_json_success(self.api_post(sender, endpoint, payload))[
+            "scheduled_message_id"
+        ]
+        job = ScheduledMessage.objects.get(id=job_id)
+
+        do_deactivate_stream(stream, acting_user=admin)
+        self.assert_json_error(
+            self.api_post(admin, endpoint, payload),
+            "You do not have permission to post in this channel.",
+        )
+        archived_error = f"Not authorized to send to channel '{stream.name}'"
+        self.assert_json_error(
+            self.api_patch(sender, f"{endpoint}/{job_id}", {"content": "Edited"}), archived_error
+        )
+        job.refresh_from_db()
+        self.assertEqual(job.content, content)
+
+        with time_machine.travel(job.scheduled_timestamp, tick=False):
+            self.verify_deliver_scheduled_message_failure(job, archived_error)
+        self.assertFalse(job.delivered)
+        self.assertFalse(
+            Message.objects.filter(
+                realm=sender.realm, content=content, recipient=stream.recipient
+            ).exists()
+        )
 
     def test_schedule_direct_message_authorization_and_history(self) -> None:
         sender = self.example_user("hamlet")
