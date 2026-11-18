@@ -83,6 +83,11 @@ _rust_markdown_channel_links = (
 _rust_markdown_lists = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_MARKDOWN_LISTS") == "1" else None
 )
+_rust_markdown_horizontal_rules = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_MARKDOWN_HORIZONTAL_RULES") == "1"
+    else None
+)
 _rust_markdown_headings = (
     import_module("_zulip_backend")
     if os.environ.get("ZULIP_RUST_MARKDOWN_HEADINGS") == "1"
@@ -1547,6 +1552,31 @@ class HashHeaderProcessor(markdown.blockprocessors.HashHeaderProcessor):
         super().run(parent, blocks)
 
 
+class HRProcessor(markdown.blockprocessors.HRProcessor):
+    @override
+    def test(self, parent: Element, block: str) -> bool:
+        if _rust_markdown_horizontal_rules is not None:
+            result = _rust_markdown_horizontal_rules.parse_markdown_horizontal_rule(block)
+            if result is not None:
+                return result[0]
+        return super().test(parent, block)
+
+    @override
+    def run(self, parent: Element, blocks: list[str]) -> None:
+        if _rust_markdown_horizontal_rules is not None:
+            result = _rust_markdown_horizontal_rules.parse_markdown_horizontal_rule(blocks[0])
+            if result is not None and result[0]:
+                _, before, after = result
+                blocks.pop(0)
+                if before:
+                    self.parser.parseBlocks(parent, [before])
+                SubElement(parent, "hr")
+                if after:
+                    blocks.insert(0, after)
+                return
+        super().run(parent, blocks)
+
+
 class BlockQuoteProcessor(markdown.blockprocessors.BlockQuoteProcessor):
     """Process block quotes.
 
@@ -2455,7 +2485,7 @@ class ZulipMarkdown(markdown.Markdown):
             )
         parser.blockprocessors.register(HashHeaderProcessor(parser), "hashheader", 80)
         # We get priority 75 from 'table' extension
-        parser.blockprocessors.register(markdown.blockprocessors.HRProcessor(parser), "hr", 70)
+        parser.blockprocessors.register(HRProcessor(parser), "hr", 70)
         parser.blockprocessors.register(OListProcessor(parser), "olist", 65)
         parser.blockprocessors.register(UListProcessor(parser), "ulist", 60)
         parser.blockprocessors.register(BlockQuoteProcessor(parser), "quote", 55)

@@ -40,6 +40,9 @@ mod markdown_fences;
 mod markdown_headings;
 
 #[cfg(feature = "python")]
+mod markdown_horizontal_rules;
+
+#[cfg(feature = "python")]
 mod markdown_inline_mentions;
 
 #[cfg(feature = "python")]

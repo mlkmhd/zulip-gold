@@ -20,9 +20,9 @@ use crate::{
 };
 use crate::{
     markdown_alerts, markdown_blocks, markdown_channel_links, markdown_fences, markdown_headings,
-    markdown_inline_mentions, markdown_lists, markdown_mentions, markdown_upload,
-    markdown_whitespace, reminder_access, reminder_context, reminder_quote, scheduled_attachments,
-    send_permissions,
+    markdown_horizontal_rules, markdown_inline_mentions, markdown_lists, markdown_mentions,
+    markdown_upload, markdown_whitespace, reminder_access, reminder_context, reminder_quote,
+    scheduled_attachments, send_permissions,
 };
 
 type DraftParseResult<T> = (Option<T>, Option<(&'static str, Vec<Location>)>);
@@ -196,6 +196,18 @@ mod _zulip_backend {
                     heading.after.to_owned(),
                 ),
                 None => (None, String::new(), String::new(), String::new()),
+            },
+        )
+    }
+
+    #[pyfunction]
+    fn parse_markdown_horizontal_rule(
+        block: &Bound<'_, PyString>,
+    ) -> Option<(bool, String, String)> {
+        Some(
+            match markdown_horizontal_rules::parse_horizontal_rule(block.to_str().ok()?) {
+                Some(rule) => (true, rule.before.to_owned(), rule.after.to_owned()),
+                None => (false, String::new(), String::new()),
             },
         )
     }
