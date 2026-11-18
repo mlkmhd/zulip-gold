@@ -3540,6 +3540,33 @@ class MarkdownMentionTest(ZulipTestCase):
         assert_silent_mention("```quote\n@*backend*\n```")
         assert_silent_mention("```quote\n@_*backend*\n```")
 
+    def test_mention_display_names_are_escaped(self) -> None:
+        sender = self.example_user("othello")
+        user = create_user(
+            email="markup@example.com",
+            password="whatever",
+            realm=sender.realm,
+            full_name='<User & "📝">',
+        )
+        group = self.create_user_group_for_test("Group <&> 📝")
+        message = Message(sender=sender, sending_client=get_client("test"), realm=sender.realm)
+        for silent in [False, True]:
+            with self.subTest(silent=silent):
+                marker = "_" if silent else ""
+                prefix = "" if silent else "@"
+                suffix = " silent" if silent else ""
+                content = f"@{marker}**|{user.id}** @{marker}*{group.name}*"
+                rendered = render_message_markdown(message, content)
+                self.assertEqual(
+                    rendered.rendered_content,
+                    f'<p><span class="user-mention{suffix}" data-user-id="{user.id}">'
+                    f'{prefix}&lt;User &amp; "📝"&gt;</span> '
+                    f'<span class="user-group-mention{suffix}" data-user-group-id="{group.id}">'
+                    f"{prefix}Group &lt;&amp;&gt; 📝</span></p>",
+                )
+                self.assertEqual(rendered.mentions_user_ids, set() if silent else {user.id})
+                self.assertEqual(rendered.mentions_user_group_ids, set() if silent else {group.id})
+
     def test_quoted_mentions_keep_outside_notifications(self) -> None:
         sender = self.example_user("othello")
         hamlet = self.example_user("hamlet")

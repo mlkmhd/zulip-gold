@@ -87,6 +87,11 @@ _rust_markdown_quote_mentions = (
     if os.environ.get("ZULIP_RUST_MARKDOWN_QUOTE_MENTIONS") == "1"
     else None
 )
+_rust_markdown_inline_mentions = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_MARKDOWN_INLINE_MENTIONS") == "1"
+    else None
+)
 
 
 # Taken from
@@ -1710,6 +1715,34 @@ class LinkifierPattern(CompiledInlineProcessor):
         )
 
 
+MentionSpanFields: TypeAlias = tuple[
+    list[tuple[str, str]] | None,
+    str | None,
+    Literal["user", "group", "stream", "topic"] | None,
+    int | None,
+]
+
+
+def build_mention_span(zmd: "ZulipMarkdown", fields: MentionSpanFields) -> Element | None:
+    attributes, text, notification, id = fields
+    if attributes is None:
+        return None
+    assert text is not None
+    if notification == "user":
+        assert id is not None
+        zmd.zulip_rendering_result.mentions_user_ids.add(id)
+    elif notification == "group":
+        assert id is not None
+        zmd.zulip_rendering_result.mentions_user_group_ids.add(id)
+    elif notification == "stream":
+        zmd.zulip_rendering_result.mentions_stream_wildcard = True
+    elif notification == "topic":
+        zmd.zulip_rendering_result.mentions_topic_wildcard = True
+    el = Element("span", dict(attributes))
+    el.text = markdown.util.AtomicString(text)
+    return el
+
+
 class UserMentionPattern(CompiledInlineProcessor):
     @override
     def handleMatch(  # type: ignore[override] # https://github.com/python/mypy/issues/10197
@@ -1738,6 +1771,18 @@ class UserMentionPattern(CompiledInlineProcessor):
             else:
                 # For @**name** syntax.
                 user = db_data.mention_data.get_user_by_name(name)
+
+            if _rust_markdown_inline_mentions is not None:
+                fields = _rust_markdown_inline_mentions.user_markdown_mention_fields(
+                    name,
+                    silent,
+                    None if user is None else (user.id, user.full_name, user.is_active),
+                )
+                if fields is not None:
+                    el = build_mention_span(self.zmd, fields)
+                    if el is None:
+                        return None, None, None
+                    return el, m.start(), m.end()
 
             user_id = None
             if stream_wildcard:
@@ -1790,6 +1835,18 @@ class UserGroupMentionPattern(CompiledInlineProcessor):
         if db_data is not None:
             user_group = db_data.mention_data.get_user_group(name)
             if user_group:
+                if _rust_markdown_inline_mentions is not None:
+                    fields = _rust_markdown_inline_mentions.group_markdown_mention_fields(
+                        user_group.id,
+                        str(get_user_group_mention_display_name(user_group)),
+                        silent,
+                        user_group.deactivated,
+                    )
+                    if fields is not None:
+                        el = build_mention_span(self.zmd, fields)
+                        assert el is not None
+                        return el, m.start(), m.end()
+
                 if user_group.deactivated:
                     silent = True
 

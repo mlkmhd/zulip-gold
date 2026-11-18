@@ -19,12 +19,35 @@ use crate::{
     url_fragments, user_status,
 };
 use crate::{
-    markdown_alerts, markdown_blocks, markdown_channel_links, markdown_fences, markdown_lists,
-    markdown_mentions, markdown_upload, reminder_access, reminder_context, reminder_quote,
-    scheduled_attachments, send_permissions,
+    markdown_alerts, markdown_blocks, markdown_channel_links, markdown_fences,
+    markdown_inline_mentions, markdown_lists, markdown_mentions, markdown_upload, reminder_access,
+    reminder_context, reminder_quote, scheduled_attachments, send_permissions,
 };
 
 type DraftParseResult<T> = (Option<T>, Option<(&'static str, Vec<Location>)>);
+
+type MentionSpanFields = (
+    Option<Vec<(&'static str, String)>>,
+    Option<String>,
+    Option<&'static str>,
+    Option<i32>,
+);
+
+fn mention_span_fields(span: Option<markdown_inline_mentions::MentionSpan>) -> MentionSpanFields {
+    use markdown_inline_mentions::MentionNotification;
+
+    let Some(span) = span else {
+        return (None, None, None, None);
+    };
+    let (kind, id) = match span.notification {
+        Some(MentionNotification::User(id)) => (Some("user"), Some(id)),
+        Some(MentionNotification::Group(id)) => (Some("group"), Some(id)),
+        Some(MentionNotification::Channel) => (Some("stream"), None),
+        Some(MentionNotification::Topic) => (Some("topic"), None),
+        None => (None, None),
+    };
+    (Some(span.attributes), Some(span.text), kind, id)
+}
 
 struct PythonDraftInteger(NumberInt);
 
@@ -209,6 +232,42 @@ mod _zulip_backend {
         Some(markdown_mentions::silence_quoted_mentions(
             content.to_str().ok()?,
         ))
+    }
+
+    #[pyfunction]
+    fn user_markdown_mention_fields(
+        name: &Bound<'_, PyString>,
+        silent: bool,
+        user: Option<(i32, Bound<'_, PyString>, bool)>,
+    ) -> Option<MentionSpanFields> {
+        let user = match user.as_ref() {
+            Some((id, name, is_active)) => Some(markdown_inline_mentions::MentionUser {
+                id: *id,
+                full_name: name.to_str().ok()?,
+                is_active: *is_active,
+            }),
+            None => None,
+        };
+        Some(mention_span_fields(
+            markdown_inline_mentions::user_mention_span(name.to_str().ok()?, silent, user),
+        ))
+    }
+
+    #[pyfunction]
+    fn group_markdown_mention_fields(
+        group_id: i32,
+        display_name: &Bound<'_, PyString>,
+        silent: bool,
+        deactivated: bool,
+    ) -> Option<MentionSpanFields> {
+        Some(mention_span_fields(Some(
+            markdown_inline_mentions::group_mention_span(
+                group_id,
+                display_name.to_str().ok()?,
+                silent,
+                deactivated,
+            ),
+        )))
     }
 
     #[pyfunction]
