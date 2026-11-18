@@ -11,6 +11,7 @@ use crate::draft_fields::{DraftFields, Recipients};
 use crate::draft_input::{self, DraftInput, Location, ParseError, Timestamp};
 use crate::draft_recipients::{DirectRecipient, DirectRecipientError, validate_direct_recipients};
 use crate::reminder_quote;
+use crate::scheduled_fields::{MessageFields, Recipient, ScheduledJob};
 use crate::scheduled_input::{self, ArgumentKind, ScheduledArgument};
 use crate::scheduled_validation::{self, RecipientError, RecipientKind};
 use crate::{
@@ -372,6 +373,49 @@ mod _zulip_backend {
             Err(RecipientError::EmptyDirectList) => (None, Some("empty_direct_list")),
             Err(RecipientError::InvalidType) => (None, Some("invalid_type")),
         }
+    }
+
+    #[pyfunction(signature = (id, to, topic, content, timestamp, failed, reminder_target_message_id=None))]
+    fn serialize_scheduled_job(
+        id: i64,
+        to: Vec<i32>,
+        topic: Option<String>,
+        content: (String, String),
+        timestamp: i64,
+        failed: bool,
+        reminder_target_message_id: Option<i32>,
+    ) -> PyResult<ScheduledJob> {
+        let recipient = if let Some(topic) = topic {
+            let [channel_id] = to.as_slice() else {
+                return Err(PyValueError::new_err(
+                    "Expected exactly one scheduled channel ID",
+                ));
+            };
+            Recipient::Channel {
+                to: *channel_id,
+                topic,
+            }
+        } else {
+            Recipient::Direct { to }
+        };
+        let fields = MessageFields {
+            recipient,
+            content: content.0,
+            rendered_content: content.1,
+            scheduled_delivery_timestamp: timestamp,
+            failed,
+        };
+        Ok(match reminder_target_message_id {
+            Some(reminder_target_message_id) => ScheduledJob::Reminder {
+                reminder_id: id,
+                fields,
+                reminder_target_message_id,
+            },
+            None => ScheduledJob::Message {
+                scheduled_message_id: id,
+                fields,
+            },
+        })
     }
 
     #[pyfunction]

@@ -30,7 +30,7 @@ mod python;
 #[cfg(any(feature = "python", test))]
 mod reminder_quote;
 
-#[cfg(feature = "http")]
+#[cfg(any(feature = "http", feature = "python"))]
 mod scheduled_fields;
 
 #[cfg(feature = "python")]

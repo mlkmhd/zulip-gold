@@ -1,4 +1,6 @@
-from typing import Literal, TypedDict
+import os
+from importlib import import_module
+from typing import Literal, TypedDict, cast
 
 from django.conf import settings
 from django.db import models
@@ -16,6 +18,12 @@ from zerver.models.realms import Realm
 from zerver.models.recipients import Recipient
 from zerver.models.streams import Stream
 from zerver.models.users import UserProfile
+
+_rust_scheduled_job_serialization = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_SCHEDULED_JOB_SERIALIZATION") == "1"
+    else None
+)
 
 
 class AbstractScheduledJob(models.Model):
@@ -230,23 +238,39 @@ class ScheduledMessage(models.Model):
 
     def to_dict(self) -> APIScheduledStreamMessageDict | APIScheduledDirectMessageDict:
         recipient, recipient_type_str = get_recipient_ids(self.recipient, self.sender.id)
+        is_direct = recipient_type_str == "private"
 
-        if recipient_type_str == "private":
+        if is_direct:
             # The topic for direct messages should always be "\x07".
             assert self.topic_name() == Message.DM_TOPIC
+        else:
+            # The recipient for stream messages should always just be the unique stream ID.
+            assert len(recipient) == 1
 
+        timestamp = datetime_to_timestamp(self.scheduled_timestamp)
+        if _rust_scheduled_job_serialization is not None and not self._state.adding:
+            return cast(
+                APIScheduledStreamMessageDict | APIScheduledDirectMessageDict,
+                _rust_scheduled_job_serialization.serialize_scheduled_job(
+                    self.id,
+                    recipient,
+                    None if is_direct else self.topic_name(),
+                    (self.content, self.rendered_content),
+                    timestamp,
+                    self.failed,
+                ),
+            )
+
+        if is_direct:
             return APIScheduledDirectMessageDict(
                 scheduled_message_id=self.id,
                 to=recipient,
                 type=recipient_type_str,
                 content=self.content,
                 rendered_content=self.rendered_content,
-                scheduled_delivery_timestamp=datetime_to_timestamp(self.scheduled_timestamp),
+                scheduled_delivery_timestamp=timestamp,
                 failed=self.failed,
             )
-
-        # The recipient for stream messages should always just be the unique stream ID.
-        assert len(recipient) == 1
 
         return APIScheduledStreamMessageDict(
             scheduled_message_id=self.id,
@@ -255,7 +279,7 @@ class ScheduledMessage(models.Model):
             content=self.content,
             rendered_content=self.rendered_content,
             topic=self.topic_name(),
-            scheduled_delivery_timestamp=datetime_to_timestamp(self.scheduled_timestamp),
+            scheduled_delivery_timestamp=timestamp,
             failed=self.failed,
         )
 
@@ -263,13 +287,27 @@ class ScheduledMessage(models.Model):
         assert self.reminder_target_message_id is not None
         recipient, recipient_type_str = get_recipient_ids(self.recipient, self.sender.id)
         assert recipient_type_str == "private"
+        timestamp = datetime_to_timestamp(self.scheduled_timestamp)
+        if _rust_scheduled_job_serialization is not None and not self._state.adding:
+            return cast(
+                APIReminderDirectMessageDict,
+                _rust_scheduled_job_serialization.serialize_scheduled_job(
+                    self.id,
+                    recipient,
+                    None,
+                    (self.content, self.rendered_content),
+                    timestamp,
+                    self.failed,
+                    self.reminder_target_message_id,
+                ),
+            )
         return APIReminderDirectMessageDict(
             reminder_id=self.id,
             to=recipient,
             type="private",
             content=self.content,
             rendered_content=self.rendered_content,
-            scheduled_delivery_timestamp=datetime_to_timestamp(self.scheduled_timestamp),
+            scheduled_delivery_timestamp=timestamp,
             failed=self.failed,
             reminder_target_message_id=self.reminder_target_message_id,
         )
