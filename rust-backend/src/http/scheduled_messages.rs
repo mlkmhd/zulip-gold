@@ -1,5 +1,6 @@
-use serde::Serialize;
 use tokio_postgres::{Client, Error, Row};
+
+use crate::scheduled_fields::{MessageFields, Recipient, ScheduledJob};
 
 pub(super) const PATH: &str = "/api/v1/scheduled_messages";
 pub(super) const SESSION_PATH: &str = "/json/scheduled_messages";
@@ -16,41 +17,6 @@ const STREAM: i16 = 2;
 pub(super) enum JobKind {
     Message = 1,
     Reminder = 2,
-}
-
-#[derive(Serialize)]
-#[serde(tag = "type")]
-enum Recipient {
-    #[serde(rename = "stream")]
-    Channel { to: i32, topic: String },
-    #[serde(rename = "private")]
-    Direct { to: Vec<i32> },
-}
-
-#[derive(Serialize)]
-pub(super) struct MessageFields {
-    #[serde(flatten)]
-    recipient: Recipient,
-    content: String,
-    rendered_content: String,
-    scheduled_delivery_timestamp: i64,
-    failed: bool,
-}
-
-#[derive(Serialize)]
-#[serde(untagged)]
-pub(super) enum ScheduledJob {
-    Message {
-        scheduled_message_id: i64,
-        #[serde(flatten)]
-        fields: MessageFields,
-    },
-    Reminder {
-        reminder_id: i64,
-        #[serde(flatten)]
-        fields: MessageFields,
-        reminder_target_message_id: i32,
-    },
 }
 
 impl ScheduledJob {
