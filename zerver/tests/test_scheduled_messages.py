@@ -399,6 +399,33 @@ class ScheduledMessageTest(ZulipTestCase):
         self.assertEqual(job.sender, sender)
         self.assertEqual(job.recipient, pending_job.recipient)
 
+    def test_schedule_direct_message_respects_guest_recipient_visibility(self) -> None:
+        self.set_up_db_for_testing_user_access()
+        guest = self.example_user("polonius")
+        visible = self.example_user("hamlet")
+        hidden = self.example_user("othello")
+        payload = {
+            "type": "direct",
+            "to": orjson.dumps([visible.id, hidden.id]).decode(),
+            "content": "Scheduled DM",
+            "scheduled_delivery_timestamp": int(time.time()) + 86400,
+        }
+        response = self.api_post(guest, "/api/v1/scheduled_messages", payload)
+        self.assert_json_error(
+            response, "You do not have permission to access some of the recipients."
+        )
+        self.assertFalse(ScheduledMessage.objects.exists())
+        self.assertIsNone(get_direct_message_group([guest.id, visible.id, hidden.id]))
+
+        self.send_personal_message(hidden, guest)
+        response = self.api_post(guest, "/api/v1/scheduled_messages", payload)
+        job = ScheduledMessage.objects.get(
+            id=self.assert_json_success(response)["scheduled_message_id"]
+        )
+        group = get_direct_message_group([guest.id, visible.id, hidden.id])
+        assert group is not None
+        self.assertEqual(job.recipient_id, group.recipient_id)
+
     def test_schedule_message_validates_strict_json_arguments(self) -> None:
         owner = self.example_user("hamlet")
         payload = {

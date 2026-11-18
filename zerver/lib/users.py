@@ -4,11 +4,13 @@ import unicodedata
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from email.headerregistry import Address
+from importlib import import_module
 from operator import attrgetter
 from typing import Any, TypedDict
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.db import connection
 from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.db.models.functions import Upper
 from django.utils.translation import gettext as _
@@ -814,12 +816,24 @@ def get_inaccessible_users_queryset(
     return target_human_users.exclude(Exists(common_subscriptions))
 
 
-def has_inaccessible_users(target_user_ids: list[int], acting_user: UserProfile) -> bool:
+def has_inaccessible_users(
+    target_user_ids: list[int], acting_user: UserProfile, *, use_rust: bool = False
+) -> bool:
     if len(target_user_ids) == 1 and target_user_ids[0] == acting_user.id:
         return False
 
     if check_user_can_access_all_users(acting_user):
         return False
+
+    if use_rust:
+        with connection.cursor() as cursor:
+            return import_module("_zulip_backend").dm_has_inaccessible_recipients(
+                cursor,
+                target_user_ids,
+                acting_user.id,
+                Recipient.DIRECT_MESSAGE_GROUP,
+                Recipient.STREAM,
+            )
 
     return get_inaccessible_users_queryset(target_user_ids, acting_user).exists()
 

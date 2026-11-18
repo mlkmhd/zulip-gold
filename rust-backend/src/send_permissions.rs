@@ -38,3 +38,17 @@ pub(crate) const CONVERSATION_EXISTS_SQL: &str = "
         SELECT 1 FROM zulip.zerver_message WHERE realm_id = %s AND recipient_id = %s
     )
 ";
+
+pub(crate) const HAS_INACCESSIBLE_RECIPIENTS_SQL: &str = "
+    SELECT EXISTS (
+        SELECT 1 FROM zulip.zerver_userprofile AS u
+        WHERE u.id = ANY(%s::integer[]) AND NOT u.is_bot AND NOT EXISTS (
+            SELECT 1 FROM zulip.zerver_subscription AS target
+            JOIN zulip.zerver_subscription AS own USING (recipient_id)
+            JOIN zulip.zerver_recipient AS r ON r.id = own.recipient_id
+            WHERE target.user_profile_id = u.id AND target.active
+              AND own.user_profile_id = %s AND own.active
+              AND (r.type = %s OR (r.type = %s AND target.is_user_active))
+        )
+    )
+";

@@ -271,6 +271,25 @@ mod _zulip_backend {
     }
 
     #[pyfunction]
+    fn dm_has_inaccessible_recipients(
+        cursor: &Bound<'_, PyAny>,
+        target_user_ids: Vec<i32>,
+        sender_id: i32,
+        dm_group_type: i16,
+        stream_type: i16,
+    ) -> PyResult<bool> {
+        cursor.call_method1(
+            "execute",
+            (
+                send_permissions::HAS_INACCESSIBLE_RECIPIENTS_SQL,
+                (target_user_ids, sender_id, dm_group_type, stream_type),
+            ),
+        )?;
+        let (exists,): (bool,) = cursor.call_method0("fetchone")?.extract()?;
+        Ok(exists)
+    }
+
+    #[pyfunction]
     fn channel_topic_exists(
         cursor: &Bound<'_, PyAny>,
         realm_id: i32,

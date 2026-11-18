@@ -2012,7 +2012,9 @@ def check_message(
 
         dm_involved_user_ids = {user.id for user in recipient_users} | {sender.id}
 
-        check_sender_can_access_recipients(sender, recipient_users)
+        check_sender_can_access_recipients(
+            sender, recipient_users, use_rust=use_rust_for_send_permissions
+        )
 
         recipients_for_user_creation_events = get_recipients_for_user_creation_events(
             realm, sender, recipient_users

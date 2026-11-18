@@ -112,8 +112,8 @@ def recipient_for_user_profiles(
 
 
 def check_sender_can_access_recipients(
-    sender: UserProfile, user_profiles: Sequence[UserProfile]
+    sender: UserProfile, user_profiles: Sequence[UserProfile], *, use_rust: bool = False
 ) -> None:
     recipient_user_ids = [user.id for user in user_profiles]
-    if has_inaccessible_users(recipient_user_ids, sender):
+    if has_inaccessible_users(recipient_user_ids, sender, use_rust=use_rust):
         raise JsonableError(_("You do not have permission to access some of the recipients."))
