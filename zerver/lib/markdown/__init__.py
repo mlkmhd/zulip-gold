@@ -38,7 +38,7 @@ from zerver.lib.camo import get_camo_url
 from zerver.lib.emoji import EMOTICON_RE, codepoint_to_name, name_to_codepoint, translate_emoticons
 from zerver.lib.emoji_utils import emoji_to_hex_codepoint, unqualify_emoji
 from zerver.lib.exceptions import MarkdownRenderingError
-from zerver.lib.markdown import fenced_code
+from zerver.lib.markdown import emphasis, fenced_code
 from zerver.lib.markdown.code_blocks import CodeBlockProcessor, EmptyBlockProcessor
 from zerver.lib.markdown.fenced_code import parse_fence_line
 from zerver.lib.markdown.inline_code import BacktickMatch, backtick_pattern
@@ -2666,9 +2666,7 @@ class ZulipMarkdown(markdown.Markdown):
         # space for us to add our own.
         reg = markdown.util.Registry[markdown.inlinepatterns.Pattern]()
         reg.register(BacktickInlineProcessor(markdown.inlinepatterns.BACKTICK_RE), "backtick", 105)
-        reg.register(
-            markdown.inlinepatterns.DoubleTagPattern(STRONG_EM_RE, "strong,em"), "strong_em", 100
-        )
+        reg.register(emphasis.tag_pattern(STRONG_EM_RE, "strong,em"), "strong_em", 100)
         reg.register(UserMentionPattern(mention.MENTIONS_RE, self), "usermention", 95)
         reg.register(Tex(TEX_RE, self), "tex", 90)
         reg.register(
@@ -2695,9 +2693,9 @@ class ZulipMarkdown(markdown.Markdown):
             "entity",
             40,
         )
-        reg.register(markdown.inlinepatterns.SimpleTagPattern(STRONG_RE, "strong"), "strong", 35)
-        reg.register(markdown.inlinepatterns.SimpleTagPattern(EMPHASIS_RE, "em"), "emphasis", 30)
-        reg.register(markdown.inlinepatterns.SimpleTagPattern(DEL_RE, "del"), "del", 25)
+        reg.register(emphasis.tag_pattern(STRONG_RE, "strong"), "strong", 35)
+        reg.register(emphasis.tag_pattern(EMPHASIS_RE, "em"), "emphasis", 30)
+        reg.register(emphasis.tag_pattern(DEL_RE, "del"), "del", 25)
         reg.register(
             markdown.inlinepatterns.SimpleTextInlineProcessor(
                 markdown.inlinepatterns.NOT_STRONG_RE

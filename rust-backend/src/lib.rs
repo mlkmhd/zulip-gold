@@ -43,6 +43,9 @@ mod markdown_code;
 mod markdown_code_blocks;
 
 #[cfg(feature = "python")]
+mod markdown_emphasis;
+
+#[cfg(feature = "python")]
 mod markdown_fences;
 
 #[cfg(feature = "python")]

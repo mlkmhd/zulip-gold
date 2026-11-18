@@ -20,10 +20,11 @@ use crate::{
 };
 use crate::{
     markdown_alerts, markdown_blockquotes, markdown_blocks, markdown_channel_links, markdown_code,
-    markdown_code_blocks, markdown_fences, markdown_headings, markdown_horizontal_rules,
-    markdown_inline_mentions, markdown_list_blocks, markdown_list_indent, markdown_lists,
-    markdown_mentions, markdown_paragraphs, markdown_tables, markdown_upload, markdown_whitespace,
-    reminder_access, reminder_context, reminder_quote, scheduled_attachments, send_permissions,
+    markdown_code_blocks, markdown_emphasis, markdown_fences, markdown_headings,
+    markdown_horizontal_rules, markdown_inline_mentions, markdown_list_blocks,
+    markdown_list_indent, markdown_lists, markdown_mentions, markdown_paragraphs, markdown_tables,
+    markdown_upload, markdown_whitespace, reminder_access, reminder_context, reminder_quote,
+    scheduled_attachments, send_permissions,
 };
 
 type InlineCodeMatch = (
@@ -34,6 +35,8 @@ type InlineCodeMatch = (
     Option<String>,
     String,
 );
+
+type EmphasisMatch = (String, &'static str, String, Option<&'static str>, String);
 
 type DraftParseResult<T> = (Option<T>, Option<(&'static str, Vec<Location>)>);
 
@@ -335,6 +338,24 @@ mod _zulip_backend {
                     matched.delimiter.map(str::to_owned),
                     matched.code.map(str::to_owned),
                     matched.rendered_text(),
+                )
+            }),
+        ))
+    }
+
+    #[pyfunction]
+    fn find_markdown_emphasis(
+        data: &Bound<'_, PyString>,
+        kind: &str,
+    ) -> Option<(Option<EmphasisMatch>,)> {
+        Some((
+            markdown_emphasis::find_emphasis(data.to_str().ok()?, kind).map(|matched| {
+                (
+                    matched.before.to_owned(),
+                    matched.marker,
+                    matched.text.to_owned(),
+                    matched.closing,
+                    matched.after.to_owned(),
                 )
             }),
         ))
