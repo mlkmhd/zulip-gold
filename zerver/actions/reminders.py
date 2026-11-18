@@ -3,7 +3,7 @@ import datetime
 from django.db import transaction
 
 from zerver.actions.message_send import check_message
-from zerver.actions.scheduled_messages import do_schedule_messages
+from zerver.actions.scheduled_messages import USE_RUST_FOR_SCHEDULED_DM_GROUPS, do_schedule_messages
 from zerver.lib.addressee import Addressee
 from zerver.lib.message import access_message
 from zerver.lib.reminders import get_reminder_formatted_content, notify_remove_reminder
@@ -28,6 +28,7 @@ def schedule_reminder_for_message(
         addressee,
         get_reminder_formatted_content(message, current_user, note),
         current_user.realm,
+        use_rust_for_group_creation=USE_RUST_FOR_SCHEDULED_DM_GROUPS,
     )
     send_request.deliver_at = deliver_at
     send_request.reminder_target_message_id = message_id

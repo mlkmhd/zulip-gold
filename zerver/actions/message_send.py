@@ -1916,6 +1916,7 @@ def check_message(
     archived_channel_notice: bool = False,
     no_previews: bool = False,
     acting_user: UserProfile | None = None,
+    use_rust_for_group_creation: bool = False,
 ) -> SendMessageRequest:
     """See
     https://zulip.readthedocs.io/en/latest/subsystems/sending-messages.html
@@ -2013,7 +2014,11 @@ def check_message(
 
         try:
             recipient = recipient_for_user_profiles(
-                recipient_users, forwarder_user_profile, sender, forged=forged
+                recipient_users,
+                forwarder_user_profile,
+                sender,
+                forged=forged,
+                use_rust_for_group_creation=use_rust_for_group_creation,
             )
         except ValidationError as e:
             assert isinstance(e.messages[0], str)

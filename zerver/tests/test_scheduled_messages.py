@@ -35,7 +35,15 @@ from zerver.lib.test_classes import ZulipTestCase, ZulipTransactionTestCase
 from zerver.lib.test_helpers import most_recent_message
 from zerver.lib.test_rust_http import request_test_http, rust_http_service
 from zerver.lib.timestamp import timestamp_to_datetime
-from zerver.models import Attachment, Message, Recipient, ScheduledMessage, UserMessage, UserProfile
+from zerver.models import (
+    Attachment,
+    Message,
+    Recipient,
+    ScheduledMessage,
+    Subscription,
+    UserMessage,
+    UserProfile,
+)
 from zerver.models.clients import get_client
 from zerver.models.recipients import get_direct_message_group, get_or_create_direct_message_group
 from zerver.models.streams import get_stream
@@ -259,6 +267,28 @@ class ScheduledMessageTest(ZulipTestCase):
             "direct", [othello.email], f"{content} 4", scheduled_delivery_timestamp
         )
         self.assert_json_error(result, 'to["int"] is not an integer')
+
+    def test_schedule_group_message_creates_and_reuses_the_recipient(self) -> None:
+        sender, *recipients = [
+            self.example_user(name).id for name in ("hamlet", "othello", "iago", "ZOE")
+        ]
+        members = [sender, *recipients]
+        self.assertIsNone(get_direct_message_group(members))
+        timestamp = int(time.time()) + 86400
+
+        for to in [recipients, [*reversed(recipients), recipients[0]]]:
+            response = self.do_schedule_message("direct", to, "Group message", timestamp)
+            job_id = self.assert_json_success(response)["scheduled_message_id"]
+            job = ScheduledMessage.objects.get(id=job_id)
+            group = get_direct_message_group(members)
+            assert group is not None
+            self.assertEqual(job.recipient_id, group.recipient_id)
+            self.assertCountEqual(
+                Subscription.objects.filter(recipient=group.recipient).values_list(
+                    "user_profile_id", "active", "is_user_active"
+                ),
+                [(member_id, True, True) for member_id in members],
+            )
 
     def test_schedule_message_validates_strict_json_arguments(self) -> None:
         owner = self.example_user("hamlet")
