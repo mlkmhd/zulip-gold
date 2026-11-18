@@ -1840,13 +1840,17 @@ def is_message_to_self(message: Message) -> bool:
 
 
 def get_user_mentions_for_display(user_list: list[UserProfile | UserDisplayRecipient]) -> str:
-    recipient_list = sorted(silent_mention_syntax_for_user(user) for user in user_list)
+    return format_sorted_user_mentions(
+        sorted(silent_mention_syntax_for_user(user) for user in user_list)
+    )
 
+
+def format_sorted_user_mentions(recipient_list: list[str]) -> str:
     if len(recipient_list) == 1:
         return recipient_list[0]
 
-    last_user = recipient_list.pop()
-    other_users: str = ", ".join(recipient_list)
-    if len(recipient_list) > 1:
+    last_user = recipient_list[-1]
+    other_users = ", ".join(recipient_list[:-1])
+    if len(recipient_list) > 2:
         other_users += ","
     return _("{other_users} and {last_user}").format(other_users=other_users, last_user=last_user)
