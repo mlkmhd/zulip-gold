@@ -37,6 +37,9 @@ mod markdown_blockquotes;
 mod markdown_channel_links;
 
 #[cfg(feature = "python")]
+mod markdown_channel_spans;
+
+#[cfg(feature = "python")]
 mod markdown_code;
 
 #[cfg(feature = "python")]

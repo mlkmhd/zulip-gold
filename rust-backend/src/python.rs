@@ -19,12 +19,12 @@ use crate::{
     url_fragments, user_status,
 };
 use crate::{
-    markdown_alerts, markdown_blockquotes, markdown_blocks, markdown_channel_links, markdown_code,
-    markdown_code_blocks, markdown_emphasis, markdown_fences, markdown_headings,
-    markdown_horizontal_rules, markdown_inline_mentions, markdown_list_blocks,
-    markdown_list_indent, markdown_lists, markdown_mentions, markdown_paragraphs, markdown_tables,
-    markdown_upload, markdown_whitespace, reminder_access, reminder_context, reminder_quote,
-    scheduled_attachments, send_permissions,
+    markdown_alerts, markdown_blockquotes, markdown_blocks, markdown_channel_links,
+    markdown_channel_spans, markdown_code, markdown_code_blocks, markdown_emphasis,
+    markdown_fences, markdown_headings, markdown_horizontal_rules, markdown_inline_mentions,
+    markdown_list_blocks, markdown_list_indent, markdown_lists, markdown_mentions,
+    markdown_paragraphs, markdown_tables, markdown_upload, markdown_whitespace, reminder_access,
+    reminder_context, reminder_quote, scheduled_attachments, send_permissions,
 };
 
 type InlineCodeMatch = (
@@ -34,6 +34,13 @@ type InlineCodeMatch = (
     Option<String>,
     Option<String>,
     String,
+);
+
+type ChannelLinkFields = (
+    Vec<(&'static str, String)>,
+    String,
+    bool,
+    Option<&'static str>,
 );
 
 type EmphasisMatch = (String, &'static str, String, Option<&'static str>, String);
@@ -341,6 +348,37 @@ mod _zulip_backend {
                 )
             }),
         ))
+    }
+
+    #[pyfunction]
+    #[pyo3(signature = (channel_id, channel_name, topic_name, with_operand, message_id))]
+    fn markdown_channel_link_fields(
+        channel_id: &Bound<'_, PyInt>,
+        channel_name: &Bound<'_, PyString>,
+        topic_name: Option<Bound<'_, PyString>>,
+        with_operand: Option<Bound<'_, PyInt>>,
+        message_id: Option<Bound<'_, PyString>>,
+    ) -> Option<ChannelLinkFields> {
+        let topic_name = match topic_name.as_ref() {
+            Some(topic) => Some(topic.to_str().ok()?),
+            None => None,
+        };
+        let with_operand = match with_operand.as_ref() {
+            Some(operand) => Some(operand.extract::<i64>().ok()?),
+            None => None,
+        };
+        let message_id = match message_id.as_ref() {
+            Some(id) => Some(id.to_str().ok()?),
+            None => None,
+        };
+        let link = markdown_channel_spans::channel_link(
+            channel_id.extract().ok()?,
+            channel_name.to_str().ok()?,
+            topic_name,
+            with_operand,
+            message_id,
+        );
+        Some((link.attributes, link.text, link.empty_topic, link.tail))
     }
 
     #[pyfunction]

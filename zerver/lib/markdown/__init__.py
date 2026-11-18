@@ -38,7 +38,7 @@ from zerver.lib.camo import get_camo_url
 from zerver.lib.emoji import EMOTICON_RE, codepoint_to_name, name_to_codepoint, translate_emoticons
 from zerver.lib.emoji_utils import emoji_to_hex_codepoint, unqualify_emoji
 from zerver.lib.exceptions import MarkdownRenderingError
-from zerver.lib.markdown import emphasis, fenced_code
+from zerver.lib.markdown import channel_links, emphasis, fenced_code
 from zerver.lib.markdown.code_blocks import CodeBlockProcessor, EmptyBlockProcessor
 from zerver.lib.markdown.fenced_code import parse_fence_line
 from zerver.lib.markdown.inline_code import BacktickMatch, backtick_pattern
@@ -2106,6 +2106,9 @@ class StreamPattern(StreamTopicMessageProcessor):
         stream_id = self.find_stream_id(name)
         if stream_id is None:
             return None, None, None
+        rust_link = channel_links.channel_link(stream_id, name)
+        if rust_link is not None:
+            return rust_link, m.start(), m.end()
         el = Element("a")
         el.set("class", "stream")
         el.set("data-stream-id", str(stream_id))
@@ -2143,13 +2146,22 @@ class StreamTopicPattern(StreamTopicMessageProcessor):
             # This channel only allows the empty topic, so a non-empty
             # topic can never exist in it; don't linkify it.
             return None, None, None
+        channel_topic_object = ChannelTopicInfo(stream_name, topic_name)
+        with_operand = self.get_with_operand(channel_topic_object)
+        rust_link = channel_links.channel_link(
+            stream_id,
+            stream_name,
+            topic_name=topic_name,
+            with_operand=with_operand,
+            empty_topic_name=Message.EMPTY_TOPIC_FALLBACK_NAME,
+        )
+        if rust_link is not None:
+            return rust_link, m.start(), m.end()
         el = Element("a")
         el.set("class", "stream-topic")
         el.set("data-stream-id", str(stream_id))
         stream_url = encode_channel(stream_id, stream_name)
         topic_url = encode_hash_component(topic_name)
-        channel_topic_object = ChannelTopicInfo(stream_name, topic_name)
-        with_operand = self.get_with_operand(channel_topic_object)
         if with_operand is not None:
             link = f"/#narrow/channel/{stream_url}/topic/{topic_url}/with/{with_operand}"
         else:
@@ -2187,6 +2199,15 @@ class StreamTopicMessagePattern(StreamTopicMessageProcessor):
             # This channel only allows the empty topic, so a non-empty
             # topic can never exist in it; don't linkify it.
             return None, None, None
+        rust_link = channel_links.channel_link(
+            stream_id,
+            stream_name,
+            topic_name=topic_name,
+            message_id=message_id,
+            empty_topic_name=Message.EMPTY_TOPIC_FALLBACK_NAME,
+        )
+        if rust_link is not None:
+            return rust_link, m.start(), m.end()
         el = Element("a")
         el.set("class", "message-link")
         stream_url = encode_channel(stream_id, stream_name)
