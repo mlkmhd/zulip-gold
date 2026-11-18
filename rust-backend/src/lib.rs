@@ -6,6 +6,9 @@ pub mod draft_timestamp;
 pub mod stream_color;
 pub mod user_status;
 
+#[cfg(any(feature = "python", test))]
+mod client_defaults;
+
 #[cfg(any(feature = "http", feature = "python"))]
 mod draft_fields;
 

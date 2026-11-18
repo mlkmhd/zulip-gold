@@ -15,8 +15,8 @@ use crate::scheduled_fields::{MessageFields, Recipient, ScheduledJob};
 use crate::scheduled_input::{self, ArgumentKind, ScheduledArgument};
 use crate::scheduled_validation::{self, RecipientError, RecipientKind};
 use crate::{
-    alert_words, bot_storage, direct_message_group, draft_text, draft_timestamp, memcached,
-    message_topic, stream_color, user_status,
+    alert_words, bot_storage, client_defaults, direct_message_group, draft_text, draft_timestamp,
+    memcached, message_topic, stream_color, user_status,
 };
 
 type DraftParseResult<T> = (Option<T>, Option<(&'static str, Vec<Location>)>);
@@ -99,6 +99,13 @@ fn draft_parse_result<T>(
 #[pymodule]
 mod _zulip_backend {
     use super::*;
+
+    #[pyfunction]
+    fn default_read_by_sender(client: &Bound<'_, PyString>, test_suite: bool) -> bool {
+        client
+            .to_str()
+            .is_ok_and(|name| client_defaults::default_read_by_sender(name, test_suite))
+    }
 
     #[pyfunction]
     fn parse_draft(value: &Bound<'_, PyString>) -> DraftParseResult<DraftInput> {

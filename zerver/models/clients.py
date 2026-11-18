@@ -1,4 +1,7 @@
 import hashlib
+import os
+from importlib import import_module
+from typing import cast
 
 from django.conf import settings
 from django.db import models
@@ -6,6 +9,12 @@ from typing_extensions import override
 
 from zerver.lib import cache
 from zerver.lib.cache import cache_with_key
+
+_rust_client_defaults = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_MESSAGE_CLIENT_DEFAULTS") == "1"
+    else None
+)
 
 
 class Client(models.Model):
@@ -27,6 +36,11 @@ class Client(models.Model):
         automatically.
         """
         sending_client = self.name.lower()
+        if _rust_client_defaults is not None:
+            return cast(
+                bool,
+                _rust_client_defaults.default_read_by_sender(sending_client, settings.TEST_SUITE),
+            )
 
         return (
             sending_client

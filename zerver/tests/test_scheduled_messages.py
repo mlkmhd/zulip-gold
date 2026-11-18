@@ -393,6 +393,31 @@ class ScheduledMessageTest(ZulipTestCase):
                     self.assertEqual(job.recipient_id, group.recipient_id)
                 self.assertEqual(job.read_by_sender, expected_users != [hamlet.id])
 
+    def test_scheduled_read_by_sender_default_depends_on_client_and_recipient(self) -> None:
+        owner = self.example_user("hamlet")
+        other = self.example_user("othello")
+        for user_agent, recipient, read_by_sender in [
+            ("curl/8.0", other, False),
+            ("ZulipMobile/26.22.145 (iOS 10.3.1)", other, True),
+            ("ZulipMobile/26.22.145 (iOS 10.3.1)", owner, False),
+        ]:
+            with self.subTest(user_agent=user_agent, recipient=recipient.id):
+                response = self.api_post(
+                    owner,
+                    "/api/v1/scheduled_messages",
+                    {
+                        "type": "direct",
+                        "to": f"[{recipient.id}]",
+                        "content": "Scheduled content",
+                        "scheduled_delivery_timestamp": str(int(time.time()) + 86400),
+                    },
+                    HTTP_USER_AGENT=user_agent,
+                )
+                job_id = self.assert_json_success(response)["scheduled_message_id"]
+                self.assertEqual(
+                    ScheduledMessage.objects.get(id=job_id).read_by_sender, read_by_sender
+                )
+
     def test_schedule_message_delivery_time_precedes_recipient_lookup(self) -> None:
         owner = self.example_user("hamlet")
         timestamp = 2_000_000_000
