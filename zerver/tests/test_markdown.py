@@ -3540,6 +3540,35 @@ class MarkdownMentionTest(ZulipTestCase):
         assert_silent_mention("```quote\n@*backend*\n```")
         assert_silent_mention("```quote\n@_*backend*\n```")
 
+    def test_quoted_mentions_keep_outside_notifications(self) -> None:
+        sender = self.example_user("othello")
+        hamlet = self.example_user("hamlet")
+        backend = self.create_user_group_for_test("backend")
+        message = Message(sender=sender, sending_client=get_client("test"), realm=sender.realm)
+        quoted = "@**King Hamlet** @*backend* @**all** @**topic**"
+        for content in [
+            f"> {quoted}",
+            f"```quote\n{quoted}\n```",
+            f"```quote\n> {quoted}\n```",
+        ]:
+            with self.subTest(content=content):
+                rendered = render_message_markdown(message, content)
+                self.assertEqual(rendered.mentions_user_ids, set())
+                self.assertEqual(rendered.mentions_user_group_ids, set())
+                self.assertFalse(rendered.mentions_stream_wildcard)
+                self.assertFalse(rendered.mentions_topic_wildcard)
+                self.assertIn(
+                    f'class="user-mention silent" data-user-id="{hamlet.id}"',
+                    rendered.rendered_content,
+                )
+                self.assertIn(f'data-user-group-id="{backend.id}"', rendered.rendered_content)
+
+                rendered = render_message_markdown(message, content + "\n\n" + quoted)
+                self.assertEqual(rendered.mentions_user_ids, {hamlet.id})
+                self.assertEqual(rendered.mentions_user_group_ids, {backend.id})
+                self.assertTrue(rendered.mentions_stream_wildcard)
+                self.assertTrue(rendered.mentions_topic_wildcard)
+
 
 class MarkdownStreamTopicMentionTests(ZulipTestCase):
     def test_stream_single(self) -> None:

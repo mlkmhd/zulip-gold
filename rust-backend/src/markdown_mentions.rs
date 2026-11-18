@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
@@ -58,6 +59,29 @@ pub(crate) fn possible_group_mentions(content: &str) -> HashMap<String, &'static
     names
 }
 
+fn silence_mentions<'a>(content: &'a str, stars: &str) -> Cow<'a, str> {
+    let mut output = String::new();
+    let mut copied = 0;
+    visit_mentions(content, stars, |range, _name, silent| {
+        if !silent {
+            output.push_str(&content[copied..range.start + 1]);
+            output.push('_');
+            copied = range.start + 1;
+        }
+    });
+    if copied == 0 {
+        Cow::Borrowed(content)
+    } else {
+        output.push_str(&content[copied..]);
+        Cow::Owned(output)
+    }
+}
+
+pub(crate) fn silence_quoted_mentions(content: &str) -> String {
+    let users = silence_mentions(content, "**");
+    silence_mentions(&users, "*").into_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,6 +122,20 @@ mod tests {
             ]
             .map(|(name, state)| (name.to_owned(), state))
             .into()
+        );
+    }
+
+    #[test]
+    fn silences_users_before_groups_without_changing_other_text() {
+        assert_eq!(
+            silence_quoted_mentions(
+                "> @**User|123** @*group* @_**all** @**topic** x@**hidden** @**open @*nested*"
+            ),
+            "> @_**User|123** @_*group* @_**all** @_**topic** x@**hidden** @**open @_*nested*",
+        );
+        assert_eq!(
+            silence_quoted_mentions("\u{1c}@**ش\n📝** [@*group*] @****"),
+            "\u{1c}@_**ش\n📝** [@_*group*] @****",
         );
     }
 }

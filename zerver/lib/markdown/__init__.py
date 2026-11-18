@@ -82,6 +82,11 @@ _rust_markdown_channel_links = (
 _rust_markdown_lists = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_MARKDOWN_LISTS") == "1" else None
 )
+_rust_markdown_quote_mentions = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_MARKDOWN_QUOTE_MENTIONS") == "1"
+    else None
+)
 
 
 # Taken from
@@ -1543,6 +1548,11 @@ class BlockQuoteProcessor(markdown.blockprocessors.BlockQuoteProcessor):
 
     @override
     def clean(self, line: str) -> str:
+        if _rust_markdown_quote_mentions is not None:
+            rust_result = _rust_markdown_quote_mentions.silence_quoted_markdown_mentions(line)
+            if rust_result is not None:
+                return super().clean(rust_result)
+
         # Silence all the mentions inside blockquotes
         line = mention.MENTIONS_RE.sub(lambda m: "@_**{}**".format(m.group("match")), line)
         # Silence all the user group mentions inside blockquotes

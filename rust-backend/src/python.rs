@@ -205,6 +205,13 @@ mod _zulip_backend {
     }
 
     #[pyfunction]
+    fn silence_quoted_markdown_mentions(content: &Bound<'_, PyString>) -> Option<String> {
+        Some(markdown_mentions::silence_quoted_mentions(
+            content.to_str().ok()?,
+        ))
+    }
+
+    #[pyfunction]
     fn latest_markdown_topic_message(
         cursor: &Bound<'_, PyAny>,
         realm_id: i32,
