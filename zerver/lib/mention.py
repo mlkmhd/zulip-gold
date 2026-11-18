@@ -1,7 +1,9 @@
 import functools
+import os
 import re
 from collections import defaultdict
 from dataclasses import dataclass
+from importlib import import_module
 from re import Match
 from typing import Literal
 
@@ -22,6 +24,12 @@ from zerver.models import NamedUserGroup, UserProfile
 from zerver.models.groups import SystemGroups
 from zerver.models.streams import Stream
 from zerver.models.users import is_cross_realm_bot_email
+
+_rust_markdown_mentions = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_MARKDOWN_MENTIONS") == "1"
+    else None
+)
 
 BEFORE_MENTION_ALLOWED_REGEX = r"(?<![^\s\'\"\(\{\[\/<])"
 
@@ -314,6 +322,11 @@ def extract_mention_text(m: Match[str]) -> MentionText:
 
 
 def possible_mentions(content: str) -> PossibleMentions:
+    if _rust_markdown_mentions is not None:
+        rust_result = _rust_markdown_mentions.possible_markdown_user_mentions(content)
+        if rust_result is not None:
+            return PossibleMentions(*rust_result)
+
     # mention texts can either be names, or an extended name|id syntax.
     texts = set()
     message_has_topic_wildcards = False
@@ -335,6 +348,11 @@ def possible_mentions(content: str) -> PossibleMentions:
 
 
 def possible_user_group_mentions(content: str) -> dict[str, Literal["silent", "non-silent"]]:
+    if _rust_markdown_mentions is not None:
+        rust_result = _rust_markdown_mentions.possible_markdown_group_mentions(content)
+        if rust_result is not None:
+            return rust_result
+
     # maps each group name to its mention type, silent or non-silent.
     mentions: dict[str, Literal["silent", "non-silent"]] = {}
 

@@ -2918,6 +2918,35 @@ class MarkdownMentionTest(ZulipTestCase):
             True,
         )
 
+    def test_mention_candidate_boundaries_and_overlapping_syntax(self) -> None:
+        self.assertEqual(
+            possible_mentions(
+                "x@**hidden** [@**User|123**] \x1c@_**topic** <@**channel** "
+                "@**Everyone** @**name\nnext** @**incomplete* @_**User|123**"
+            ),
+            PossibleMentions({"User|123", "Everyone", "name\nnext"}, True, True),
+        )
+        self.assertEqual(
+            possible_mentions("@**** @**open @**nested**"),
+            PossibleMentions({"open @"}, False, False),
+        )
+        self.assertEqual(
+            possible_user_group_mentions(
+                "@_*support* @*support* @_*support* @*dev* @_*dev* "
+                "@**User** [@_*ش\ngroup*] x@*hidden* @**unclosed @*last*"
+            ),
+            {
+                "support": "non-silent",
+                "dev": "non-silent",
+                "ش\ngroup": "silent",
+                "last": "non-silent",
+            },
+        )
+        self.assertEqual(
+            possible_mentions("@**\ud800**"), PossibleMentions({"\ud800"}, False, False)
+        )
+        self.assertEqual(possible_user_group_mentions("@*\ud800*"), {"\ud800": "non-silent"})
+
     def test_mention_multiple(self) -> None:
         sender_user_profile = self.example_user("othello")
         hamlet = self.example_user("hamlet")

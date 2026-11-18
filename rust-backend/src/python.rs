@@ -19,8 +19,8 @@ use crate::{
     user_status,
 };
 use crate::{
-    markdown_alerts, markdown_channel_links, markdown_upload, reminder_access, reminder_context,
-    reminder_quote, scheduled_attachments, send_permissions,
+    markdown_alerts, markdown_channel_links, markdown_mentions, markdown_upload, reminder_access,
+    reminder_context, reminder_quote, scheduled_attachments, send_permissions,
 };
 
 type DraftParseResult<T> = (Option<T>, Option<(&'static str, Vec<Location>)>);
@@ -109,6 +109,24 @@ mod _zulip_backend {
         content: &Bound<'_, PyString>,
     ) -> Option<markdown_channel_links::ChannelLinkReferences> {
         Some(markdown_channel_links::possible_references(
+            content.to_str().ok()?,
+        ))
+    }
+
+    #[pyfunction]
+    fn possible_markdown_user_mentions(
+        content: &Bound<'_, PyString>,
+    ) -> Option<(HashSet<String>, bool, bool)> {
+        Some(markdown_mentions::possible_user_mentions(
+            content.to_str().ok()?,
+        ))
+    }
+
+    #[pyfunction]
+    fn possible_markdown_group_mentions(
+        content: &Bound<'_, PyString>,
+    ) -> Option<HashMap<String, &'static str>> {
+        Some(markdown_mentions::possible_group_mentions(
             content.to_str().ok()?,
         ))
     }

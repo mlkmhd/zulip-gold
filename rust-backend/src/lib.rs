@@ -31,6 +31,9 @@ mod markdown_alerts;
 mod markdown_channel_links;
 
 #[cfg(any(feature = "python", test))]
+mod markdown_mentions;
+
+#[cfg(any(feature = "python", test))]
 mod markdown_upload;
 
 #[cfg(any(feature = "http", feature = "python"))]
