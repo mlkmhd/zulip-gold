@@ -1017,3 +1017,17 @@ OpenAPI و ۲۸ از ۱۹۰ عملیات وب است؛ فایل Python حذف ن
 [کد inline](README.md#parse-markdown-inline-code-through-rust)،
 [کد تورفته](README.md#plan-markdown-indented-code-blocks-through-rust) و
 [سطر جدول](README.md#parse-markdown-tables-through-rust)
+
+## قالب‌بندی متن و فیلدهای لینک داخلی
+
+`ZULIP_RUST_MARKDOWN_EMPHASIS` تشخیص bold، italic و خط‌خورده را در
+Rust انجام می‌دهد. `ZULIP_RUST_MARKDOWN_CHANNEL_SPANS` URL، attribute
+و متن نمایشی لینک کانال، موضوع و پیام را می‌سازد. کنترل دیدپذیری،
+سیاست موضوع و انتخاب لنگر همچنان در Django هستند. ساخت Element،
+escaping، رندر تودرتو، serialization و metadata کامل رندر در Python
+باقی‌اند. هر دو پرچم مستقل و پیش‌فرض خاموش‌اند و fallback قبلی حفظ
+شده است. این برش عملیات HTTP مستقلی اضافه نکرده؛ شمار مسیرها همان
+۲۸ از ۱۷۱ عملیات OpenAPI و ۲۸ از ۱۹۰ عملیات وب است و فایل Python
+حذف نشده است.
+[قالب‌بندی](README.md#parse-markdown-text-emphasis-through-rust)،
+[فیلدهای لینک](README.md#build-markdown-channel-link-fields-through-rust)

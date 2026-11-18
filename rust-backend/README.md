@@ -1698,3 +1698,51 @@ Run the same collections with the flag unset and set:
     zerver.tests.test_markdown zerver.tests.test_scheduled_messages \
     zerver.tests.test_reminders
 ```
+
+## Parse Markdown text emphasis through Rust
+
+Rebuild and install the Python extension, then set
+`ZULIP_RUST_MARKDOWN_EMPHASIS=1` in Django processes to parse bold, italic,
+combined bold/italic, and strikethrough markers in Rust. The bridge preserves
+Python's capture groups, Unicode whitespace rules, marker boundaries, and
+existing processor priorities. Django still builds the elements, renders
+nested inline content, and escapes and serializes the result. Strings with
+lone surrogates use the Python regular expression.
+
+The flag defaults to disabled and is independent of the other Markdown
+bridges. Unset it and restart the processes to roll back. This bridge does
+not enable standalone scheduled message writes.
+
+Run these collections with the flag unset and set, and repeat with the other
+Markdown bridges enabled to check the independent rollback:
+
+```bash
+./tools/test-backend --parallel 1 zerver.tests.test_markdown_emphasis \
+    zerver.tests.test_markdown zerver.tests.test_scheduled_messages \
+    zerver.tests.test_reminders
+```
+
+## Build Markdown channel link fields through Rust
+
+Rebuild and install the Python extension, then set
+`ZULIP_RUST_MARKDOWN_CHANNEL_SPANS=1` in Django processes to build URLs,
+attributes, and display text for channel, topic, and message links in Rust.
+Channel visibility, empty-topic-only channel policy, and topic anchor lookup
+stay in Django. Empty-topic labels and child elements, atomic text and tails,
+HTML escaping, and serialization stay in the existing Python rendering path.
+The bridge preserves message ID strings, including leading zeroes.
+
+The flag defaults to disabled and is independent of the channel reference
+scanner, topic anchor lookup, and URL fragment bridges. Lone surrogates and
+identifiers outside the supported integer range use the Python builder.
+Unset the flag and restart the processes to roll back. This bridge does not
+enable standalone scheduled message writes.
+
+Run these collections with the flag unset and set, then test independent
+rollback with `ZULIP_RUST_MARKDOWN_EMPHASIS` enabled and disabled:
+
+```bash
+./tools/test-backend --parallel 1 zerver.tests.test_markdown_channel_links \
+    zerver.tests.test_markdown_emphasis zerver.tests.test_markdown \
+    zerver.tests.test_scheduled_messages zerver.tests.test_reminders
+```
