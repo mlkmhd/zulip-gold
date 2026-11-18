@@ -10,6 +10,7 @@ use pyo3::types::{PyDict, PyList, PyString};
 use crate::draft_fields::{DraftFields, Recipients};
 use crate::draft_input::{self, DraftInput, Location, ParseError, Timestamp};
 use crate::draft_recipients::{DirectRecipient, DirectRecipientError, validate_direct_recipients};
+use crate::reminder_quote;
 use crate::scheduled_input::{self, ArgumentKind, ScheduledArgument};
 use crate::scheduled_validation::{self, RecipientError, RecipientKind};
 use crate::{
@@ -249,6 +250,15 @@ mod _zulip_backend {
         max_length: usize,
     ) -> Option<(Option<String>, Option<&'static str>)> {
         Some(normalize_draft_body(body.to_str().ok()?, max_length))
+    }
+
+    #[pyfunction]
+    fn append_reminder_quote(
+        prefix: &Bound<'_, PyString>,
+        message: &Bound<'_, PyString>,
+        max_length: usize,
+    ) -> Option<String> {
+        reminder_quote::append_quote(prefix.to_str().ok()?, message.to_str().ok()?, max_length)
     }
 
     #[pyfunction]

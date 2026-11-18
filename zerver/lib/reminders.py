@@ -1,4 +1,7 @@
+import os
+import sys
 from enum import Enum
+from importlib import import_module
 
 from django.conf import settings
 from django.utils.translation import gettext as _
@@ -25,6 +28,10 @@ from zerver.lib.url_encoding import message_link_url, stream_message_url
 from zerver.models import Message, Stream, UserProfile
 from zerver.models.scheduled_jobs import ScheduledMessage
 from zerver.tornado.django_api import send_event_on_commit
+
+_rust_reminder_quote = (
+    import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_REMINDER_QUOTE") == "1" else None
+)
 
 
 def normalize_note_text(body: str) -> str:
@@ -154,6 +161,12 @@ def get_reminder_formatted_content(
     else:
         content += REMINDER_FORMAT[format_recipient_type_key]["text"].format_map(context)
         content += "\n"
+        if _rust_reminder_quote is not None and 0 <= settings.MAX_MESSAGE_LENGTH <= sys.maxsize:
+            quoted: str | None = _rust_reminder_quote.append_reminder_quote(
+                content, message.content, settings.MAX_MESSAGE_LENGTH
+            )
+            if quoted is not None:
+                return quoted
         fence = get_unused_fence(message.content)
         length_without_message_content = len(
             content + MESSAGE_QUOTE_BODY.format(fence=fence, content="")

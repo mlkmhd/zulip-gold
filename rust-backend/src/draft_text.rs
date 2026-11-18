@@ -1,5 +1,7 @@
 use std::borrow::Cow;
 
+pub(crate) const MESSAGE_TRUNCATION_SUFFIX: &str = "\n[message truncated]";
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum BodyError {
     Empty,
@@ -18,7 +20,7 @@ pub fn normalize_body(body: &str, max_length: usize) -> Result<Cow<'_, str>, Bod
     if body.contains('\0') {
         return Err(BodyError::NullByte);
     }
-    Ok(truncate(body, max_length, "\n[message truncated]"))
+    Ok(truncate(body, max_length, MESSAGE_TRUNCATION_SUFFIX))
 }
 
 pub fn normalize_topic(topic: &str, max_length: usize) -> Option<Cow<'_, str>> {
@@ -26,7 +28,7 @@ pub fn normalize_topic(topic: &str, max_length: usize) -> Option<Cow<'_, str>> {
     (!topic.contains('\0')).then_some(topic)
 }
 
-fn truncate<'a>(text: &'a str, max_length: usize, suffix: &str) -> Cow<'a, str> {
+pub(crate) fn truncate<'a>(text: &'a str, max_length: usize, suffix: &str) -> Cow<'a, str> {
     let length = text.chars().count();
     if length <= max_length {
         return Cow::Borrowed(text);

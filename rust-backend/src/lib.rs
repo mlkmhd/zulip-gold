@@ -24,6 +24,9 @@ mod memcached;
 #[cfg(feature = "python")]
 mod python;
 
+#[cfg(any(feature = "python", test))]
+mod reminder_quote;
+
 #[cfg(feature = "python")]
 mod scheduled_input;
 

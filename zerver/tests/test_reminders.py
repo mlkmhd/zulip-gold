@@ -246,7 +246,7 @@ class RemindersTest(ZulipTestCase):
         result = try_deliver_one_scheduled_message()
         self.assertFalse(result)
 
-        content = "x" * 10000
+        content = "سلام📝" * 4 + "x" * 9980
         reminder = self.create_reminder(content)
 
         # mock current time to be greater than the scheduled time, so that the `scheduled_message` can be sent.
