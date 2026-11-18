@@ -19,8 +19,8 @@ use crate::{
     url_fragments, user_status,
 };
 use crate::{
-    markdown_alerts, markdown_channel_links, markdown_mentions, markdown_upload, reminder_access,
-    reminder_context, reminder_quote, scheduled_attachments, send_permissions,
+    markdown_alerts, markdown_channel_links, markdown_fences, markdown_mentions, markdown_upload,
+    reminder_access, reminder_context, reminder_quote, scheduled_attachments, send_permissions,
 };
 
 type DraftParseResult<T> = (Option<T>, Option<(&'static str, Vec<Location>)>);
@@ -111,6 +111,22 @@ mod _zulip_backend {
         Some(markdown_channel_links::possible_references(
             content.to_str().ok()?,
         ))
+    }
+
+    #[pyfunction]
+    fn parse_markdown_fence(
+        line: &Bound<'_, PyString>,
+    ) -> Option<(Option<String>, Option<String>, Option<String>)> {
+        let line = line.to_str().ok()?;
+        let parsed = markdown_fences::parse_fence_line(line);
+        Some(match parsed {
+            Some(parsed) => (
+                Some(parsed.fence.to_owned()),
+                parsed.language.map(str::to_owned),
+                parsed.header.map(str::to_owned),
+            ),
+            None => (None, None, None),
+        })
     }
 
     #[pyfunction]

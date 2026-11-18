@@ -77,8 +77,10 @@ Dependencies:
 """
 
 import logging
+import os
 import re
 from collections.abc import Callable, Iterable, Mapping, MutableSequence, Sequence
+from importlib import import_module
 from typing import Any
 
 import lxml.html
@@ -95,6 +97,10 @@ from zerver.lib.exceptions import MarkdownRenderingError
 from zerver.lib.markdown.priorities import PREPROCESSOR_PRIORITIES
 from zerver.lib.tex import render_tex
 from zerver.models.realm_playgrounds import PLAYGROUND_LANGUAGE_REGEX
+
+_rust_markdown_fences = (
+    import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_MARKDOWN_FENCES") == "1" else None
+)
 
 # Global vars
 FENCE_RE = re.compile(
@@ -257,6 +263,14 @@ def generic_handler(
 
 
 def parse_fence_line(line: str) -> tuple[str, str | None, str | None] | None:
+    if _rust_markdown_fences is not None:
+        rust_result = _rust_markdown_fences.parse_markdown_fence(line)
+        if rust_result is not None:
+            fence, language, header = rust_result
+            if fence is None:
+                return None
+            return fence, language, header
+
     match = FENCE_RE.match(line)
     if match is None:
         return None
