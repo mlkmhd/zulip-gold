@@ -25,6 +25,7 @@ from zerver.actions.message_send import check_message
 from zerver.actions.scheduled_messages import (
     SCHEDULED_MESSAGE_LATE_CUTOFF_MINUTES,
     do_schedule_messages,
+    edit_scheduled_message,
     try_deliver_one_scheduled_message,
 )
 from zerver.actions.users import change_user_is_active
@@ -942,7 +943,33 @@ class ScheduledMessageTest(ZulipTestCase):
         payload = {
             "content": edited_content,
         }
+        with (
+            self.capture_send_event_calls(expected_num_events=0),
+            mock.patch.object(
+                ScheduledMessage, "to_dict", side_effect=ValueError("Serialization failed")
+            ),
+            self.assertRaisesRegex(ValueError, "Serialization failed"),
+        ):
+            edit_scheduled_message(
+                hamlet,
+                get_client("website"),
+                scheduled_message.id,
+                None,
+                None,
+                None,
+                edited_content,
+                None,
+                hamlet.realm,
+            )
+        scheduled_message.refresh_from_db()
+        self.assertEqual(scheduled_message.content, content)
+        self.assertTrue(
+            attachment_object1.scheduled_messages.filter(id=scheduled_message.id).exists()
+        )
+        self.assertFalse(attachment_object2.scheduled_messages.exists())
+
         result = self.client_patch(f"/json/scheduled_messages/{scheduled_message.id}", payload)
+        self.assert_json_success(result)
 
         scheduled_message = self.get_scheduled_message(str(scheduled_message.id))
         self.assertEqual(

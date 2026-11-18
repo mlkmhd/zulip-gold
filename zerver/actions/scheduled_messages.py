@@ -6,7 +6,7 @@ from importlib import import_module
 from typing import cast
 
 from django.conf import settings
-from django.db import connection, transaction
+from django.db import DatabaseError, connection, transaction
 from django.utils.timezone import now as timezone_now
 from django.utils.translation import gettext as _
 from django.utils.translation import override as override_language
@@ -48,6 +48,11 @@ SCHEDULED_MESSAGE_LATE_CUTOFF_MINUTES = 10
 _rust_scheduled_job_creation = (
     import_module("_zulip_backend")
     if os.environ.get("ZULIP_RUST_SCHEDULED_JOB_CREATION") == "1"
+    else None
+)
+_rust_scheduled_message_edit = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_SCHEDULED_MESSAGE_EDIT") == "1"
     else None
 )
 
@@ -327,7 +332,30 @@ def edit_scheduled_message(
         scheduled_message_object.failed = False
         scheduled_message_object.failure_message = None
 
-    scheduled_message_object.save()
+    if _rust_scheduled_message_edit is None:
+        scheduled_message_object.save()
+    else:
+        with connection.cursor() as cursor:
+            updated = _rust_scheduled_message_edit.update_scheduled_message(
+                cursor,
+                {
+                    "id": scheduled_message_object.id,
+                    "sender_id": sender.id,
+                    "delivery_type": ScheduledMessage.SEND_LATER,
+                    "recipient_id": scheduled_message_object.recipient_id,
+                    "stream_id": scheduled_message_object.stream_id,
+                    "subject": scheduled_message_object.subject,
+                    "content": scheduled_message_object.content,
+                    "rendered_content": scheduled_message_object.rendered_content,
+                    "has_attachment": scheduled_message_object.has_attachment,
+                    "scheduled_timestamp": scheduled_message_object.scheduled_timestamp,
+                    "sending_client_id": scheduled_message_object.sending_client_id,
+                    "failed": scheduled_message_object.failed,
+                    "failure_message": scheduled_message_object.failure_message,
+                },
+            )
+        if not updated:
+            raise DatabaseError("Scheduled message update did not affect any rows.")
 
     notify_update_scheduled_message(sender, scheduled_message_object)
 

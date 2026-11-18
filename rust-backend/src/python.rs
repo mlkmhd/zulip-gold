@@ -339,6 +339,29 @@ mod _zulip_backend {
     }
 
     #[pyfunction]
+    fn update_scheduled_message(
+        cursor: &Bound<'_, PyAny>,
+        fields: &Bound<'_, PyDict>,
+    ) -> PyResult<bool> {
+        cursor.call_method1(
+            "execute",
+            (
+                "UPDATE zulip.zerver_scheduledmessage
+                 SET recipient_id = %(recipient_id)s, stream_id = %(stream_id)s,
+                     subject = %(subject)s, content = %(content)s,
+                     rendered_content = %(rendered_content)s, has_attachment = %(has_attachment)s,
+                     scheduled_timestamp = %(scheduled_timestamp)s,
+                     sending_client_id = %(sending_client_id)s,
+                     failed = %(failed)s, failure_message = %(failure_message)s
+                 WHERE id = %(id)s AND sender_id = %(sender_id)s
+                       AND delivery_type = %(delivery_type)s AND NOT delivered",
+                fields,
+            ),
+        )?;
+        Ok(cursor.getattr("rowcount")?.extract::<i64>()? == 1)
+    }
+
+    #[pyfunction]
     fn update_draft(
         cursor: &Bound<'_, PyAny>,
         user_id: i32,
