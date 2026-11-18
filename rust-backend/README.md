@@ -1052,6 +1052,46 @@ Each flag can be unset independently followed by a restart of the affected
 processes. Out-of-range limits and strings containing lone surrogates use
 the existing Python paths where applicable.
 
+## Check scheduled send permissions and resolve upload paths through Rust
+
+Install a fresh PyO3 wheel and set the applicable flags to `1` in Django
+and the scheduled delivery worker.
+
+- `ZULIP_RUST_SCHEDULED_SEND_PERMISSIONS` reads nested posting and topic
+  groups, existing topics, shared subscriptions for guests, direct-message
+  permission groups, and sent conversation history. Django retains validation
+  order, system-group rules, channel lookup, and localized errors.
+- `ZULIP_RUST_REMINDER_ACCESS` looks up message receipt and restricted
+  channel content access during reminder creation and delivery. The worker
+  uses the stored reminder text when the referenced message is inaccessible.
+- `ZULIP_RUST_SCHEDULED_ATTACHMENTS` writes or removes links to authorized
+  attachments inside the scheduled job transaction. Public visibility is
+  updated when a message using the attachment is delivered.
+- `ZULIP_RUST_MARKDOWN_UPLOAD_PATHS` extracts path IDs from common local upload
+  URLs used by the Markdown renderer. Other URLs are handled by the existing
+  Python parser. Django still renders the HTML and authorizes attachment claims.
+- `ZULIP_RUST_URL_FRAGMENTS` encodes channel and topic fragment components
+  and sorts numeric direct-message slugs for links, including in reminder
+  context. Python handles strings with lone surrogates and IDs outside
+  the signed 64-bit range.
+
+Unset any flag and restart the affected processes to roll back that slice.
+To compare these bridges with their Django paths, run the endpoint,
+rendering, upload, and URL suites with both flag values.
+
+```sh
+for mode in 0 1; do
+    ZULIP_RUST_SCHEDULED_SEND_PERMISSIONS=$mode \
+        ZULIP_RUST_REMINDER_ACCESS=$mode \
+        ZULIP_RUST_SCHEDULED_ATTACHMENTS=$mode \
+        ZULIP_RUST_MARKDOWN_UPLOAD_PATHS=$mode \
+        ZULIP_RUST_URL_FRAGMENTS=$mode ./tools/test-backend \
+        zerver.tests.test_scheduled_messages zerver.tests.test_reminders \
+        zerver.tests.test_markdown zerver.tests.test_upload.FileUploadTest \
+        zerver.tests.test_url_encoding zerver.tests.test_topic_link_util
+done
+```
+
 ## Run scheduled job database operations through Rust
 
 Install a fresh PyO3 wheel in the Zulip environment, then set any of these
