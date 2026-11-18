@@ -7,21 +7,25 @@ use crate::markdown_fences::parse_fence_line;
 static LIST_ITEM: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\A *([*+-]|\d\.) +").expect("valid list item pattern"));
 
-fn is_numbered_list_item(line: &str) -> Result<Option<bool>, ()> {
-    let Some(captures) = LIST_ITEM.captures(line) else {
-        return Ok(None);
-    };
+pub(crate) fn is_decimal_digit_after_unicode_13(character: char) -> bool {
     // These decimal digits postdate Python 3.10's Unicode 13.0 database.
     // Delegate them so the active Python runtime decides their list semantics.
-    if matches!(
-        captures[1].chars().next().expect("list marker"),
+    matches!(
+        character,
         '\u{11f50}'..='\u{11f59}' | '\u{16ac0}'..='\u{16ac9}'
             | '\u{1e4f0}'..='\u{1e4f9}'
             | '\u{10d40}'..='\u{10d49}' | '\u{116d0}'..='\u{116e3}'
             | '\u{11bf0}'..='\u{11bf9}' | '\u{16130}'..='\u{16139}'
             | '\u{16d70}'..='\u{16d79}' | '\u{1ccf0}'..='\u{1ccf9}'
             | '\u{1e5f1}'..='\u{1e5fa}'
-    ) {
+    )
+}
+
+fn is_numbered_list_item(line: &str) -> Result<Option<bool>, ()> {
+    let Some(captures) = LIST_ITEM.captures(line) else {
+        return Ok(None);
+    };
+    if is_decimal_digit_after_unicode_13(captures[1].chars().next().expect("list marker")) {
         return Err(());
     }
     Ok(Some(captures[1].ends_with('.')))
