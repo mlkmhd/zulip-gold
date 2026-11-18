@@ -72,6 +72,16 @@ pub(super) async fn read_fields(
         .collect()
 }
 
+pub(super) async fn exists(database: &Client, user_id: i32, draft_id: i64) -> Result<bool, Error> {
+    database
+        .query_one(
+            "SELECT EXISTS (SELECT 1 FROM zulip.zerver_draft WHERE id = $1 AND user_profile_id = $2)",
+            &[&draft_id, &user_id],
+        )
+        .await?
+        .try_get(0)
+}
+
 pub(super) async fn delete(database: &Client, user_id: i32, draft_id: i64) -> Result<bool, Error> {
     let deleted = database
         .execute(
@@ -83,13 +93,18 @@ pub(super) async fn delete(database: &Client, user_id: i32, draft_id: i64) -> Re
 }
 
 pub(super) struct SchemaError {
+    parameter: &'static str,
     kind: &'static str,
     path: Vec<Location>,
 }
 
 impl SchemaError {
-    pub(super) fn new(kind: &'static str, path: Vec<Location>) -> Self {
-        Self { kind, path }
+    pub(super) fn new(parameter: &'static str, kind: &'static str, path: Vec<Location>) -> Self {
+        Self {
+            parameter,
+            kind,
+            path,
+        }
     }
 
     pub(super) fn template(&self) -> &'static str {
@@ -107,7 +122,7 @@ impl SchemaError {
     }
 
     pub(super) fn format(&self, translated: &str) -> String {
-        let mut name = String::from("drafts");
+        let mut name = String::from(self.parameter);
         for location in &self.path {
             name.push('[');
             match location {

@@ -6,7 +6,7 @@ use std::{
 };
 
 use _zulip_backend::http::{
-    ActivityConfig, ClientIpSource, DraftPostConfig, RateLimitConfig, SessionConfig,
+    ActivityConfig, ClientIpSource, DraftWriteConfig, RateLimitConfig, SessionConfig,
     UserReadConfig, WebPostScheme, router, router_with_user_reads,
 };
 use axum::Router;
@@ -55,6 +55,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
             if enabled("ZULIP_RUST_DRAFT_POSTS")? {
                 return Err("Draft POST requires ZULIP_RUST_DATABASE_URL".into());
+            }
+            if enabled("ZULIP_RUST_DRAFT_PATCHES")? {
+                return Err("Draft PATCH requires ZULIP_RUST_DATABASE_URL".into());
             }
             if draft_deletes {
                 return Err("Draft DELETE requires ZULIP_RUST_DATABASE_URL".into());
@@ -137,8 +140,12 @@ async fn user_read_router(
             ),
             Some(_) => return Err("ZULIP_RUST_SAVED_SNIPPET_WRITES must be 0 or 1".into()),
         };
-    let draft_posts = if enabled("ZULIP_RUST_DRAFT_POSTS")? {
-        Some(DraftPostConfig {
+    let draft_posts = enabled("ZULIP_RUST_DRAFT_POSTS")?;
+    let draft_patches = enabled("ZULIP_RUST_DRAFT_PATCHES")?;
+    let draft_writes = if draft_posts || draft_patches {
+        Some(DraftWriteConfig {
+            posts: draft_posts,
+            patches: draft_patches,
             max_message_length: env::var("ZULIP_RUST_MAX_MESSAGE_LENGTH")?.parse()?,
             cross_realm_bot_emails: serde_json::from_str(&env::var(
                 "ZULIP_RUST_CROSS_REALM_BOT_EMAILS",
@@ -176,7 +183,7 @@ async fn user_read_router(
             alert_word_lowercase_file,
             alert_word_posts,
             draft_deletes,
-            draft_posts,
+            draft_writes,
             reminder_deletes: enabled("ZULIP_RUST_REMINDER_DELETES")?,
             scheduled_message_deletes: enabled("ZULIP_RUST_SCHEDULED_MESSAGE_DELETES")?,
             bot_storage_deletes: enabled("ZULIP_RUST_BOT_STORAGE_DELETES")?,

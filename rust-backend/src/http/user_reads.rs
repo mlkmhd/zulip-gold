@@ -18,7 +18,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use tokio_postgres::Client;
 
 use super::{
-    DraftPostConfig, UserReadConfig, WebPostScheme,
+    DraftWriteConfig, UserReadConfig, WebPostScheme,
     activity::{ActivityPublisher, client_name},
     alert_word_cache, alert_words, attachments, bot_storage, channel_folders,
     custom_profile_fields,
@@ -65,6 +65,7 @@ enum Endpoint {
 enum WriteOperation<'a> {
     CreateSnippet,
     CreateDrafts,
+    EditDraft(Option<i64>),
     CreateNavigationView,
     EditNavigationView(&'a str),
     DeleteNavigationView(&'a str),
@@ -287,7 +288,7 @@ pub(super) struct UserReads {
     web_post_scheme: Option<WebPostScheme>,
     saved_snippet_max_content_length: Option<usize>,
     bot_storage_size_limit: Option<u64>,
-    draft_posts: Option<Arc<DraftPostConfig>>,
+    draft_writes: Option<Arc<DraftWriteConfig>>,
 }
 
 impl UserReads {
@@ -332,7 +333,7 @@ impl UserReads {
                     config,
                     saved_snippet_writes
                         || settings.draft_deletes
-                        || settings.draft_posts.is_some()
+                        || settings.draft_writes.is_some()
                         || settings.reminder_deletes
                         || settings.scheduled_message_deletes
                         || settings.navigation_view_posts
@@ -347,8 +348,8 @@ impl UserReads {
             None if saved_snippet_writes => {
                 return Err("Saved snippet writes require ZULIP_RUST_AMQP_URL".into());
             }
-            None if settings.draft_posts.is_some() => {
-                return Err("Draft POST requires ZULIP_RUST_AMQP_URL".into());
+            None if settings.draft_writes.is_some() => {
+                return Err("Draft POST and PATCH require ZULIP_RUST_AMQP_URL".into());
             }
             None if settings.draft_deletes => {
                 return Err("Draft DELETE requires ZULIP_RUST_AMQP_URL".into());
@@ -377,7 +378,7 @@ impl UserReads {
             web_post_scheme: settings.web_post_scheme,
             saved_snippet_max_content_length: settings.saved_snippet_max_content_length,
             bot_storage_size_limit: settings.bot_storage_size_limit,
-            draft_posts: settings.draft_posts.map(Arc::new),
+            draft_writes: settings.draft_writes.map(Arc::new),
         })
     }
 
@@ -642,7 +643,7 @@ enum ApiError {
     DraftSyncDisabled,
     DraftNotFound,
     DraftSchema(drafts::SchemaError),
-    DraftCreation(draft_writes::CreateError),
+    DraftWrite(draft_writes::WriteError),
     ScheduledJobNotFound(JobKind),
     RateLimited(f64),
 }
@@ -650,6 +651,24 @@ enum ApiError {
 impl From<tokio_postgres::Error> for ApiError {
     fn from(error: tokio_postgres::Error) -> Self {
         Self::database_unavailable(error)
+    }
+}
+
+impl From<draft_writes::WriteError> for ApiError {
+    fn from(error: draft_writes::WriteError) -> Self {
+        match error {
+            draft_writes::WriteError::Database(error) => Self::from(error),
+            other => Self::DraftWrite(other),
+        }
+    }
+}
+
+fn draft_schema_error(parameter: &'static str, error: ParseError) -> ApiError {
+    match error {
+        ParseError::Unsupported => ApiError::Form(FormError::InvalidJson(parameter)),
+        ParseError::Schema(kind, path) => {
+            ApiError::DraftSchema(drafts::SchemaError::new(parameter, kind, path))
+        }
     }
 }
 
@@ -780,6 +799,24 @@ pub(super) async fn create_drafts(
     respond_write(state, peer, request, WriteOperation::CreateDrafts).await
 }
 
+pub(super) async fn edit_draft(
+    State(state): State<UserReads>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    Path(id): Path<String>,
+    request: Request,
+) -> Response {
+    if !id.bytes().all(|byte| byte.is_ascii_digit()) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    respond_write(
+        state,
+        peer,
+        request,
+        WriteOperation::EditDraft(id.parse().ok()),
+    )
+    .await
+}
+
 pub(super) async fn delete_draft(
     State(state): State<UserReads>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
@@ -902,6 +939,7 @@ async fn respond(
         };
         let activity_name = match write {
             Some(WriteOperation::CreateDrafts) => "create_drafts",
+            Some(WriteOperation::EditDraft(_)) => "edit_draft",
             Some(WriteOperation::CreateSnippet) => "create_saved_snippet",
             Some(WriteOperation::CreateNavigationView) => "add_navigation_view",
             Some(WriteOperation::EditNavigationView(_)) => "update_navigation_view",
@@ -1109,21 +1147,16 @@ async fn respond(
             if matches!(write, WriteOperation::CreateDrafts) {
                 require_draft_synchronization(&database, user_id).await?;
                 let input = form.value("drafts").ok_or(ApiError::Form(FormError::Missing("drafts")))?;
-                let input = draft_input::parse_http_draft_batch(input).map_err(|error| match error {
-                    ParseError::Unsupported => ApiError::Form(FormError::InvalidJson("drafts")),
-                    ParseError::Schema(kind, path) => ApiError::DraftSchema(drafts::SchemaError::new(kind, path)),
-                })?;
-                let config = state.draft_posts.as_ref().expect("draft POST configured");
+                let input = draft_input::parse_http_draft_batch(input)
+                    .map_err(|error| draft_schema_error("drafts", error))?;
+                let config = state.draft_writes.as_ref().expect("draft POST configured");
                 let activity = state.activity.as_ref().expect("draft creation requires RabbitMQ");
                 let queue = activity.notification_queue(realm_id, user_id).await
                     .ok_or(ApiError::NotificationUnavailable)?;
                 let (ids, fields) = {
                     let mut writer = state.database.writer().await.map_err(ApiError::database_unavailable)?;
                     draft_writes::create(&mut writer, user_id, realm_id, input, config.max_message_length,
-                        &config.cross_realm_bot_emails).await.map_err(|error| match error {
-                            draft_writes::CreateError::Database(error) => ApiError::from(error),
-                            other => ApiError::DraftCreation(other),
-                        })?
+                        &config.cross_realm_bot_emails).await?
                 };
                 activity.notify_user(
                     queue, user_id, serde_json::json!({"type": "drafts", "op": "add", "drafts": fields}),
@@ -1135,6 +1168,32 @@ async fn respond(
                 let extra = ignored_parameters(&form, processed);
                 let ids = serde_json::to_string(&ids).expect("IDs can serialize to JSON");
                 return Ok(format!("{{\"result\":\"success\",\"msg\":\"\",\"ids\":{ids}{extra}}}\n"));
+            }
+            if let WriteOperation::EditDraft(id) = write {
+                require_draft_synchronization(&database, user_id).await?;
+                let input = form.value("draft").ok_or(ApiError::Form(FormError::Missing("draft")))?;
+                let input = draft_input::parse_http_draft(input)
+                    .map_err(|error| draft_schema_error("draft", error))?;
+                let id = id.ok_or(ApiError::DraftNotFound)?;
+                if !drafts::exists(&database, user_id, id).await? {
+                    return Err(ApiError::DraftNotFound);
+                }
+                let config = state.draft_writes.as_ref().expect("draft PATCH configured");
+                let activity = state.activity.as_ref().expect("draft editing requires RabbitMQ");
+                let queue = activity.notification_queue(realm_id, user_id).await
+                    .ok_or(ApiError::NotificationUnavailable)?;
+                let event = {
+                    let mut writer = state.database.writer().await.map_err(ApiError::database_unavailable)?;
+                    draft_writes::edit(&mut writer, user_id, realm_id, id, input, config.max_message_length,
+                        &config.cross_realm_bot_emails).await?
+                };
+                activity.notify_user(queue, user_id, event).await.map_err(|error| {
+                    eprintln!("Could not confirm draft update notification for user {user_id}: {error}");
+                    ApiError::NotificationUnavailable
+                })?;
+                let processed: &[_] = if form.has_query_client() { &["draft", "client"] } else { &["draft"] };
+                let extra = ignored_parameters(&form, processed);
+                return Ok(format!("{{\"result\":\"success\",\"msg\":\"\"{extra}}}\n"));
             }
             if let WriteOperation::DeleteDraft(id) = write {
                 require_draft_synchronization(&database, user_id).await?;
@@ -1274,6 +1333,7 @@ async fn respond(
                 | WriteOperation::EditNavigationView(_)
                 | WriteOperation::DeleteNavigationView(_)
                 | WriteOperation::CreateDrafts
+                | WriteOperation::EditDraft(_)
                 | WriteOperation::DeleteDraft(_)
                 | WriteOperation::DeleteScheduledJob(..)
                 | WriteOperation::DeleteBotStorage
@@ -1551,7 +1611,7 @@ fn error_response(
         ApiError::DraftSchema(ref error) => {
             (StatusCode::BAD_REQUEST, "BAD_REQUEST", error.template())
         }
-        ApiError::DraftCreation(ref error) => error.response(),
+        ApiError::DraftWrite(ref error) => error.response(),
         ApiError::ScheduledJobNotFound(JobKind::Reminder) => (
             StatusCode::NOT_FOUND,
             "BAD_REQUEST",
@@ -1582,7 +1642,7 @@ fn error_response(
     let message = match &error {
         ApiError::Csrf(reason) => translated.replace("{reason}", reason),
         ApiError::DraftSchema(error) => error.format(translated),
-        ApiError::DraftCreation(error) => error.format(translated),
+        ApiError::DraftWrite(error) => error.format(translated),
         ApiError::Form(
             FormError::Missing(name)
             | FormError::Blank(name)
@@ -1633,7 +1693,7 @@ fn error_response(
         | ApiError::BotStorageLimitExceeded { .. }
         | ApiError::DraftNotFound
         | ApiError::DraftSchema(_)
-        | ApiError::DraftCreation(_)
+        | ApiError::DraftWrite(_)
         | ApiError::ScheduledJobNotFound(_) => (String::new(), "Accept-Language"),
         _ => (String::new(), "Accept-Language, Cookie"),
     };

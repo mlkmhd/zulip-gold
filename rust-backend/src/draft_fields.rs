@@ -16,6 +16,13 @@ SELECT inserted.id FROM inserted JOIN drafts USING (id)
 ORDER BY drafts.position
 ";
 
+#[cfg(any(feature = "python", feature = "http"))]
+pub(crate) const UPDATE_DRAFT_SQL: &str = "
+UPDATE zulip.zerver_draft
+SET recipient_id = %s, topic = %s, content = %s, last_edit_time = %s
+WHERE user_profile_id = %s AND id = %s
+";
+
 pub(crate) enum Recipients {
     Unset,
     Channel(i32),

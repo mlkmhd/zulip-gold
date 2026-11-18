@@ -10,7 +10,7 @@ use tokio_postgres::{Client, Error};
 
 use crate::{
     direct_message_group::{FIND_GROUP_SQL, INITIALIZE_GROUP_SQL, INSERT_GROUP_SQL, member_hash},
-    draft_fields::{DraftFields, INSERT_DRAFTS_SQL},
+    draft_fields::{DraftFields, INSERT_DRAFTS_SQL, UPDATE_DRAFT_SQL},
     draft_input::{DraftInput, Timestamp},
     draft_recipients::{
         CHANNEL_RECIPIENT_SQL, DIRECT_RECIPIENTS_SQL, DirectRecipient, DirectRecipientError,
@@ -28,7 +28,7 @@ const MAX_TOPIC_LENGTH: usize = 60;
 const ROLE_GUEST: i16 = 600;
 
 #[derive(Debug)]
-pub(super) enum CreateError {
+pub(super) enum WriteError {
     Database(Error),
     Invalid(&'static str),
     InvalidUser(String),
@@ -38,7 +38,7 @@ pub(super) enum CreateError {
     MissingDraft,
 }
 
-impl From<Error> for CreateError {
+impl From<Error> for WriteError {
     fn from(error: Error) -> Self {
         Self::Database(error)
     }
@@ -49,6 +49,23 @@ struct Sender {
     realm_id: i32,
     email: String,
     is_guest: bool,
+}
+
+impl Sender {
+    async fn read(database: &Client, id: i32, realm_id: i32) -> Result<Self, Error> {
+        let profile = database
+            .query_one(
+                "SELECT email, role = $2 FROM zulip.zerver_userprofile WHERE id = $1",
+                &[&id, &ROLE_GUEST],
+            )
+            .await?;
+        Ok(Self {
+            id,
+            realm_id,
+            email: profile.try_get(0)?,
+            is_guest: profile.try_get(1)?,
+        })
+    }
 }
 
 struct ValidatedDraft {
@@ -68,7 +85,7 @@ fn postgres_sql(query: &str) -> String {
     sql
 }
 
-fn timestamp(value: Option<Timestamp>) -> Result<SystemTime, CreateError> {
+fn timestamp(value: Option<Timestamp>) -> Result<SystemTime, WriteError> {
     let seconds = match value {
         None => SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -85,13 +102,13 @@ fn timestamp(value: Option<Timestamp>) -> Result<SystemTime, CreateError> {
         }
     };
     let micros = draft_timestamp::unix_microseconds(seconds).map_err(|error| match error {
-        TimestampError::Negative => CreateError::Invalid("Timestamp must not be negative."),
-        TimestampError::OutOfRange => CreateError::TimestampOutOfRange,
+        TimestampError::Negative => WriteError::Invalid("Timestamp must not be negative."),
+        TimestampError::OutOfRange => WriteError::TimestampOutOfRange,
     })?;
     Ok(UNIX_EPOCH + Duration::from_micros(micros as u64))
 }
 
-async fn group_recipient(database: &mut Client, members: &[i32]) -> Result<i32, CreateError> {
+async fn group_recipient(database: &mut Client, members: &[i32]) -> Result<i32, WriteError> {
     let hash = member_hash(members);
     let count = i32::try_from(members.len()).expect("draft form limits bound the member count");
     let find_group = postgres_sql(FIND_GROUP_SQL);
@@ -123,7 +140,7 @@ async fn group_recipient(database: &mut Client, members: &[i32]) -> Result<i32, 
                 .await?
                 .try_get(1)?
         };
-    let recipient_id = recipient_id.ok_or(CreateError::IncompleteGroup)?;
+    let recipient_id = recipient_id.ok_or(WriteError::IncompleteGroup)?;
     transaction.commit().await?;
     Ok(recipient_id)
 }
@@ -143,11 +160,11 @@ async fn direct_recipient(
     sender: &Sender,
     to: Vec<NumberInt>,
     bot_emails: &HashSet<String>,
-) -> Result<i32, CreateError> {
+) -> Result<i32, WriteError> {
     let mut ids = Vec::with_capacity(to.len());
     let mut seen = HashSet::with_capacity(to.len());
     for id in &to {
-        let id = recipient_id(id).map_err(CreateError::InvalidUser)?;
+        let id = recipient_id(id).map_err(WriteError::InvalidUser)?;
         if seen.insert(id) {
             ids.push(id);
         }
@@ -179,13 +196,13 @@ async fn direct_recipient(
         &recipients,
     )
     .map_err(|error| match error {
-        DirectRecipientError::InvalidId(id) => CreateError::InvalidUser(id.to_string()),
+        DirectRecipientError::InvalidId(id) => WriteError::InvalidUser(id.to_string()),
         DirectRecipientError::Inaccessible => {
-            CreateError::Invalid("You do not have permission to access some of the recipients.")
+            WriteError::Invalid("You do not have permission to access some of the recipients.")
         }
-        DirectRecipientError::Deactivated(email) => CreateError::DeactivatedUser(email.into()),
+        DirectRecipientError::Deactivated(email) => WriteError::DeactivatedUser(email.into()),
         DirectRecipientError::CrossRealm => {
-            CreateError::Invalid("You can't send direct messages outside of your organization.")
+            WriteError::Invalid("You can't send direct messages outside of your organization.")
         }
     })?;
 
@@ -203,11 +220,11 @@ async fn validate_draft(
     draft: DraftInput,
     max_message_length: usize,
     bot_emails: &HashSet<String>,
-) -> Result<ValidatedDraft, CreateError> {
+) -> Result<ValidatedDraft, WriteError> {
     let content = draft_text::normalize_body(&draft.content, max_message_length)
         .map_err(|error| match error {
-            BodyError::Empty => CreateError::Invalid("Message must not be empty"),
-            BodyError::NullByte => CreateError::Invalid("Message must not contain null bytes"),
+            BodyError::Empty => WriteError::Invalid("Message must not be empty"),
+            BodyError::NullByte => WriteError::Invalid("Message must not contain null bytes"),
         })?
         .into_owned();
     let timestamp = timestamp(draft.timestamp)?;
@@ -215,15 +232,15 @@ async fn validate_draft(
     let (recipient_id, topic) = match draft.r#type {
         "stream" => {
             let topic = draft_text::normalize_topic(&draft.topic, MAX_TOPIC_LENGTH)
-                .ok_or(CreateError::Invalid("Topic must not contain null bytes"))?
+                .ok_or(WriteError::Invalid("Topic must not contain null bytes"))?
                 .into_owned();
             let [id] = draft.to.as_slice() else {
-                return Err(CreateError::Invalid(
+                return Err(WriteError::Invalid(
                     "Must specify exactly 1 channel ID for channel messages",
                 ));
             };
-            let invalid = CreateError::Invalid("Invalid channel ID");
-            let id = recipient_id(id).map_err(|_| CreateError::Invalid("Invalid channel ID"))?;
+            let invalid = WriteError::Invalid("Invalid channel ID");
+            let id = recipient_id(id).map_err(|_| WriteError::Invalid("Invalid channel ID"))?;
             let row = database
                 .query_opt(
                     &postgres_sql(CHANNEL_RECIPIENT_SQL),
@@ -254,22 +271,11 @@ pub(super) async fn create(
     drafts: Vec<DraftInput>,
     max_message_length: usize,
     bot_emails: &HashSet<String>,
-) -> Result<(Vec<i64>, Vec<DraftFields>), CreateError> {
+) -> Result<(Vec<i64>, Vec<DraftFields>), WriteError> {
     if drafts.is_empty() {
         return Ok((Vec::new(), Vec::new()));
     }
-    let profile = database
-        .query_one(
-            "SELECT email, role = $2 FROM zulip.zerver_userprofile WHERE id = $1",
-            &[&user_id, &ROLE_GUEST],
-        )
-        .await?;
-    let sender = Sender {
-        id: user_id,
-        realm_id,
-        email: profile.try_get(0)?,
-        is_guest: profile.try_get(1)?,
-    };
+    let sender = Sender::read(database, user_id, realm_id).await?;
     let mut validated = Vec::with_capacity(drafts.len());
     for draft in drafts {
         // Earlier direct-message groups persist if a later draft fails validation.
@@ -299,13 +305,51 @@ pub(super) async fn create(
         .collect();
     let fields = ids
         .iter()
-        .map(|id| fields.remove(id).ok_or(CreateError::MissingDraft))
+        .map(|id| fields.remove(id).ok_or(WriteError::MissingDraft))
         .collect::<Result<Vec<_>, _>>()?;
     transaction.commit().await?;
     Ok((ids, fields))
 }
 
-impl CreateError {
+pub(super) async fn edit(
+    database: &mut Client,
+    user_id: i32,
+    realm_id: i32,
+    id: i64,
+    draft: DraftInput,
+    max_message_length: usize,
+    bot_emails: &HashSet<String>,
+) -> Result<serde_json::Value, WriteError> {
+    let sender = Sender::read(database, user_id, realm_id).await?;
+    let draft = validate_draft(database, &sender, draft, max_message_length, bot_emails).await?;
+    let transaction = database.transaction().await?;
+    let updated = transaction
+        .execute(
+            &postgres_sql(UPDATE_DRAFT_SQL),
+            &[
+                &draft.recipient_id,
+                &draft.topic,
+                &draft.content,
+                &draft.timestamp,
+                &user_id,
+                &id,
+            ],
+        )
+        .await?;
+    if updated != 1 {
+        // Django reports an update failure when the row disappears after lookup.
+        return Err(WriteError::MissingDraft);
+    }
+    let (_, fields) = drafts::read_fields(&transaction, user_id, Some(&[id]))
+        .await?
+        .pop()
+        .ok_or(WriteError::MissingDraft)?;
+    let event = serde_json::json!({"type": "drafts", "op": "update", "draft": fields});
+    transaction.commit().await?;
+    Ok(event)
+}
+
+impl WriteError {
     pub(super) fn response(&self) -> (StatusCode, &'static str, &'static str) {
         let message = match self {
             Self::Invalid(message) => message,

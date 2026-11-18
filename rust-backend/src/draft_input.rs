@@ -149,12 +149,22 @@ pub(crate) fn parse_draft_batch(value: &str) -> Result<Vec<DraftInput>, ParseErr
 }
 
 #[cfg(feature = "http")]
+pub(crate) fn parse_http_draft(value: &str) -> Result<DraftInput, ParseError> {
+    DraftInput::from_json(&parse_http_json(value)?)
+}
+
+#[cfg(feature = "http")]
 pub(crate) fn parse_http_draft_batch(value: &str) -> Result<Vec<DraftInput>, ParseError> {
+    drafts_from_json(parse_http_json(value)?)
+}
+
+#[cfg(feature = "http")]
+fn parse_http_json(value: &str) -> Result<JsonValue<'_>, ParseError> {
     let bytes = value.as_bytes();
     if negative_magnitude_exceeds_limit(bytes) {
         return Err(ParseError::Unsupported);
     }
-    drafts_from_json(JsonValue::parse(bytes, true).map_err(|_| ParseError::Unsupported)?)
+    JsonValue::parse(bytes, true).map_err(|_| ParseError::Unsupported)
 }
 
 #[cfg(feature = "http")]

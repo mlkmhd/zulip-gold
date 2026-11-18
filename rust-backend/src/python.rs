@@ -305,9 +305,7 @@ mod _zulip_backend {
         cursor.call_method1(
             "execute",
             (
-                "UPDATE zulip.zerver_draft
-                 SET recipient_id = %s, topic = %s, content = %s, last_edit_time = %s
-                 WHERE user_profile_id = %s AND id = %s",
+                crate::draft_fields::UPDATE_DRAFT_SQL,
                 (
                     recipient_id,
                     topic,

@@ -49,7 +49,7 @@ pub struct UserReadConfig<'a> {
     pub alert_word_lowercase_file: Option<&'a Path>,
     pub alert_word_posts: bool,
     pub draft_deletes: bool,
-    pub draft_posts: Option<DraftPostConfig>,
+    pub draft_writes: Option<DraftWriteConfig>,
     pub reminder_deletes: bool,
     pub scheduled_message_deletes: bool,
     pub bot_storage_deletes: bool,
@@ -61,7 +61,9 @@ pub struct UserReadConfig<'a> {
     pub saved_snippet_max_content_length: Option<usize>,
 }
 
-pub struct DraftPostConfig {
+pub struct DraftWriteConfig {
+    pub posts: bool,
+    pub patches: bool,
     pub max_message_length: usize,
     pub cross_realm_bot_emails: HashSet<String>,
 }
@@ -98,7 +100,14 @@ pub async fn router_with_user_reads(
     let alert_word_writes = config.alert_word_lowercase_file.is_some();
     let alert_word_posts = config.alert_word_posts;
     let draft_deletes = config.draft_deletes;
-    let draft_posts = config.draft_posts.is_some();
+    let draft_posts = config
+        .draft_writes
+        .as_ref()
+        .is_some_and(|writes| writes.posts);
+    let draft_patches = config
+        .draft_writes
+        .as_ref()
+        .is_some_and(|writes| writes.patches);
     let reminder_deletes = config.reminder_deletes;
     let scheduled_message_deletes = config.scheduled_message_deletes;
     let bot_storage_deletes = config.bot_storage_deletes;
@@ -115,6 +124,7 @@ pub async fn router_with_user_reads(
                 || alert_word_writes
                 || draft_deletes
                 || draft_posts
+                || draft_patches
                 || reminder_deletes
                 || scheduled_message_deletes
                 || bot_storage_deletes
@@ -198,9 +208,15 @@ pub async fn router_with_user_reads(
     if saved_snippet_writes {
         routes = routes.route(saved_snippets::DETAIL_PATH, snippet_detail_route.clone());
     }
-    let draft_detail_route =
-        delete(user_reads::delete_draft).layer(DefaultBodyLimit::max(form::FORM_BODY_LIMIT));
+    let mut draft_detail_route = axum::routing::MethodRouter::new();
     if draft_deletes {
+        draft_detail_route = draft_detail_route.delete(user_reads::delete_draft);
+    }
+    if draft_patches {
+        draft_detail_route = draft_detail_route.patch(user_reads::edit_draft);
+    }
+    let draft_detail_route = draft_detail_route.layer(DefaultBodyLimit::max(form::FORM_BODY_LIMIT));
+    if draft_deletes || draft_patches {
         routes = routes.route(drafts::DETAIL_PATH, draft_detail_route.clone());
     }
     let scheduled_job_delete: axum::routing::MethodRouter<_> =
@@ -251,7 +267,7 @@ pub async fn router_with_user_reads(
                 .layer(DefaultBodyLimit::max(form::FORM_BODY_LIMIT));
             routes = routes.route(saved_snippets::SESSION_DETAIL_PATH, snippet_detail_route);
         }
-        if web_writes_enabled && draft_deletes {
+        if web_writes_enabled && (draft_deletes || draft_patches) {
             routes = routes.route(drafts::SESSION_DETAIL_PATH, draft_detail_route);
         }
         if web_writes_enabled && reminder_deletes {
