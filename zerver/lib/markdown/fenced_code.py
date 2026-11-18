@@ -88,13 +88,14 @@ from django.utils.html import escape
 from markdown import Markdown
 from markdown.extensions import Extension, codehilite
 from markdown.extensions.codehilite import CodeHiliteExtension, parse_hl_lines
-from markdown.preprocessors import NormalizeWhitespace, Preprocessor
+from markdown.preprocessors import Preprocessor
 from pygments.lexers import find_lexer_class_by_name
 from pygments.util import ClassNotFound
 from typing_extensions import override
 
 from zerver.lib.exceptions import MarkdownRenderingError
 from zerver.lib.markdown.priorities import PREPROCESSOR_PRIORITIES
+from zerver.lib.markdown.whitespace import ZulipNormalizeWhitespace
 from zerver.lib.tex import render_tex
 from zerver.models.realm_playgrounds import PLAYGROUND_LANGUAGE_REGEX
 
@@ -657,7 +658,7 @@ class UnclosedFenceFinder(FencedBlockPreprocessor):
 
     def get_unclosed_fences(self, content: str, default_language: str | None) -> list[str]:
         # Markdown normalizes whitespace before parsing fenced blocks.
-        lines = NormalizeWhitespace(self.md).run(content.split("\n"))
+        lines = ZulipNormalizeWhitespace(self.md).run(content.split("\n"))
         self.handle_lines(lines, [], default_language)
         return [handler.fence for handler in reversed(self.handlers) if handler.fence is not None]
 

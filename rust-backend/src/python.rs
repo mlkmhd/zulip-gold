@@ -20,8 +20,9 @@ use crate::{
 };
 use crate::{
     markdown_alerts, markdown_blocks, markdown_channel_links, markdown_fences,
-    markdown_inline_mentions, markdown_lists, markdown_mentions, markdown_upload, reminder_access,
-    reminder_context, reminder_quote, scheduled_attachments, send_permissions,
+    markdown_inline_mentions, markdown_lists, markdown_mentions, markdown_upload,
+    markdown_whitespace, reminder_access, reminder_context, reminder_quote, scheduled_attachments,
+    send_permissions,
 };
 
 type DraftParseResult<T> = (Option<T>, Option<(&'static str, Vec<Location>)>);
@@ -180,6 +181,20 @@ mod _zulip_backend {
             .map(|line| line.to_str().ok())
             .collect::<Option<Vec<_>>>()?;
         markdown_lists::separator_positions(&lines)
+    }
+
+    #[pyfunction]
+    fn normalize_markdown_whitespace(
+        lines: Vec<Bound<'_, PyString>>,
+        tab_length: i32,
+    ) -> Option<Vec<String>> {
+        let lines = lines
+            .iter()
+            .map(|line| line.to_str().ok())
+            .collect::<Option<Vec<_>>>()?;
+        Some(markdown_whitespace::normalize_whitespace(
+            &lines, tab_length,
+        ))
     }
 
     #[pyfunction]

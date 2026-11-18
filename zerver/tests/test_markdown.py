@@ -57,6 +57,7 @@ from zerver.lib.markdown.fenced_code import (
     parse_fence_line,
 )
 from zerver.lib.markdown.from_html import convert_html_to_markdown
+from zerver.lib.markdown.whitespace import ZulipNormalizeWhitespace
 from zerver.lib.mdiff import diff_strings
 from zerver.lib.mention import (
     FullNameInfo,
@@ -552,6 +553,25 @@ class MarkdownMiscTest(ZulipTestCase):
                 content_type="text/html; charset=utf-8",
             )
             self.assertEqual(render_tex("foo"), "<i>html</i>")
+
+
+class MarkdownWhitespaceTest(ZulipTestCase):
+    def test_line_endings_tabs_and_placeholders(self) -> None:
+        cases = [
+            ([], 4, ["", "", ""]),
+            (["\t📝\tX"], 4, ["    📝   X", "", ""]),
+            (["a\tb"], 0, ["ab", "", ""]),
+            (["a\tb"], -1, ["ab", "", ""]),
+            (["a\tb\tc"], 2, ["a b c", "", ""]),
+            (["a\r\x02\x03\nb\rc"], 4, ["a", "b", "c", "", ""]),
+            (["a\r"], 4, ["a", "", "", ""]),
+            (["  ", "\t", " last  "], 4, ["  ", "", " last  ", "", ""]),
+            (["\ud800\tX"], 4, ["\ud800   X", "", ""]),
+        ]
+        for original, tab_length, expected in cases:
+            with self.subTest(original=original, tab_length=tab_length):
+                processor = ZulipNormalizeWhitespace(Markdown(tab_length=tab_length))
+                self.assertEqual(processor.run(original), expected)
 
 
 class MarkdownListPreprocessorTest(ZulipTestCase):

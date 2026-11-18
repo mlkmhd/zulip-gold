@@ -40,6 +40,7 @@ from zerver.lib.emoji_utils import emoji_to_hex_codepoint, unqualify_emoji
 from zerver.lib.exceptions import MarkdownRenderingError
 from zerver.lib.markdown import fenced_code
 from zerver.lib.markdown.fenced_code import parse_fence_line
+from zerver.lib.markdown.whitespace import ZulipNormalizeWhitespace
 from zerver.lib.mention import (
     BEFORE_LINK_PRODUCING_MENTION_ALLOWED_REGEX,
     ChannelTopicInfo,
@@ -2397,9 +2398,7 @@ class ZulipMarkdown(markdown.Markdown):
         # reference - references don't make sense in a chat context.
         preprocessors = markdown.util.Registry[markdown.preprocessors.Preprocessor]()
         preprocessors.register(MarkdownListPreprocessor(self), "hanging_lists", 35)
-        preprocessors.register(
-            markdown.preprocessors.NormalizeWhitespace(self), "normalize_whitespace", 30
-        )
+        preprocessors.register(ZulipNormalizeWhitespace(self), "normalize_whitespace", 30)
         preprocessors.register(fenced_code.FencedBlockPreprocessor(self), "fenced_code_block", 25)
         preprocessors.register(
             AlertWordNotificationProcessor(self), "custom_text_notifications", 20

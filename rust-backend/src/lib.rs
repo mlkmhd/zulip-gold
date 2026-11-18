@@ -48,6 +48,9 @@ mod markdown_mentions;
 #[cfg(any(feature = "python", test))]
 mod markdown_upload;
 
+#[cfg(any(feature = "python", test))]
+mod markdown_whitespace;
+
 #[cfg(any(feature = "http", feature = "python"))]
 mod memcached;
 
