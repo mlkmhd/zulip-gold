@@ -27,6 +27,9 @@ pub mod http;
 #[cfg(feature = "python")]
 mod markdown_alerts;
 
+#[cfg(feature = "python")]
+mod markdown_blocks;
+
 #[cfg(any(feature = "python", test))]
 mod markdown_channel_links;
 

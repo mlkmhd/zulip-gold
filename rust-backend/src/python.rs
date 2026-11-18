@@ -5,7 +5,7 @@ use jiter::NumberInt;
 use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::{PyConnectionError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyInt, PyList, PyString};
+use pyo3::types::{PyDict, PyInt, PyList, PyString, PyTuple};
 
 use crate::draft_fields::{DraftFields, Recipients};
 use crate::draft_input::{self, DraftInput, Location, ParseError, Timestamp};
@@ -19,14 +19,34 @@ use crate::{
     url_fragments, user_status,
 };
 use crate::{
-    markdown_alerts, markdown_channel_links, markdown_fences, markdown_lists, markdown_mentions,
-    markdown_upload, reminder_access, reminder_context, reminder_quote, scheduled_attachments,
-    send_permissions,
+    markdown_alerts, markdown_blocks, markdown_channel_links, markdown_fences, markdown_lists,
+    markdown_mentions, markdown_upload, reminder_access, reminder_context, reminder_quote,
+    scheduled_attachments, send_permissions,
 };
 
 type DraftParseResult<T> = (Option<T>, Option<(&'static str, Vec<Location>)>);
 
 struct PythonDraftInteger(NumberInt);
+
+impl<'py> IntoPyObject<'py> for markdown_blocks::BlockStep<'_> {
+    type Target = PyTuple;
+    type Output = Bound<'py, PyTuple>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> PyResult<Self::Output> {
+        let (kind, text, language, header, default_language) = match self {
+            Self::Line(line) => ("line", Some(line), None, None, None),
+            Self::Open {
+                fence,
+                language,
+                header,
+                default_language,
+            } => ("open", Some(fence), language, header, default_language),
+            Self::Close => ("close", None, None, None, None),
+        };
+        (kind, text, language, header, default_language).into_pyobject(py)
+    }
+}
 
 impl<'py> IntoPyObject<'py> for PythonDraftInteger {
     type Target = PyAny;
@@ -137,6 +157,33 @@ mod _zulip_backend {
             .map(|line| line.to_str().ok())
             .collect::<Option<Vec<_>>>()?;
         markdown_lists::separator_positions(&lines)
+    }
+
+    #[pyfunction]
+    #[pyo3(signature = (lines, default_language=None))]
+    fn plan_markdown_blocks<'py>(
+        py: Python<'py>,
+        lines: Vec<Bound<'py, PyString>>,
+        default_language: Option<Bound<'py, PyString>>,
+    ) -> PyResult<Option<Bound<'py, PyList>>> {
+        let Some(lines) = lines
+            .iter()
+            .map(|line| line.to_str().ok())
+            .collect::<Option<Vec<_>>>()
+        else {
+            return Ok(None);
+        };
+        let default_language = match default_language.as_ref() {
+            Some(language) => match language.to_str() {
+                Ok(language) if language.is_ascii() => Some(language),
+                _ => return Ok(None),
+            },
+            None => None,
+        };
+        Ok(Some(PyList::new(
+            py,
+            markdown_blocks::plan_lines(&lines, default_language),
+        )?))
     }
 
     #[pyfunction]

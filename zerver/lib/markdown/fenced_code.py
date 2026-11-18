@@ -101,6 +101,9 @@ from zerver.models.realm_playgrounds import PLAYGROUND_LANGUAGE_REGEX
 _rust_markdown_fences = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_MARKDOWN_FENCES") == "1" else None
 )
+_rust_markdown_blocks = (
+    import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_MARKDOWN_BLOCKS") == "1" else None
+)
 
 # Global vars
 FENCE_RE = re.compile(
@@ -465,6 +468,34 @@ class FencedBlockPreprocessor(Preprocessor):
     ) -> None:
         self.handlers: list[ZulipBaseHandler] = []
         self.push(OuterHandler(self, output, self.run_content_validators, default_language))
+        if _rust_markdown_blocks is not None:
+            lines = list(lines)
+            steps = _rust_markdown_blocks.plan_markdown_blocks(lines, default_language)
+            if steps is not None:
+                for kind, text, language, header, block_default_language in steps:
+                    handler = self.handlers[-1]
+                    if kind == "close":
+                        handler.done()
+                    else:
+                        target = output if isinstance(handler, OuterHandler) else handler.lines
+                        assert text is not None
+                        if kind == "open":
+                            self.push(
+                                generic_handler(
+                                    self,
+                                    target,
+                                    text,
+                                    language,
+                                    header,
+                                    self.run_content_validators
+                                    if isinstance(handler, OuterHandler)
+                                    else False,
+                                    block_default_language,
+                                )
+                            )
+                        else:
+                            target.append(text)
+                return
         for line in lines:
             self.handlers[-1].handle_line(line)
 

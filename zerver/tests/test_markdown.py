@@ -236,6 +236,19 @@ class FencedBlockPreprocessorTest(ZulipTestCase):
             with self.subTest(line=line):
                 self.assertEqual(parse_fence_line(line), expected)
 
+    def test_fence_content_whitespace_and_iterators(self) -> None:
+        cases = [
+            (["```py", " code\t\x1c", "``` \x1f"], ["", "**py: code**", "", ""]),
+            (["```quote", " text  ", "```\u3000"], ["", ">  text  ", "", ""]),
+            (["```", "\ud800\t", "```"], ["", "**:\ud800**", "", ""]),
+            (["```", "```quote", "body", "```"], ["", "**:```quote", "body**", "", ""]),
+            (["```py", "```"], []),
+        ]
+        for original, expected in cases:
+            with self.subTest(original=original):
+                processor = SimulatedFencedBlockPreprocessor(Markdown())
+                self.assertEqual(processor.run(iter(original)), expected)
+
     def test_close_unclosed_fences(self) -> None:
         cases = [
             ("no fences", "hello", ""),
