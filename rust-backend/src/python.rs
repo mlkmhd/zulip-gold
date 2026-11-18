@@ -20,10 +20,10 @@ use crate::{
 };
 use crate::{
     markdown_alerts, markdown_blockquotes, markdown_blocks, markdown_channel_links, markdown_code,
-    markdown_fences, markdown_headings, markdown_horizontal_rules, markdown_inline_mentions,
-    markdown_list_blocks, markdown_list_indent, markdown_lists, markdown_mentions,
-    markdown_paragraphs, markdown_upload, markdown_whitespace, reminder_access, reminder_context,
-    reminder_quote, scheduled_attachments, send_permissions,
+    markdown_code_blocks, markdown_fences, markdown_headings, markdown_horizontal_rules,
+    markdown_inline_mentions, markdown_list_blocks, markdown_list_indent, markdown_lists,
+    markdown_mentions, markdown_paragraphs, markdown_upload, markdown_whitespace, reminder_access,
+    reminder_context, reminder_quote, scheduled_attachments, send_permissions,
 };
 
 type InlineCodeMatch = (
@@ -273,6 +273,40 @@ mod _zulip_backend {
                 None => (false, String::new(), String::new()),
             },
         )
+    }
+
+    #[pyfunction]
+    fn plan_markdown_code_block(
+        block: &Bound<'_, PyString>,
+        indentation: &Bound<'_, PyInt>,
+        continuing: bool,
+        previous_text: Option<Bound<'_, PyString>>,
+    ) -> Option<(String, String)> {
+        let previous_text = match previous_text.as_ref() {
+            Some(text) => Some(text.to_str().ok()?),
+            None => None,
+        };
+        Some(markdown_code_blocks::plan_code_block(
+            block.to_str().ok()?,
+            indentation.extract().ok()?,
+            continuing,
+            previous_text,
+        ))
+    }
+
+    #[pyfunction]
+    fn plan_markdown_empty_block(
+        block: &Bound<'_, PyString>,
+        continuing: bool,
+        previous_text: Option<Bound<'_, PyString>>,
+    ) -> Option<(Option<String>, String)> {
+        let previous_text = match previous_text.as_ref() {
+            Some(text) => Some(text.to_str().ok()?),
+            None => None,
+        };
+        let (text, remainder) =
+            markdown_code_blocks::plan_empty_block(block.to_str().ok()?, continuing, previous_text);
+        Some((text, remainder.to_owned()))
     }
 
     #[pyfunction]

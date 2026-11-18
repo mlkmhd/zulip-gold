@@ -40,6 +40,9 @@ mod markdown_channel_links;
 mod markdown_code;
 
 #[cfg(feature = "python")]
+mod markdown_code_blocks;
+
+#[cfg(feature = "python")]
 mod markdown_fences;
 
 #[cfg(feature = "python")]

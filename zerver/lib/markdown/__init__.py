@@ -39,6 +39,7 @@ from zerver.lib.emoji import EMOTICON_RE, codepoint_to_name, name_to_codepoint, 
 from zerver.lib.emoji_utils import emoji_to_hex_codepoint, unqualify_emoji
 from zerver.lib.exceptions import MarkdownRenderingError
 from zerver.lib.markdown import fenced_code
+from zerver.lib.markdown.code_blocks import CodeBlockProcessor, EmptyBlockProcessor
 from zerver.lib.markdown.fenced_code import parse_fence_line
 from zerver.lib.markdown.inline_code import BacktickMatch, backtick_pattern
 from zerver.lib.markdown.whitespace import ZulipNormalizeWhitespace
@@ -2613,14 +2614,10 @@ class ZulipMarkdown(markdown.Markdown):
         # ulist - replaced by ours
         # quote - replaced by ours
         parser = BlockParser(self)
-        parser.blockprocessors.register(
-            markdown.blockprocessors.EmptyBlockProcessor(parser), "empty", 95
-        )
+        parser.blockprocessors.register(EmptyBlockProcessor(parser), "empty", 95)
         parser.blockprocessors.register(ListIndentProcessor(parser), "indent", 90)
         if not self.email_gateway:
-            parser.blockprocessors.register(
-                markdown.blockprocessors.CodeBlockProcessor(parser), "code", 85
-            )
+            parser.blockprocessors.register(CodeBlockProcessor(parser), "code", 85)
         parser.blockprocessors.register(HashHeaderProcessor(parser), "hashheader", 80)
         # We get priority 75 from 'table' extension
         parser.blockprocessors.register(HRProcessor(parser), "hr", 70)
