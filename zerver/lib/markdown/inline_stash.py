@@ -1,4 +1,5 @@
 import os
+import sys
 from importlib import import_module
 from typing import cast
 from xml.etree.ElementTree import Element
@@ -15,9 +16,29 @@ _rust_inline_stash = (
 _python_find_placeholder = PythonInlineProcessor._InlineProcessor__findPlaceholder  # type: ignore[attr-defined] # Incomplete upstream stubs.
 _python_process_element_text = PythonInlineProcessor._InlineProcessor__processElementText  # type: ignore[attr-defined] # Incomplete upstream stubs.
 _python_placeholder_pattern = util.INLINE_PLACEHOLDER_RE
+_rust_inline_patterns = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_MARKDOWN_INLINE_PATTERNS") == "1"
+    else None
+)
 
 
 class InlineProcessor(PythonInlineProcessor):
+    def _InlineProcessor__handleInline(
+        self,
+        data: str,
+        patternIndex: int = 0,  # noqa: N803
+    ) -> str:
+        if isinstance(data, util.AtomicString):
+            return data
+        if (
+            _rust_inline_patterns is not None
+            and type(patternIndex) is int
+            and 0 <= patternIndex <= sys.maxsize
+        ):
+            return cast(str, _rust_inline_patterns.handle_markdown_inline(self, data, patternIndex))
+        return super()._InlineProcessor__handleInline(data, patternIndex)  # type: ignore[misc] # Incomplete upstream stubs.
+
     def _InlineProcessor__processPlaceholders(
         self,
         data: str | None,

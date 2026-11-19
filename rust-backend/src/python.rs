@@ -3,7 +3,7 @@ use std::{io, net::SocketAddr};
 
 use jiter::NumberInt;
 use pyo3::IntoPyObjectExt;
-use pyo3::exceptions::{PyConnectionError, PyValueError};
+use pyo3::exceptions::{PyConnectionError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyInt, PyList, PyString, PyTuple};
 
@@ -197,6 +197,51 @@ fn draft_parse_result<T>(
 #[pymodule]
 mod _zulip_backend {
     use super::*;
+
+    #[pyfunction]
+    fn handle_markdown_inline<'py>(
+        processor: &Bound<'py, PyAny>,
+        mut data: Bound<'py, PyAny>,
+        mut pattern_index: usize,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let mut start_index = 0usize.into_bound_py_any(processor.py())?;
+        let count = processor.getattr("inlinePatterns")?.len()?;
+        while pattern_index < count {
+            // Callbacks can replace the registry or its entries during rendering.
+            let apply_pattern = processor.getattr("_InlineProcessor__applyPattern")?;
+            let pattern = processor
+                .getattr("inlinePatterns")?
+                .get_item(pattern_index)?;
+            let result = apply_pattern.call1((pattern, data, pattern_index, start_index))?;
+            let result_type = result.get_type();
+            if !result_type.hasattr("__iter__")? && !result_type.hasattr("__getitem__")? {
+                return Err(PyTypeError::new_err(format!(
+                    "cannot unpack non-iterable {} object",
+                    result_type.name()?
+                )));
+            }
+            let mut values = result.try_iter()?;
+            let mut next_field = |index| {
+                values.next().transpose()?.ok_or_else(|| {
+                    PyValueError::new_err(format!(
+                        "not enough values to unpack (expected 3, got {index})"
+                    ))
+                })
+            };
+            data = next_field(0)?;
+            let matched = next_field(1)?;
+            start_index = next_field(2)?;
+            if values.next().transpose()?.is_some() {
+                return Err(PyValueError::new_err(
+                    "too many values to unpack (expected 3)",
+                ));
+            }
+            if !matched.is_truthy()? {
+                pattern_index += 1;
+            }
+        }
+        Ok(data)
+    }
 
     #[pyfunction]
     fn scan_markdown_inline_stash(

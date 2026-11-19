@@ -1972,6 +1972,34 @@ flag modes and with independent combinations of prettification and restoration:
     zerver.tests.test_reminders
 ```
 
+## Dispatch inline Markdown patterns through Rust
+
+Set `ZULIP_RUST_MARKDOWN_INLINE_PATTERNS=1` to run the inline pattern
+dispatch loop in Rust. The flag is independent of
+`ZULIP_RUST_MARKDOWN_INLINE_STASH` and defaults to disabled. Restart Django
+processes after changing either flag.
+
+The loop retains the initial registry length, looks up each pattern in the
+live registry, and retries a matched pattern at the returned search position.
+Recursive calls from the Python pattern handlers use the same Rust dispatcher.
+`AtomicString` inputs remain untouched; unusual starting indices use the Python
+reference. Text, including lone surrogates, remains a Python object without
+UTF-8 conversion. Callback exceptions propagate with their existing partial
+stash and tree mutations.
+
+Regex matching, `handleMatch`, ancestor exclusions, placeholder creation,
+and tree mutation still use Python. This is an incremental migration of control
+flow, not a native AST or independent renderer, and does not establish a speedup.
+
+After installing the wheel, run the regression tests in all four combinations
+of the two flags:
+
+```bash
+ZULIP_RUST_MARKDOWN_INLINE_PATTERNS=1 ZULIP_RUST_MARKDOWN_INLINE_STASH=1 \
+    ./tools/test-backend zerver.tests.test_markdown_inline_patterns \
+    zerver.tests.test_markdown_inline_stash zerver.tests.test_markdown
+```
+
 ## Measure Markdown rendering bridges
 
 Use the provisioned development environment and a release wheel to measure
@@ -1991,7 +2019,8 @@ PYTHONPATH="$PWD/var/markdown-release-python:$PWD" \
 
 Run without Rust feature flags in the environment. The script compares the
 Python fallback with each of serialization, prettification, inline stash
-resolution, postprocessing, and character restoration, then enables all five.
+resolution, inline pattern dispatch, postprocessing, and character restoration,
+then enables all six.
 It asserts equality of the complete `MessageRenderingResult` before timing
 short, rich, and long messages without previews or organization data.
 
