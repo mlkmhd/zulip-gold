@@ -1075,3 +1075,24 @@ stash، اجداد، parent map، متن atomic و تغییرات پیش از خ
 مستقل همان ۲۸ از ۱۷۱ OpenAPI و ۲۸ از ۱۹۰ وب است.
 [اعمال الگو](README.md#apply-markdown-inline-matches-through-rust)،
 [پیمایش درخت](README.md#traverse-inline-markdown-trees-through-rust)
+
+## موتور یکپارچهٔ inline
+
+پرچم پیش‌فرض خاموش `ZULIP_RUST_MARKDOWN_INLINE_ENGINE` پیمایش،
+pattern dispatch، اعمال match، بازسازی اجداد، ساخت placeholder و
+بازکردن بازگشتی placeholderها را در یک runtime اجرا می‌کند.
+فراخوانی داخلی متدهای اصلی مستقیم است؛ callbackهای سفارشی و
+جایگزین‌شده همچنان زنده و Python هستند. خاموش‌کردن engine انتخاب
+چهار پل مستقل قبلی inline را بازمی‌گرداند.
+
+Element، رشته، regex، handlerها و جست‌وجوی placeholder هنوز Python
+هستند؛ این برش AST بومی یا رندر مستقل محسوب نمی‌شود. پس از ۶۴
+فراخوانی بومی تودرتو مسیر Python محدودیت recursion را اعمال می‌کند؛
+عمق دقیق خطا و فریم‌های traceback برابر نیستند. تست profile حذف
+فراخوانی wrapperهای اصلی را بررسی می‌کند؛ سنجش release در مستند
+تحویل ثبت شده و پرچم پیش‌فرض خاموش می‌ماند.
+
+تعداد عملیات مستقل تغییر نکرده است: ۲۸ از ۱۷۱ عملیات OpenAPI و
+۲۸ از ۱۹۰ عملیات صریح وب. فایل Python حذف و مسیر پیش‌فرض استقرار
+تغییر نکرده است. مالکیت بومی درخت و متن و metadata کامل رندر و
+اعلان همچنان پیش‌نیاز نوشتن مستقل‌اند.
