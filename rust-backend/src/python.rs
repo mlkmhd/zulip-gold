@@ -22,9 +22,10 @@ use crate::{
     markdown_alerts, markdown_blockquotes, markdown_blocks, markdown_channel_links,
     markdown_channel_spans, markdown_code, markdown_code_blocks, markdown_emphasis,
     markdown_fences, markdown_headings, markdown_horizontal_rules, markdown_inline_mentions,
-    markdown_list_blocks, markdown_list_indent, markdown_list_layout, markdown_lists,
-    markdown_mentions, markdown_paragraphs, markdown_tables, markdown_upload, markdown_whitespace,
-    reminder_access, reminder_context, reminder_quote, scheduled_attachments, send_permissions,
+    markdown_list_blocks, markdown_list_indent, markdown_list_indent_layout, markdown_list_layout,
+    markdown_lists, markdown_mentions, markdown_paragraphs, markdown_tables, markdown_upload,
+    markdown_whitespace, reminder_access, reminder_context, reminder_quote, scheduled_attachments,
+    send_permissions,
 };
 
 type InlineCodeMatch = (
@@ -218,6 +219,19 @@ mod _zulip_backend {
             tight_list,
             &descendants,
         ))
+    }
+
+    #[pyfunction]
+    fn plan_markdown_list_indentation(
+        block: &Bound<'_, PyString>,
+        tight_list: bool,
+        nodes: Vec<(Bound<'_, PyString>, bool)>,
+    ) -> Option<(usize, &'static str, bool, String)> {
+        let nodes = nodes
+            .iter()
+            .map(|(tag, has_text)| Some((tag.to_str().ok()?, *has_text)))
+            .collect::<Option<Vec<_>>>()?;
+        markdown_list_indent_layout::plan_list_indentation(block.to_str().ok()?, tight_list, &nodes)
     }
 
     #[pyfunction]
