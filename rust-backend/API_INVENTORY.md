@@ -1063,3 +1063,15 @@ Python هستند. شمار مسیرهای مستقل همان ۲۸ از ۱۷۱ 
 ۲۸ از ۱۹۰ عملیات وب است؛ فایل Python حذف نشده است.
 [جدول](README.md#plan-markdown-table-layout-through-rust)،
 [فهرست](README.md#plan-markdown-list-execution-through-rust)
+
+## اعمال الگو و پیمایش درخت inline
+
+`ZULIP_RUST_MARKDOWN_INLINE_APPLY` کنترل اعمال الگوهای جدید و
+`ZULIP_RUST_MARKDOWN_INLINE_TREE` پیمایش درخت inline را در Rust
+اجرا می‌کنند. هر دو مستقل و پیش‌فرض خاموش‌اند. رفتار callback،
+stash، اجداد، parent map، متن atomic و تغییرات پیش از خطا حفظ
+می‌شود. regex، handler، Element و پردازش placeholder هنوز Python
+هستند؛ AST بومی و renderer مستقل تکمیل نشده‌اند. شمار عملیات
+مستقل همان ۲۸ از ۱۷۱ OpenAPI و ۲۸ از ۱۹۰ وب است.
+[اعمال الگو](README.md#apply-markdown-inline-matches-through-rust)،
+[پیمایش درخت](README.md#traverse-inline-markdown-trees-through-rust)
