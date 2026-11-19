@@ -113,6 +113,36 @@ pub(crate) fn check_table(block: &str) -> TableCheck {
     (false, Some(border), None)
 }
 
+pub(crate) type TablePlan = (Vec<Option<&'static str>>, Vec<String>, Vec<Vec<String>>);
+
+pub(crate) fn plan_table(block: &str, border: bool, separator: &[&str]) -> TablePlan {
+    let align = separator
+        .iter()
+        .map(|cell| {
+            let cell = cell.trim_matches(' ');
+            match (cell.starts_with(':'), cell.ends_with(':')) {
+                (true, true) => Some("center"),
+                (true, false) => Some("left"),
+                (false, true) => Some("right"),
+                (false, false) => None,
+            }
+        })
+        .collect::<Vec<_>>();
+    let normalize_row = |row: &str| {
+        let mut cells = split_row(row.trim_matches(' '), border);
+        cells.resize(align.len(), String::new());
+        cells
+            .into_iter()
+            .map(|cell| cell.trim_matches(' ').to_owned())
+            .collect()
+    };
+    let mut lines = block.split('\n');
+    let header = normalize_row(lines.next().unwrap());
+    lines.next();
+    let rows = lines.map(normalize_row).collect();
+    (align, header, rows)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,5 +179,33 @@ mod tests {
             check_table("| h |\n|"),
             (true, Some(3), Some(vec![String::new()]))
         );
+    }
+
+    #[test]
+    fn plans_alignment_and_normalizes_row_width() {
+        let (align, header, rows) = plan_table(
+            "| عنوان | b | c | d |\n|:-|:-:|-:|--|\n| `a|b` | c\\|d |\n| 1 | 2 | 3 | 4 | extra |",
+            true,
+            &[" :-", " :-: ", "-: ", "--"],
+        );
+        assert_eq!(align, [Some("left"), Some("center"), Some("right"), None]);
+        assert_eq!(header, ["عنوان", "b", "c", "d"]);
+        assert_eq!(rows[0], ["`a|b`", "c\\|d", "", ""]);
+        assert_eq!(rows[1], ["1", "2", "3", "4"]);
+    }
+
+    #[test]
+    fn distinguishes_missing_body_from_empty_rows() {
+        let separator = [":", "--"];
+        assert!(plan_table("a|b\n:|--", false, &separator).2.is_empty());
+        assert_eq!(
+            plan_table("a|b\n:|--\n", false, &separator).2,
+            [vec!["", ""]]
+        );
+        assert_eq!(
+            plan_table(" \ta\u{a0} | b\r \nignored\n c | d ", false, &separator).1,
+            ["\ta\u{a0}", "b\r"]
+        );
+        assert_eq!(plan_table("", false, &[]), (vec![], vec![], vec![]));
     }
 }

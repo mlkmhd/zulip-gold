@@ -296,6 +296,23 @@ mod _zulip_backend {
     }
 
     #[pyfunction]
+    fn plan_markdown_table(
+        block: &Bound<'_, PyString>,
+        border: bool,
+        separator: Vec<Bound<'_, PyString>>,
+    ) -> Option<markdown_tables::TablePlan> {
+        let separator = separator
+            .iter()
+            .map(|cell| cell.to_str().ok())
+            .collect::<Option<Vec<_>>>()?;
+        Some(markdown_tables::plan_table(
+            block.to_str().ok()?,
+            border,
+            &separator,
+        ))
+    }
+
+    #[pyfunction]
     fn plan_markdown_code_block(
         block: &Bound<'_, PyString>,
         indentation: &Bound<'_, PyInt>,
