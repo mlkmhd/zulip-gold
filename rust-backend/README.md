@@ -1971,3 +1971,41 @@ flag modes and with independent combinations of prettification and restoration:
     zerver.tests.test_markdown zerver.tests.test_scheduled_messages \
     zerver.tests.test_reminders
 ```
+
+## Measure Markdown rendering bridges
+
+Use the provisioned development environment and a release wheel to measure
+bridge overhead. Once dependencies are cached, build offline and install only
+the local wheel:
+
+```bash
+CARGO_NET_OFFLINE=true CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 \
+    maturin build --release --manifest-path rust-backend/Cargo.toml \
+    --out var/markdown-release-wheels
+pip install --no-index --no-deps --upgrade --target var/markdown-release-python \
+    var/markdown-release-wheels/*.whl
+PYTHONPATH="$PWD/var/markdown-release-python:$PWD" \
+    python rust-backend/tests/benchmark_markdown_rendering.py \
+    > var/markdown-rendering-benchmark.json
+```
+
+Run without Rust feature flags in the environment. The script compares the
+Python fallback with each of serialization, prettification, inline stash
+resolution, postprocessing, and character restoration, then enables all five.
+It asserts equality of the complete `MessageRenderingResult` before timing
+short, rich, and long messages without previews or organization data.
+
+Results report median microseconds per conversion and elapsed-time ratios
+relative to Python; a ratio above one is slower. `--iterations` and `--repeats`
+control sampling. Separate serializer measurements compare the full bridge
+with a prebuilt snapshot, which excludes Python snapshot construction and
+validation. These measurements do not model database traffic, preview fetches,
+concurrent requests, or deployment capacity. Wait for other builds and tests
+to finish before measuring, and retain the JSON with its Python version and
+extension path.
+
+Use a Maturin wheel for Python imports. A plain Cargo library on macOS may link
+a particular `libpython` and is not a substitute for an ABI-compatible wheel.
+Keep Cargo registry and Python package caches when reclaiming build space;
+compiled outputs can be rebuilt offline, while deleted package caches may
+require another download.
