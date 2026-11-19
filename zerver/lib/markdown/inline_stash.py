@@ -5,6 +5,8 @@ from typing import cast
 from xml.etree.ElementTree import Element
 
 from markdown import util
+from markdown.inlinepatterns import InlineProcessor as InlinePattern
+from markdown.inlinepatterns import Pattern
 from markdown.treeprocessors import InlineProcessor as PythonInlineProcessor
 
 _rust_inline_stash = (
@@ -21,9 +23,30 @@ _rust_inline_patterns = (
     if os.environ.get("ZULIP_RUST_MARKDOWN_INLINE_PATTERNS") == "1"
     else None
 )
+_rust_inline_apply = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_MARKDOWN_INLINE_APPLY") == "1"
+    else None
+)
 
 
 class InlineProcessor(PythonInlineProcessor):
+    def _InlineProcessor__applyPattern(
+        self,
+        pattern: Pattern,
+        data: str,
+        patternIndex: int,  # noqa: N803
+        startIndex: int = 0,  # noqa: N803
+    ) -> tuple[str, bool, int]:
+        if _rust_inline_apply is not None and isinstance(pattern, InlinePattern):
+            return cast(
+                tuple[str, bool, int],
+                _rust_inline_apply.apply_markdown_inline(
+                    self, pattern, data, patternIndex, startIndex
+                ),
+            )
+        return super()._InlineProcessor__applyPattern(pattern, data, patternIndex, startIndex)  # type: ignore[misc] # Incomplete upstream stubs.
+
     def _InlineProcessor__handleInline(
         self,
         data: str,

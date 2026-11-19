@@ -194,9 +194,128 @@ fn draft_parse_result<T>(
     }
 }
 
+fn unpack_inline_result<'py>(
+    result: Bound<'py, PyAny>,
+) -> PyResult<(Bound<'py, PyAny>, Bound<'py, PyAny>, Bound<'py, PyAny>)> {
+    let result_type = result.get_type();
+    if !result_type.hasattr("__iter__")? && !result_type.hasattr("__getitem__")? {
+        return Err(PyTypeError::new_err(format!(
+            "cannot unpack non-iterable {} object",
+            result_type.name()?
+        )));
+    }
+    let mut values = result.try_iter()?;
+    let mut next_field = |index| {
+        values.next().transpose()?.ok_or_else(|| {
+            PyValueError::new_err(format!(
+                "not enough values to unpack (expected 3, got {index})"
+            ))
+        })
+    };
+    let fields = (next_field(0)?, next_field(1)?, next_field(2)?);
+    if values.next().transpose()?.is_some() {
+        return Err(PyValueError::new_err(
+            "too many values to unpack (expected 3)",
+        ));
+    }
+    Ok(fields)
+}
+
 #[pymodule]
 mod _zulip_backend {
     use super::*;
+
+    #[pyfunction]
+    fn apply_markdown_inline<'py>(
+        processor: &Bound<'py, PyAny>,
+        pattern: &Bound<'py, PyAny>,
+        data: Bound<'py, PyAny>,
+        pattern_index: Bound<'py, PyAny>,
+        mut start_index: Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let py = processor.py();
+        for exclude in pattern.getattr("ANCESTOR_EXCLUDES")?.try_iter()? {
+            let exclude = exclude?.call_method0("lower")?;
+            if processor.getattr("ancestors")?.contains(exclude)? {
+                return (data, false, 0).into_bound_py_any(py);
+            }
+        }
+
+        let matches = pattern
+            .call_method0("getCompiledRegExp")?
+            .call_method1("finditer", (&data, &start_index))?;
+        let mut accepted = None;
+        for matched in matches.try_iter()? {
+            let matched = matched?;
+            let result = pattern.call_method1("handleMatch", (&matched, &data))?;
+            let (node, start, end) = unpack_inline_result(result)?;
+            if start.is_none() || end.is_none() {
+                let end = matched.call_method1("end", (0,))?;
+                start_index = py
+                    .import("operator")?
+                    .call_method1("iadd", (start_index, end))?;
+                continue;
+            }
+            accepted = Some((matched, node, start, end));
+            break;
+        }
+        let Some((matched, node, start, end)) = accepted else {
+            return (data, false, 0).into_bound_py_any(py);
+        };
+        if !matched.is_truthy()? {
+            return (data, false, 0).into_bound_py_any(py);
+        }
+        if node.is_none() {
+            return (data, true, end).into_bound_py_any(py);
+        }
+
+        if !node.is_instance(&py.get_type::<PyString>())? {
+            let text = node.getattr("text")?;
+            let atomic_string = py.import("markdown.util")?.getattr("AtomicString")?;
+            if !text.is_instance(&atomic_string)? {
+                // Snapshot children before callbacks can mutate the element.
+                let children = py
+                    .import("builtins")?
+                    .call_method1("list", (&node,))?
+                    .cast_into::<PyList>()?;
+                children.insert(0, &node)?;
+                for child in children.iter() {
+                    let is_string = py
+                        .import("markdown.treeprocessors")?
+                        .call_method1("isString", (&node,))?;
+                    if !is_string.is_truthy()? {
+                        if child.getattr("text")?.is_truthy()? {
+                            let append = processor.getattr("ancestors")?.getattr("append")?;
+                            let tag = child.getattr("tag")?.call_method0("lower")?;
+                            append.call1((tag,))?;
+                            let handle = processor.getattr("_InlineProcessor__handleInline")?;
+                            let text = child.getattr("text")?;
+                            let index = pattern_index.add(1)?;
+                            let text = handle.call1((text, index))?;
+                            child.setattr("text", text)?;
+                            processor.getattr("ancestors")?.call_method0("pop")?;
+                        }
+                        if child.getattr("tail")?.is_truthy()? {
+                            let handle = processor.getattr("_InlineProcessor__handleInline")?;
+                            let tail = child.getattr("tail")?;
+                            let tail = handle.call1((tail, &pattern_index))?;
+                            child.setattr("tail", tail)?;
+                        }
+                    }
+                }
+            }
+        }
+
+        let stash = processor.getattr("_InlineProcessor__stashNode")?;
+        let pattern_type = pattern.call_method0("type")?;
+        let placeholder = stash.call1((node, pattern_type))?;
+        let slice = py.import("builtins")?.getattr("slice")?;
+        let prefix = data.get_item(slice.call1((py.None(), start))?)?;
+        let suffix = data.get_item(slice.call1((end, py.None()))?)?;
+        let result =
+            PyString::new(py, "{}{}{}").call_method1("format", (prefix, placeholder, suffix))?;
+        (result, true, 0).into_bound_py_any(py)
+    }
 
     #[pyfunction]
     fn handle_markdown_inline<'py>(
@@ -213,29 +332,9 @@ mod _zulip_backend {
                 .getattr("inlinePatterns")?
                 .get_item(pattern_index)?;
             let result = apply_pattern.call1((pattern, data, pattern_index, start_index))?;
-            let result_type = result.get_type();
-            if !result_type.hasattr("__iter__")? && !result_type.hasattr("__getitem__")? {
-                return Err(PyTypeError::new_err(format!(
-                    "cannot unpack non-iterable {} object",
-                    result_type.name()?
-                )));
-            }
-            let mut values = result.try_iter()?;
-            let mut next_field = |index| {
-                values.next().transpose()?.ok_or_else(|| {
-                    PyValueError::new_err(format!(
-                        "not enough values to unpack (expected 3, got {index})"
-                    ))
-                })
-            };
-            data = next_field(0)?;
-            let matched = next_field(1)?;
-            start_index = next_field(2)?;
-            if values.next().transpose()?.is_some() {
-                return Err(PyValueError::new_err(
-                    "too many values to unpack (expected 3)",
-                ));
-            }
+            let (next_data, matched, next_start) = unpack_inline_result(result)?;
+            data = next_data;
+            start_index = next_start;
             if !matched.is_truthy()? {
                 pattern_index += 1;
             }

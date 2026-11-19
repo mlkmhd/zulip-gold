@@ -1987,9 +1987,10 @@ reference. Text, including lone surrogates, remains a Python object without
 UTF-8 conversion. Callback exceptions propagate with their existing partial
 stash and tree mutations.
 
-Regex matching, `handleMatch`, ancestor exclusions, placeholder creation,
-and tree mutation still use Python. This is an incremental migration of control
-flow, not a native AST or independent renderer, and does not establish a speedup.
+Without the separate match-application flag below, regex matching,
+`handleMatch`, ancestor exclusions, placeholder creation, and tree mutation
+still use Python. This is an incremental migration of control flow, not a
+native AST or independent renderer, and does not establish a speedup.
 
 After installing the wheel, run the regression tests in all four combinations
 of the two flags:
@@ -1997,6 +1998,34 @@ of the two flags:
 ```bash
 ZULIP_RUST_MARKDOWN_INLINE_PATTERNS=1 ZULIP_RUST_MARKDOWN_INLINE_STASH=1 \
     ./tools/test-backend zerver.tests.test_markdown_inline_patterns \
+    zerver.tests.test_markdown_inline_stash zerver.tests.test_markdown
+```
+
+## Apply inline Markdown matches through Rust
+
+Set `ZULIP_RUST_MARKDOWN_INLINE_APPLY=1` to run new-style inline match
+application in Rust. Restart Django processes after changing the flag. It
+defaults to disabled and is independent of inline dispatch and stash scanning.
+Legacy `Pattern` instances retain the Python implementation.
+
+Rust checks ancestor exclusions, iterates the existing compiled Python regex,
+handles rejected matches, and recursively updates node text and tails before
+stashing the result. Text and slice bounds stay Python objects, preserving
+Unicode, lone surrogates, string subclasses, and Python indexing errors.
+Child traversal uses a snapshot while callbacks and stash lookups remain live.
+Exceptions preserve earlier mutations, including an ancestor pushed before a
+failed recursive callback and a node stashed before an invalid output slice.
+
+Regex engines, pattern handlers, placeholder creation, and the elements
+themselves still require Python. This does not supply a native AST, retire
+Python modules, change sanitization, or establish a performance improvement.
+Run these tests in all eight independent flag combinations:
+
+```bash
+ZULIP_RUST_MARKDOWN_INLINE_APPLY=1 ZULIP_RUST_MARKDOWN_INLINE_PATTERNS=1 \
+    ZULIP_RUST_MARKDOWN_INLINE_STASH=1 ./tools/test-backend --parallel 1 \
+    zerver.tests.test_markdown_inline_apply \
+    zerver.tests.test_markdown_inline_patterns \
     zerver.tests.test_markdown_inline_stash zerver.tests.test_markdown
 ```
 
@@ -2019,8 +2048,8 @@ PYTHONPATH="$PWD/var/markdown-release-python:$PWD" \
 
 Run without Rust feature flags in the environment. The script compares the
 Python fallback with each of serialization, prettification, inline stash
-resolution, inline pattern dispatch, postprocessing, and character restoration,
-then enables all six.
+resolution, inline pattern dispatch, inline match application, postprocessing,
+and character restoration, then enables all seven.
 It asserts equality of the complete `MessageRenderingResult` before timing
 short, rich, and long messages without previews or organization data.
 
