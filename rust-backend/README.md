@@ -1916,3 +1916,30 @@ of serialization and postprocessing:
     zerver.tests.test_markdown zerver.tests.test_scheduled_messages \
     zerver.tests.test_reminders
 ```
+
+## Prettify Markdown trees through Rust
+
+Rebuild and install the Python extension, then set
+`ZULIP_RUST_MARKDOWN_PRETTIFY=1` in Django processes to plan block newlines,
+line-break tails, and trailing code whitespace in Rust. Python applies the
+changes to the existing elements. The three passes preserve their reference
+order, Python whitespace rules, and atomic code text. Unchanged text retains
+its original type. Block classification uses Python's Unicode lowercase rules
+and the configured block-element list.
+
+The flag defaults to disabled and is independent of the other Markdown
+bridges. Custom callbacks, unusual element or string types, shared nodes,
+surrogates, and trees deeper than 100 levels use the reference processor before
+any tree mutation. Errors in that path retain the original partial mutations.
+Unset the flag and restart Django processes to roll back. This does not enable
+standalone rendering or scheduled message writes.
+
+Run these collections with the flag disabled and enabled, including independent
+combinations with serialization and character restoration:
+
+```bash
+./tools/test-backend --parallel 1 zerver.tests.test_markdown_prettify \
+    zerver.tests.test_markdown_unescape zerver.tests.test_markdown_serialization \
+    zerver.tests.test_markdown zerver.tests.test_scheduled_messages \
+    zerver.tests.test_reminders
+```

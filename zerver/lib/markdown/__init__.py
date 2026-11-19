@@ -44,6 +44,7 @@ from zerver.lib.markdown.fenced_code import parse_fence_line
 from zerver.lib.markdown.inline_code import BacktickMatch, backtick_pattern
 from zerver.lib.markdown.list_indent_layout import run_list_indent_layout
 from zerver.lib.markdown.list_layout import run_list_layout
+from zerver.lib.markdown.prettify import PrettifyTreeprocessor
 from zerver.lib.markdown.serialization import to_html_string
 from zerver.lib.markdown.tables import TableExtension
 from zerver.lib.markdown.unescape import UnescapeTreeprocessor
@@ -2768,7 +2769,7 @@ class ZulipMarkdown(markdown.Markdown):
         treeprocessors = markdown.util.Registry[markdown.treeprocessors.Treeprocessor]()
         # We get priority 30 from 'hilite' extension
         treeprocessors.register(markdown.treeprocessors.InlineProcessor(self), "inline", 25)
-        treeprocessors.register(markdown.treeprocessors.PrettifyTreeprocessor(self), "prettify", 20)
+        treeprocessors.register(PrettifyTreeprocessor(self), "prettify", 20)
         treeprocessors.register(UnescapeTreeprocessor(self), "unescape", 18)
         treeprocessors.register(
             InlineInterestingLinkProcessor(self), "inline_interesting_links", 15

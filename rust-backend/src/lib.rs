@@ -85,6 +85,9 @@ mod markdown_paragraphs;
 mod markdown_postprocessing;
 
 #[cfg(feature = "python")]
+mod markdown_prettify;
+
+#[cfg(feature = "python")]
 mod markdown_serialization;
 
 #[cfg(feature = "python")]

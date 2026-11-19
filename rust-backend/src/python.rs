@@ -24,7 +24,7 @@ use crate::{
     markdown_fences, markdown_headings, markdown_horizontal_rules, markdown_inline_mentions,
     markdown_list_blocks, markdown_list_indent, markdown_list_indent_layout, markdown_list_layout,
     markdown_lists, markdown_mentions, markdown_paragraphs, markdown_postprocessing,
-    markdown_serialization, markdown_tables, markdown_unescape, markdown_upload,
+    markdown_prettify, markdown_serialization, markdown_tables, markdown_unescape, markdown_upload,
     markdown_whitespace, reminder_access, reminder_context, reminder_quote, scheduled_attachments,
     send_permissions,
 };
@@ -55,6 +55,10 @@ type SerializationNode = (
     Vec<(String, String)>,
     usize,
 );
+
+type PrettifyNode = (String, Option<String>, Option<String>, bool, usize);
+
+type PrettifyChange = (usize, bool, bool, String);
 
 type DraftParseResult<T> = (Option<T>, Option<(&'static str, Vec<Location>)>);
 
@@ -179,6 +183,29 @@ fn draft_parse_result<T>(
 #[pymodule]
 mod _zulip_backend {
     use super::*;
+
+    #[pyfunction]
+    fn prettify_markdown_tree(nodes: &Bound<'_, PyAny>) -> Option<Vec<PrettifyChange>> {
+        let nodes = nodes.extract::<Vec<PrettifyNode>>().ok()?;
+        let nodes = nodes
+            .into_iter()
+            .map(
+                |(tag, text, tail, block, children)| markdown_prettify::Node {
+                    tag,
+                    text,
+                    tail,
+                    block,
+                    children,
+                },
+            )
+            .collect();
+        Some(
+            markdown_prettify::prettify(nodes)?
+                .into_iter()
+                .map(|change| (change.node, change.text, change.atomic, change.value))
+                .collect(),
+        )
+    }
 
     #[pyfunction]
     fn unescape_markdown_text(text: &Bound<'_, PyString>) -> Option<String> {
