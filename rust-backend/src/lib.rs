@@ -90,6 +90,9 @@ mod markdown_serialization;
 #[cfg(feature = "python")]
 mod markdown_tables;
 
+#[cfg(feature = "python")]
+mod markdown_unescape;
+
 #[cfg(any(feature = "python", test))]
 mod markdown_upload;
 

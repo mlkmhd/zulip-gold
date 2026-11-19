@@ -1887,3 +1887,32 @@ combination of serialization and postprocessing:
     zerver.tests.test_markdown_serialization zerver.tests.test_markdown \
     zerver.tests.test_scheduled_messages zerver.tests.test_reminders
 ```
+
+## Restore escaped Markdown characters through Rust
+
+Rebuild and install the Python extension, then set
+`ZULIP_RUST_MARKDOWN_UNESCAPE=1` in Django processes to restore numeric
+character placeholders in Rust. The existing tree processor still visits
+elements in order, skips code-element text, and updates tails and attributes.
+Atomic code text remains atomic; restored text follows the reference's string
+types. An invalid later attribute retains the same earlier tree mutations.
+
+The flag defaults to disabled and is independent of serialization,
+postprocessing, and the other Markdown bridges. Non-ASCII placeholder
+candidates use Python's Unicode digit rules; ordinary Unicode text stays in
+Rust. Custom callbacks and patterns, lone surrogates, surrogate results,
+out-of-range code points, and long integer strings use the reference method,
+including its configured integer-string limit and errors. Replacement is a
+single pass: newly formed placeholders are not expanded again.
+
+Unset the flag and restart Django processes to roll back. This bridge does
+not enable standalone rendering or scheduled message writes. Run these
+collections with the flag disabled and enabled, then with each combination
+of serialization and postprocessing:
+
+```bash
+./tools/test-backend --parallel 1 zerver.tests.test_markdown_unescape \
+    zerver.tests.test_markdown_postprocessing zerver.tests.test_markdown_serialization \
+    zerver.tests.test_markdown zerver.tests.test_scheduled_messages \
+    zerver.tests.test_reminders
+```

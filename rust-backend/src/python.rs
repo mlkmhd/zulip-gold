@@ -24,8 +24,9 @@ use crate::{
     markdown_fences, markdown_headings, markdown_horizontal_rules, markdown_inline_mentions,
     markdown_list_blocks, markdown_list_indent, markdown_list_indent_layout, markdown_list_layout,
     markdown_lists, markdown_mentions, markdown_paragraphs, markdown_postprocessing,
-    markdown_serialization, markdown_tables, markdown_upload, markdown_whitespace, reminder_access,
-    reminder_context, reminder_quote, scheduled_attachments, send_permissions,
+    markdown_serialization, markdown_tables, markdown_unescape, markdown_upload,
+    markdown_whitespace, reminder_access, reminder_context, reminder_quote, scheduled_attachments,
+    send_permissions,
 };
 
 type InlineCodeMatch = (
@@ -178,6 +179,11 @@ fn draft_parse_result<T>(
 #[pymodule]
 mod _zulip_backend {
     use super::*;
+
+    #[pyfunction]
+    fn unescape_markdown_text(text: &Bound<'_, PyString>) -> Option<String> {
+        markdown_unescape::unescape(text.to_str().ok()?)
+    }
 
     #[pyfunction]
     fn restore_markdown_html_stash(

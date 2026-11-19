@@ -46,6 +46,7 @@ from zerver.lib.markdown.list_indent_layout import run_list_indent_layout
 from zerver.lib.markdown.list_layout import run_list_layout
 from zerver.lib.markdown.serialization import to_html_string
 from zerver.lib.markdown.tables import TableExtension
+from zerver.lib.markdown.unescape import UnescapeTreeprocessor
 from zerver.lib.markdown.whitespace import ZulipNormalizeWhitespace
 from zerver.lib.mention import (
     BEFORE_LINK_PRODUCING_MENTION_ALLOWED_REGEX,
@@ -2768,7 +2769,7 @@ class ZulipMarkdown(markdown.Markdown):
         # We get priority 30 from 'hilite' extension
         treeprocessors.register(markdown.treeprocessors.InlineProcessor(self), "inline", 25)
         treeprocessors.register(markdown.treeprocessors.PrettifyTreeprocessor(self), "prettify", 20)
-        treeprocessors.register(markdown.treeprocessors.UnescapeTreeprocessor(self), "unescape", 18)
+        treeprocessors.register(UnescapeTreeprocessor(self), "unescape", 18)
         treeprocessors.register(
             InlineInterestingLinkProcessor(self), "inline_interesting_links", 15
         )
