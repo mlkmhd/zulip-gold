@@ -23,9 +23,9 @@ use crate::{
     markdown_channel_spans, markdown_code, markdown_code_blocks, markdown_emphasis,
     markdown_fences, markdown_headings, markdown_horizontal_rules, markdown_inline_mentions,
     markdown_list_blocks, markdown_list_indent, markdown_list_indent_layout, markdown_list_layout,
-    markdown_lists, markdown_mentions, markdown_paragraphs, markdown_tables, markdown_upload,
-    markdown_whitespace, reminder_access, reminder_context, reminder_quote, scheduled_attachments,
-    send_permissions,
+    markdown_lists, markdown_mentions, markdown_paragraphs, markdown_serialization,
+    markdown_tables, markdown_upload, markdown_whitespace, reminder_access, reminder_context,
+    reminder_quote, scheduled_attachments, send_permissions,
 };
 
 type InlineCodeMatch = (
@@ -45,6 +45,15 @@ type ChannelLinkFields = (
 );
 
 type EmphasisMatch = (String, &'static str, String, Option<&'static str>, String);
+
+type SerializationNode = (
+    u8,
+    String,
+    Option<String>,
+    Option<String>,
+    Vec<(String, String)>,
+    usize,
+);
 
 type DraftParseResult<T> = (Option<T>, Option<(&'static str, Vec<Location>)>);
 
@@ -169,6 +178,33 @@ fn draft_parse_result<T>(
 #[pymodule]
 mod _zulip_backend {
     use super::*;
+
+    #[pyfunction]
+    fn serialize_markdown_html(
+        nodes: &Bound<'_, PyAny>,
+        empty_tags: Vec<String>,
+    ) -> Option<String> {
+        let nodes = nodes.extract::<Vec<SerializationNode>>().ok()?;
+        let nodes = nodes
+            .into_iter()
+            .map(|(kind, tag, text, tail, attributes, children)| {
+                Some(markdown_serialization::Node {
+                    tag: match kind {
+                        0 => markdown_serialization::Tag::Element(tag),
+                        1 => markdown_serialization::Tag::Container,
+                        2 => markdown_serialization::Tag::Comment,
+                        3 => markdown_serialization::Tag::ProcessingInstruction,
+                        _ => return None,
+                    },
+                    text,
+                    tail,
+                    attributes,
+                    children,
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        markdown_serialization::serialize(&nodes, &empty_tags)
+    }
 
     #[pyfunction]
     fn possible_markdown_channel_references(

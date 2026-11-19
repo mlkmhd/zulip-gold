@@ -44,6 +44,7 @@ from zerver.lib.markdown.fenced_code import parse_fence_line
 from zerver.lib.markdown.inline_code import BacktickMatch, backtick_pattern
 from zerver.lib.markdown.list_indent_layout import run_list_indent_layout
 from zerver.lib.markdown.list_layout import run_list_layout
+from zerver.lib.markdown.serialization import to_html_string
 from zerver.lib.markdown.tables import TableExtension
 from zerver.lib.markdown.whitespace import ZulipNormalizeWhitespace
 from zerver.lib.mention import (
@@ -2584,6 +2585,8 @@ DEFAULT_MARKDOWN_KEY = -1
 
 
 class ZulipMarkdown(markdown.Markdown):
+    output_formats = {**markdown.Markdown.output_formats, "html": to_html_string}
+
     zulip_message: Message | None
     zulip_realm: Realm | None
     zulip_db_data: DbData | None

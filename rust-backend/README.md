@@ -1828,3 +1828,33 @@ combination of the list execution and indentation helper flags:
     zerver.tests.test_markdown zerver.tests.test_scheduled_messages \
     zerver.tests.test_reminders
 ```
+
+## Serialize Markdown HTML through Rust
+
+Rebuild and install the Python extension, then set
+`ZULIP_RUST_MARKDOWN_SERIALIZATION=1` in Django processes to serialize the
+Markdown element tree in Rust. The serializer preserves attribute ordering,
+HTML boolean attributes, entity spelling (including unrecognized names),
+comments, processing instructions, tagless containers, raw script/style text,
+empty elements, and escaped tails. HTML attribute newlines remain literal.
+The empty-element set comes from the running Python version, retaining its
+version-specific treatment of tags such as `source`.
+Element construction, inline processing, HTML stash restoration, and other
+postprocessors still run in Python. This is serialization, not sanitization.
+
+The flag defaults to disabled and is independent of every other Markdown
+bridge. Qualified names, custom element/string classes, invalid Unicode,
+nonstring values, and trees deeper than 100 levels use the Python serializer,
+preserving its results and errors without mutating the tree. XHTML and other
+Markdown instances retain their existing serializers. Unset the flag and
+restart Django processes to roll back. This bridge does not enable standalone
+rendering or scheduled message writes.
+
+Run these collections with the flag disabled and enabled, then repeat with
+the other Markdown bridges enabled to check independent rollback:
+
+```bash
+./tools/test-backend --parallel 1 zerver.tests.test_markdown_serialization \
+    zerver.tests.test_markdown zerver.tests.test_scheduled_messages \
+    zerver.tests.test_reminders
+```

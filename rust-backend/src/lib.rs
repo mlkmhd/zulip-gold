@@ -82,6 +82,9 @@ mod markdown_mentions;
 mod markdown_paragraphs;
 
 #[cfg(feature = "python")]
+mod markdown_serialization;
+
+#[cfg(feature = "python")]
 mod markdown_tables;
 
 #[cfg(any(feature = "python", test))]
