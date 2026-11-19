@@ -2029,6 +2029,34 @@ ZULIP_RUST_MARKDOWN_INLINE_APPLY=1 ZULIP_RUST_MARKDOWN_INLINE_PATTERNS=1 \
     zerver.tests.test_markdown_inline_stash zerver.tests.test_markdown
 ```
 
+## Traverse inline Markdown trees through Rust
+
+Set `ZULIP_RUST_MARKDOWN_INLINE_TREE=1` to run `InlineProcessor.run` in
+Rust. The flag defaults to disabled and is independent of inline pattern
+dispatch, match application, and stash scanning. Restart Django processes
+after changing it.
+
+The runner resets the stash, copies supplied ancestors, builds the initial
+parent map, and processes the live child iterator and pending insertion queue.
+It retains the distinct handling of text and tails, `AtomicString` values,
+and callbacks selected before recursive processing. Updates to the parent map
+and ancestors remain visible to later callbacks. Exceptions leave the same
+partial text, tail, parent-map, and stash changes as the reference runner.
+
+Elements, regexes, handlers, ancestor reconstruction, and recursive placeholder
+resolution still use Python. This transfers traversal control without creating
+a native AST or independent renderer. It does not establish a speedup. Run the
+following collections in all sixteen combinations of the four inline flags:
+
+```bash
+ZULIP_RUST_MARKDOWN_INLINE_TREE=1 ZULIP_RUST_MARKDOWN_INLINE_APPLY=1 \
+    ZULIP_RUST_MARKDOWN_INLINE_PATTERNS=1 ZULIP_RUST_MARKDOWN_INLINE_STASH=1 \
+    ./tools/test-backend --parallel 1 zerver.tests.test_markdown_inline_tree \
+    zerver.tests.test_markdown_inline_apply \
+    zerver.tests.test_markdown_inline_patterns \
+    zerver.tests.test_markdown_inline_stash zerver.tests.test_markdown
+```
+
 ## Measure Markdown rendering bridges
 
 Use the provisioned development environment and a release wheel to measure
@@ -2048,8 +2076,8 @@ PYTHONPATH="$PWD/var/markdown-release-python:$PWD" \
 
 Run without Rust feature flags in the environment. The script compares the
 Python fallback with each of serialization, prettification, inline stash
-resolution, inline pattern dispatch, inline match application, postprocessing,
-and character restoration, then enables all seven.
+resolution, inline pattern dispatch, inline match application, inline tree
+traversal, postprocessing, and character restoration, then enables all eight.
 It asserts equality of the complete `MessageRenderingResult` before timing
 short, rich, and long messages without previews or organization data.
 

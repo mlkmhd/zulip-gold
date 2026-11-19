@@ -58,6 +58,7 @@ def main() -> None:
         "inline_stash": (inline_stash, "_rust_inline_stash"),
         "inline_patterns": (inline_stash, "_rust_inline_patterns"),
         "inline_apply": (inline_stash, "_rust_inline_apply"),
+        "inline_tree": (inline_stash, "_rust_inline_tree"),
         "postprocessing": (postprocessing, "_rust_postprocessing"),
         "unescape": (unescape, "_rust_unescape"),
     }

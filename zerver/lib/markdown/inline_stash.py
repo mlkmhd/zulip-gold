@@ -8,6 +8,7 @@ from markdown import util
 from markdown.inlinepatterns import InlineProcessor as InlinePattern
 from markdown.inlinepatterns import Pattern
 from markdown.treeprocessors import InlineProcessor as PythonInlineProcessor
+from typing_extensions import override
 
 _rust_inline_stash = (
     import_module("_zulip_backend")
@@ -28,9 +29,20 @@ _rust_inline_apply = (
     if os.environ.get("ZULIP_RUST_MARKDOWN_INLINE_APPLY") == "1"
     else None
 )
+_rust_inline_tree = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_MARKDOWN_INLINE_TREE") == "1"
+    else None
+)
 
 
 class InlineProcessor(PythonInlineProcessor):
+    @override
+    def run(self, tree: Element, ancestors: list[str] | None = None) -> Element:
+        if _rust_inline_tree is not None:
+            return cast(Element, _rust_inline_tree.run_markdown_inline(self, tree, ancestors))
+        return super().run(tree, ancestors)
+
     def _InlineProcessor__applyPattern(
         self,
         pattern: Pattern,
