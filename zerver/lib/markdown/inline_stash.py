@@ -35,10 +35,23 @@ _rust_inline_tree = (
     else None
 )
 
+_rust_inline_engine = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_MARKDOWN_INLINE_ENGINE") == "1"
+    else None
+)
+
 
 class InlineProcessor(PythonInlineProcessor):
     @override
     def run(self, tree: Element, ancestors: list[str] | None = None) -> Element:
+        if _rust_inline_engine is not None:
+            return cast(
+                Element,
+                _rust_inline_engine.run_markdown_inline_engine(
+                    self, tree, ancestors, _inline_engine_callbacks
+                ),
+            )
         if _rust_inline_tree is not None:
             return cast(Element, _rust_inline_tree.run_markdown_inline(self, tree, ancestors))
         return super().run(tree, ancestors)
@@ -139,3 +152,17 @@ class InlineProcessor(PythonInlineProcessor):
                     self._InlineProcessor__processElementText(child, child)  # type: ignore[attr-defined] # Incomplete upstream stubs.
             result.append((node, self.ancestors[:]))
         return result
+
+
+_inline_engine_callbacks = {
+    name: getattr(InlineProcessor, "_InlineProcessor" + name)
+    for name in [
+        "__handleInline",
+        "__applyPattern",
+        "__processPlaceholders",
+        "__processElementText",
+        "__build_ancestors",
+        "__stashNode",
+        "__makePlaceholder",
+    ]
+}

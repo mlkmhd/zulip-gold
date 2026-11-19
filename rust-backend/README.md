@@ -2057,6 +2057,47 @@ ZULIP_RUST_MARKDOWN_INLINE_TREE=1 ZULIP_RUST_MARKDOWN_INLINE_APPLY=1 \
     zerver.tests.test_markdown_inline_stash zerver.tests.test_markdown
 ```
 
+## Run the coordinated inline Markdown engine
+
+Set `ZULIP_RUST_MARKDOWN_INLINE_ENGINE=1` after rebuilding the Python
+extension, then restart Django processes. This default-off flag selects one
+runtime for inline traversal, pattern dispatch, match application, ancestor
+reconstruction, placeholder creation, and recursive placeholder restoration.
+Default internal methods call each other directly in Rust, rather than
+returning through the individual Python bridge wrappers.
+
+Each callback is still selected at its original point in execution. Only a
+bound method belonging to the current processor and matching the original
+implementation uses native dispatch. Overrides and callbacks replaced during
+rendering stay live, including custom placeholder search, stash access, and
+legacy patterns. The runtime preserves Python strings and Element identities;
+surrogates, `AtomicString`, shared stashed nodes, text/tail insertion order,
+and partial changes before callback errors retain the reference behavior.
+After 64 nested native calls, execution delegates to the selected Python
+method so Python can enforce its recursion limit without exhausting the native
+stack. Exact recursion-limit depth and traceback frames are not preserved.
+
+Unset the engine flag and restart Django to restore the four independently
+selected inline bridges. The engine flag does not change their settings.
+Regex matching, handlers, Elements, and the surrounding rendering pipeline
+still require Python. This is a coordinated migration of execution, not native
+tree ownership, an independent renderer, or evidence of a speedup.
+
+Run these tests with the engine alone, with it disabled, and with all 32
+combinations of the five inline flags. The profile test requires the default
+traversal and mutation methods to execute without entering their Python
+implementations.
+
+```bash
+ZULIP_RUST_MARKDOWN_INLINE_ENGINE=1 ./tools/test-backend --parallel 1 \
+    zerver.tests.test_markdown_inline_engine \
+    zerver.tests.test_markdown_inline_tree \
+    zerver.tests.test_markdown_inline_apply \
+    zerver.tests.test_markdown_inline_patterns \
+    zerver.tests.test_markdown_inline_stash zerver.tests.test_markdown \
+    zerver.tests.test_scheduled_messages zerver.tests.test_reminders
+```
+
 ## Measure Markdown rendering bridges
 
 Use the provisioned development environment and a release wheel to measure
@@ -2077,7 +2118,9 @@ PYTHONPATH="$PWD/var/markdown-release-python:$PWD" \
 Run without Rust feature flags in the environment. The script compares the
 Python fallback with each of serialization, prettification, inline stash
 resolution, inline pattern dispatch, inline match application, inline tree
-traversal, postprocessing, and character restoration, then enables all eight.
+traversal, the coordinated inline engine, postprocessing, and character
+restoration. It also measures the four separate inline bridges together and
+then enables all nine bridges.
 It asserts equality of the complete `MessageRenderingResult` before timing
 short, rich, and long messages without previews or organization data.
 

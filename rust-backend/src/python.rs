@@ -201,6 +201,7 @@ mod _zulip_backend {
     #[pymodule_export]
     use crate::markdown_inline_runtime::{
         apply_markdown_inline, handle_markdown_inline, run_markdown_inline,
+        run_markdown_inline_engine,
     };
 
     #[pyfunction]

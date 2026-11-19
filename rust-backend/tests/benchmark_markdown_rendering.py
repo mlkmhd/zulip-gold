@@ -59,6 +59,7 @@ def main() -> None:
         "inline_patterns": (inline_stash, "_rust_inline_patterns"),
         "inline_apply": (inline_stash, "_rust_inline_apply"),
         "inline_tree": (inline_stash, "_rust_inline_tree"),
+        "inline_engine": (inline_stash, "_rust_inline_engine"),
         "postprocessing": (postprocessing, "_rust_postprocessing"),
         "unescape": (unescape, "_rust_unescape"),
     }
@@ -78,9 +79,13 @@ def main() -> None:
         expected = render(content)
         baseline = 0.0
         iterations = max(1, args.iterations // 20) if name == "long" else args.iterations
-        for mode in ["python", *bridges, "combined"]:
+        for mode in ["python", *bridges, "inline_bridges", "combined"]:
             for bridge, (module, attribute) in bridges.items():
-                setattr(module, attribute, native if mode in (bridge, "combined") else None)
+                enabled = mode in (bridge, "combined") or (
+                    mode == "inline_bridges"
+                    and bridge in {"inline_stash", "inline_patterns", "inline_apply", "inline_tree"}
+                )
+                setattr(module, attribute, native if enabled else None)
             assert render(content) == expected
             elapsed = measure(partial(render, content), iterations, args.repeats)
             if mode == "python":
