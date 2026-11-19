@@ -42,6 +42,7 @@ from zerver.lib.markdown import channel_links, emphasis, fenced_code
 from zerver.lib.markdown.code_blocks import CodeBlockProcessor, EmptyBlockProcessor
 from zerver.lib.markdown.fenced_code import parse_fence_line
 from zerver.lib.markdown.inline_code import BacktickMatch, backtick_pattern
+from zerver.lib.markdown.list_layout import run_list_layout
 from zerver.lib.markdown.tables import TableExtension
 from zerver.lib.markdown.whitespace import ZulipNormalizeWhitespace
 from zerver.lib.mention import (
@@ -1525,6 +1526,11 @@ class OListProcessor(sane_lists.SaneOListProcessor):
         parser.md.tab_length = 4
 
     @override
+    def run(self, parent: Element, blocks: list[str]) -> None:
+        if not run_list_layout(self, parent, blocks):
+            super().run(parent, blocks)
+
+    @override
     def test(self, parent: Element, block: str) -> bool:
         if _rust_markdown_list_blocks is not None:
             result = _rust_markdown_list_blocks.starts_markdown_list(block, True)
@@ -1551,6 +1557,11 @@ class UListProcessor(sane_lists.SaneUListProcessor):
         parser.md.tab_length = 2
         super().__init__(parser)
         parser.md.tab_length = 4
+
+    @override
+    def run(self, parent: Element, blocks: list[str]) -> None:
+        if not run_list_layout(self, parent, blocks):
+            super().run(parent, blocks)
 
     @override
     def test(self, parent: Element, block: str) -> bool:

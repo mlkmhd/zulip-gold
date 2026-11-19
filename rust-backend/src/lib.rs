@@ -67,6 +67,9 @@ mod markdown_list_blocks;
 mod markdown_list_indent;
 
 #[cfg(feature = "python")]
+mod markdown_list_layout;
+
+#[cfg(feature = "python")]
 mod markdown_lists;
 
 #[cfg(any(feature = "python", test))]

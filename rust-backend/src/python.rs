@@ -22,9 +22,9 @@ use crate::{
     markdown_alerts, markdown_blockquotes, markdown_blocks, markdown_channel_links,
     markdown_channel_spans, markdown_code, markdown_code_blocks, markdown_emphasis,
     markdown_fences, markdown_headings, markdown_horizontal_rules, markdown_inline_mentions,
-    markdown_list_blocks, markdown_list_indent, markdown_lists, markdown_mentions,
-    markdown_paragraphs, markdown_tables, markdown_upload, markdown_whitespace, reminder_access,
-    reminder_context, reminder_quote, scheduled_attachments, send_permissions,
+    markdown_list_blocks, markdown_list_indent, markdown_list_layout, markdown_lists,
+    markdown_mentions, markdown_paragraphs, markdown_tables, markdown_upload, markdown_whitespace,
+    reminder_access, reminder_context, reminder_quote, scheduled_attachments, send_permissions,
 };
 
 type InlineCodeMatch = (
@@ -310,6 +310,41 @@ mod _zulip_backend {
             border,
             &separator,
         ))
+    }
+
+    #[pyfunction]
+    fn plan_markdown_list(
+        block: &Bound<'_, PyString>,
+        ordered: bool,
+        lazy: bool,
+        parent_tag: &Bound<'_, PyString>,
+        sibling_tag: Option<Bound<'_, PyString>>,
+        previous_text: Option<Bound<'_, PyString>>,
+        previous_tail: Option<Bound<'_, PyString>>,
+    ) -> Option<markdown_list_layout::ListPlan> {
+        markdown_list_layout::plan_list(
+            block.to_str().ok()?,
+            markdown_list_layout::ListContext {
+                ordered,
+                lazy,
+                parent_tag: parent_tag.to_str().ok()?,
+                sibling_tag: sibling_tag
+                    .as_ref()
+                    .map(|tag| tag.to_str())
+                    .transpose()
+                    .ok()?,
+                previous_text: previous_text
+                    .as_ref()
+                    .map(|text| text.to_str())
+                    .transpose()
+                    .ok()?,
+                previous_tail: previous_tail
+                    .as_ref()
+                    .map(|tail| tail.to_str())
+                    .transpose()
+                    .ok()?,
+            },
+        )
     }
 
     #[pyfunction]
