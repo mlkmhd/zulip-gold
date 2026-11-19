@@ -1943,3 +1943,31 @@ combinations with serialization and character restoration:
     zerver.tests.test_markdown zerver.tests.test_scheduled_messages \
     zerver.tests.test_reminders
 ```
+
+## Resolve Markdown inline placeholders through Rust
+
+Rebuild and install the Python extension, then set
+`ZULIP_RUST_MARKDOWN_INLINE_STASH=1` in Django processes. Rust scans inline
+placeholders and selects the text consumed after each accepted or rejected
+identifier. Python looks up each identifier in the live stash and performs the
+existing recursive element updates. This stash contains inline elements and
+strings; it is separate from the raw HTML stash used by postprocessing.
+
+The scanner preserves leading-zero identifiers, unknown placeholders, the
+reference's search beyond malformed prefixes, Unicode text, and atomic trailing
+text. Stash lookups remain interleaved with callbacks, so recursive mutations
+and exceptions retain their original order. Custom search or element-processing methods, custom patterns or string
+classes, and surrogates use the reference processor.
+
+The flag defaults to disabled and is independent of prettification,
+serialization, and the other bridges. Unset it and restart Django processes to
+roll back. Inline pattern matching, tree construction, highlighting, and the
+other rendering callbacks still require Python. Run these collections in both
+flag modes and with independent combinations of prettification and restoration:
+
+```bash
+./tools/test-backend --parallel 1 zerver.tests.test_markdown_inline_stash \
+    zerver.tests.test_markdown_prettify zerver.tests.test_markdown_unescape \
+    zerver.tests.test_markdown zerver.tests.test_scheduled_messages \
+    zerver.tests.test_reminders
+```

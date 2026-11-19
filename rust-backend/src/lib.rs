@@ -61,6 +61,9 @@ mod markdown_horizontal_rules;
 mod markdown_inline_mentions;
 
 #[cfg(feature = "python")]
+mod markdown_inline_stash;
+
+#[cfg(feature = "python")]
 mod markdown_list_blocks;
 
 #[cfg(feature = "python")]

@@ -22,12 +22,26 @@ use crate::{
     markdown_alerts, markdown_blockquotes, markdown_blocks, markdown_channel_links,
     markdown_channel_spans, markdown_code, markdown_code_blocks, markdown_emphasis,
     markdown_fences, markdown_headings, markdown_horizontal_rules, markdown_inline_mentions,
-    markdown_list_blocks, markdown_list_indent, markdown_list_indent_layout, markdown_list_layout,
-    markdown_lists, markdown_mentions, markdown_paragraphs, markdown_postprocessing,
-    markdown_prettify, markdown_serialization, markdown_tables, markdown_unescape, markdown_upload,
-    markdown_whitespace, reminder_access, reminder_context, reminder_quote, scheduled_attachments,
-    send_permissions,
+    markdown_inline_stash, markdown_list_blocks, markdown_list_indent, markdown_list_indent_layout,
+    markdown_list_layout, markdown_lists, markdown_mentions, markdown_paragraphs,
+    markdown_postprocessing, markdown_prettify, markdown_serialization, markdown_tables,
+    markdown_unescape, markdown_upload, markdown_whitespace, reminder_access, reminder_context,
+    reminder_quote, scheduled_attachments, send_permissions,
 };
+
+#[pyclass]
+struct MarkdownInlineStashScanner {
+    scanner: markdown_inline_stash::Scanner,
+}
+
+#[pymethods]
+impl MarkdownInlineStashScanner {
+    fn next(&mut self, accepted: bool) -> Option<(String, Option<String>, Option<String>)> {
+        self.scanner
+            .next(accepted)
+            .map(|step| (step.text, step.rejected_text, step.identifier))
+    }
+}
 
 type InlineCodeMatch = (
     usize,
@@ -183,6 +197,15 @@ fn draft_parse_result<T>(
 #[pymodule]
 mod _zulip_backend {
     use super::*;
+
+    #[pyfunction]
+    fn scan_markdown_inline_stash(
+        data: &Bound<'_, PyString>,
+    ) -> Option<MarkdownInlineStashScanner> {
+        Some(MarkdownInlineStashScanner {
+            scanner: markdown_inline_stash::Scanner::new(data.to_str().ok()?.to_owned()),
+        })
+    }
 
     #[pyfunction]
     fn prettify_markdown_tree(nodes: &Bound<'_, PyAny>) -> Option<Vec<PrettifyChange>> {
