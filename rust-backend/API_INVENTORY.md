@@ -1031,3 +1031,35 @@ escaping، رندر تودرتو، serialization و metadata کامل رندر �
 حذف نشده است.
 [قالب‌بندی](README.md#parse-markdown-text-emphasis-through-rust)،
 [فیلدهای لینک](README.md#build-markdown-channel-link-fields-through-rust)
+
+## چیدمان جدول و اجرای فهرست Markdown
+
+`ZULIP_RUST_MARKDOWN_TABLE_LAYOUT` تراز ستون‌ها، حذف فاصلهٔ ASCII
+سلول‌ها و کوتاه یا بلندکردن ردیف تا عرض جدول را در Rust محاسبه می‌کند.
+ردیف مصنوعی جدول بدون داده، attribute تراز ندارد؛ ردیف واقعی دارای
+سلول خالی، تراز ستون را حفظ می‌کند. این پرچم از تشخیص و تقسیم سطر
+با `ZULIP_RUST_MARKDOWN_TABLES` مستقل است.
+
+`ZULIP_RUST_MARKDOWN_LIST_LAYOUT` انتخاب والد یا ادامهٔ فهرست قبلی،
+اولین آیتم loose، عملیات آیتم تو‌در‌تو، شمارهٔ آغاز و تصمیم تبدیل
+متن و tail قبلی به پاراگراف را به Rust می‌سپارد. شمارهٔ فارسی و صفر
+ابتدایی، نوع متن atomic و ترتیب تغییر درخت و وضعیت parser حفظ می‌شوند.
+این پرچم از parser بلوک، تورفتگی و پیش‌پردازش فهرست مستقل است؛
+تنظیمات سفارشی پشتیبانی‌نشده و Unicode نامعتبر پیش از تغییر وضعیت
+به runner پایتون واگذار می‌شوند.
+
+`ZULIP_RUST_MARKDOWN_LIST_INDENT_LAYOUT` مقصد اجرای بلوک تورفته و
+مقدار حذف تورفتگی را در Rust تعیین می‌کند. تصمیم ساخت پاراگراف برای
+متن قبلی نیز در همان برنامه است؛ ساخت Element، نوع atomic متن و
+ترتیب وضعیت `detabbed` هنگام موفقیت و خطای parser در Python حفظ
+می‌شوند. این پرچم پیش‌فرض خاموش و از اجرای فهرست و helperهای
+تورفتگی مستقل است. تنظیمات سفارشی، node غیررشته‌ای و Unicode
+نامعتبر پیش از تغییر وضعیت به runner اصلی برمی‌گردند.
+[تورفتگی](README.md#plan-markdown-list-indentation-through-rust)
+
+هر سه پرچم پیش‌فرض خاموش‌اند. ساخت Element، رندر بازگشتی، stash و
+placeholderهای inline، serialization و دادهٔ کامل رندر همچنان در
+Python هستند. شمار مسیرهای مستقل همان ۲۸ از ۱۷۱ عملیات OpenAPI و
+۲۸ از ۱۹۰ عملیات وب است؛ فایل Python حذف نشده است.
+[جدول](README.md#plan-markdown-table-layout-through-rust)،
+[فهرست](README.md#plan-markdown-list-execution-through-rust)

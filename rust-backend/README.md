@@ -1746,3 +1746,85 @@ rollback with `ZULIP_RUST_MARKDOWN_EMPHASIS` enabled and disabled:
     zerver.tests.test_markdown_emphasis zerver.tests.test_markdown \
     zerver.tests.test_scheduled_messages zerver.tests.test_reminders
 ```
+
+## Plan Markdown table layout through Rust
+
+Rebuild and install the Python extension, then set
+`ZULIP_RUST_MARKDOWN_TABLE_LAYOUT=1` in Django processes to compute column
+alignment, trim cell spaces, and pad or truncate table rows in Rust. The
+planner reuses the Rust table splitter and preserves code spans and escaped
+pipes. A table without body rows still produces the reference's empty row
+without alignment attributes; a supplied empty row retains column alignment.
+Only ASCII spaces are trimmed. Django still creates elements, processes inline
+content, escapes HTML, and serializes the table.
+
+The flag defaults to disabled and is independent of
+`ZULIP_RUST_MARKDOWN_TABLES`, which selects recognition and individual row
+splitting. Strings with lone surrogates use the Python table processor before
+blocks or elements are changed. Unset the flag and restart Django processes
+to roll back. This bridge does not enable standalone scheduled message writes.
+
+Run these collections with both table flags disabled and enabled, then with
+only one enabled at a time:
+
+```bash
+./tools/test-backend --parallel 1 zerver.tests.test_markdown_tables \
+    zerver.tests.test_markdown zerver.tests.test_scheduled_messages \
+    zerver.tests.test_reminders
+```
+
+## Plan Markdown list execution through Rust
+
+Rebuild and install the Python extension, then set
+`ZULIP_RUST_MARKDOWN_LIST_LAYOUT=1` in Django processes to choose a list's
+parent, continuation of a matching sibling, first loose item, nested item
+actions, and ordered start attribute in Rust. The planner reuses the Rust
+list splitter and preserves start strings, including Persian digits and
+leading zeroes. It also decides when previous text and child tails become
+paragraphs, using Python's whitespace rules for trimming the tail. Django
+preserves atomic text, creates elements, recursively parses items, and updates
+the parser state in the existing order.
+
+The flag defaults to disabled. It is independent of the list block parser,
+indentation, and preprocessing flags. Lone surrogates, Unicode decimal digits
+outside the parser's supported version, and nonstandard processor settings
+use the Python runner before any mutation. Invalid list blocks retain the
+reference's errors and block consumption. Unset the flag and restart Django
+processes to roll back. This bridge does not enable standalone rendering or
+scheduled message writes.
+
+Run these collections with the flag disabled and enabled, then repeat with the
+list block and indentation flags independently enabled and disabled:
+
+```bash
+./tools/test-backend --parallel 1 zerver.tests.test_markdown_list_layout \
+    zerver.tests.test_markdown_list_blocks zerver.tests.test_markdown_list_indent \
+    zerver.tests.test_markdown zerver.tests.test_scheduled_messages \
+    zerver.tests.test_reminders
+```
+
+## Plan Markdown list indentation through Rust
+
+Rebuild and install the Python extension, then set
+`ZULIP_RUST_MARKDOWN_LIST_INDENT_LAYOUT=1` in Django processes to choose the
+parent and parsing method for indented list blocks. Rust finds the matching
+list depth, removes complete two-space indentation, and decides whether an
+existing item's text needs a paragraph. Django preserves atomic text, mutates
+the tree, recursively parses the block, and updates the `detabbed` state in
+the reference order, including when recursive parsing raises an error.
+
+The flag defaults to disabled and is independent of list execution, list
+splitting, and indentation helper flags. Unsupported processor configuration
+and lone surrogates in the block or tree tags use Python before any mutation.
+Unset the flag and restart Django processes to roll back. This bridge does
+not enable standalone rendering or scheduled message writes.
+
+Run these collections with the flag disabled and enabled, then with each
+combination of the list execution and indentation helper flags:
+
+```bash
+./tools/test-backend --parallel 1 zerver.tests.test_markdown_list_indent_layout \
+    zerver.tests.test_markdown_list_layout zerver.tests.test_markdown_list_indent \
+    zerver.tests.test_markdown zerver.tests.test_scheduled_messages \
+    zerver.tests.test_reminders
+```
