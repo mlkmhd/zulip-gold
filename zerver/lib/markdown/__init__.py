@@ -38,7 +38,7 @@ from zerver.lib.camo import get_camo_url
 from zerver.lib.emoji import EMOTICON_RE, codepoint_to_name, name_to_codepoint, translate_emoticons
 from zerver.lib.emoji_utils import emoji_to_hex_codepoint, unqualify_emoji
 from zerver.lib.exceptions import MarkdownRenderingError
-from zerver.lib.markdown import channel_links, emphasis, fenced_code
+from zerver.lib.markdown import channel_links, emphasis, fenced_code, postprocessing
 from zerver.lib.markdown.code_blocks import CodeBlockProcessor, EmptyBlockProcessor
 from zerver.lib.markdown.fenced_code import parse_fence_line
 from zerver.lib.markdown.inline_code import BacktickMatch, backtick_pattern
@@ -2778,12 +2778,9 @@ class ZulipMarkdown(markdown.Markdown):
         return treeprocessors
 
     def build_postprocessors(self) -> markdown.util.Registry[markdown.postprocessors.Postprocessor]:
-        # These are the default Python-Markdown processors, unmodified.
         postprocessors = markdown.util.Registry[markdown.postprocessors.Postprocessor]()
-        postprocessors.register(markdown.postprocessors.RawHtmlPostprocessor(self), "raw_html", 20)
-        postprocessors.register(
-            markdown.postprocessors.AndSubstitutePostprocessor(), "amp_substitute", 15
-        )
+        postprocessors.register(postprocessing.RawHtmlPostprocessor(self), "raw_html", 20)
+        postprocessors.register(postprocessing.AndSubstitutePostprocessor(), "amp_substitute", 15)
         return postprocessors
 
 

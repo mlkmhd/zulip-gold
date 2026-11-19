@@ -23,9 +23,9 @@ use crate::{
     markdown_channel_spans, markdown_code, markdown_code_blocks, markdown_emphasis,
     markdown_fences, markdown_headings, markdown_horizontal_rules, markdown_inline_mentions,
     markdown_list_blocks, markdown_list_indent, markdown_list_indent_layout, markdown_list_layout,
-    markdown_lists, markdown_mentions, markdown_paragraphs, markdown_serialization,
-    markdown_tables, markdown_upload, markdown_whitespace, reminder_access, reminder_context,
-    reminder_quote, scheduled_attachments, send_permissions,
+    markdown_lists, markdown_mentions, markdown_paragraphs, markdown_postprocessing,
+    markdown_serialization, markdown_tables, markdown_upload, markdown_whitespace, reminder_access,
+    reminder_context, reminder_quote, scheduled_attachments, send_permissions,
 };
 
 type InlineCodeMatch = (
@@ -178,6 +178,25 @@ fn draft_parse_result<T>(
 #[pymodule]
 mod _zulip_backend {
     use super::*;
+
+    #[pyfunction]
+    fn restore_markdown_html_stash(
+        text: &Bound<'_, PyString>,
+        stash: Vec<(Bound<'_, PyString>, bool)>,
+    ) -> Option<String> {
+        let stash = stash
+            .iter()
+            .map(|(html, block)| Some((html.to_str().ok()?, *block)))
+            .collect::<Option<Vec<_>>>()?;
+        markdown_postprocessing::restore_html(text.to_str().ok()?, &stash)
+    }
+
+    #[pyfunction]
+    fn restore_markdown_ampersands(text: &Bound<'_, PyString>) -> Option<String> {
+        Some(markdown_postprocessing::restore_ampersands(
+            text.to_str().ok()?,
+        ))
+    }
 
     #[pyfunction]
     fn serialize_markdown_html(

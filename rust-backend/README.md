@@ -1858,3 +1858,32 @@ the other Markdown bridges enabled to check independent rollback:
     zerver.tests.test_markdown zerver.tests.test_scheduled_messages \
     zerver.tests.test_reminders
 ```
+
+## Restore Markdown HTML placeholders through Rust
+
+Rebuild and install the Python extension, then set
+`ZULIP_RUST_MARKDOWN_POSTPROCESSING=1` in Django processes to recursively
+restore stashed HTML and replace ampersand placeholders in Rust. This stage
+restores rendered code, math, and entities after tree serialization. It
+preserves paragraph-wrapper removal, nested replacement order, leading-zero
+indices, and unmatched placeholders. Python still produces the stashed HTML
+and classifies block-level tags using the current Markdown configuration.
+The bridge does not change HTML sanitization or the order of postprocessors.
+
+The flag defaults to disabled and is independent of serialization and other
+Markdown bridges. Custom callbacks, custom objects, inconsistent stash
+counters, lone surrogates, and unusually long indices use Python. Cycles,
+deep recursion, and excessive expansion also use the reference processor;
+partial native output is discarded, and the stash is never mutated. Python's
+configured integer-string limit and existing exceptions remain in effect.
+Unset the flag and restart Django processes to roll back. This bridge does
+not enable standalone rendering or scheduled message writes.
+
+Run these collections with the flag disabled and enabled, then with each
+combination of serialization and postprocessing:
+
+```bash
+./tools/test-backend --parallel 1 zerver.tests.test_markdown_postprocessing \
+    zerver.tests.test_markdown_serialization zerver.tests.test_markdown \
+    zerver.tests.test_scheduled_messages zerver.tests.test_reminders
+```
