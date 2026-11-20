@@ -2251,6 +2251,37 @@ python rust-backend/tests/check_link_text_parity.py \
     --cases 100000 --report var/link-text-parity.json
 ```
 
+### Snapshot native inline stash text
+
+`markdown_native_inline::snapshot_text_stash(&state.nodes, &state.stash)`
+constructs the `TextStash` needed by `prepare_text` directly from the native
+arena. Stash identifiers use the planner's decimal format (at least four
+digits). Node entries concatenate text and descendant tails in document
+order, excluding the stashed root's tail, as ElementTree's `itertext()`
+does. Shared children contribute on every occurrence. Plain and atomic
+text are copied verbatim; nested placeholders are left for the caller's
+next unescape pass.
+
+The snapshot borrows its input and returns `None` for invalid indices,
+cycles, more than 100,000 traversal/stash visits, or more than 8 MiB of
+combined output text. The pending traversal is bounded by the same work
+budget, and deep trees do not use recursion. A caller must delegate its
+whole plan on rejection. This helper is preparation for the native link
+handler; it does not enable that handler or sanitize destinations.
+
+The differential requires native acceptance for every generated acyclic
+arena, including shared children, and compares every stash value with
+Python's actual ElementTree traversal. The report records source and
+probe hashes. No third-party Python package is needed:
+
+```bash
+cargo build --manifest-path rust-backend/Cargo.toml --locked --offline \
+    --no-default-features --features native-markdown --example stash_text
+python rust-backend/tests/check_stash_text_parity.py \
+    --probe "${CARGO_TARGET_DIR:-rust-backend/target}/debug/examples/stash_text" \
+    --cases 100000 --seed 962823 --report var/stash-text-parity.json
+```
+
 ### Compare complete native and Python state
 
 The state comparison tool also checks shared element identity, atomic text,

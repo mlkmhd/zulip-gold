@@ -10,6 +10,7 @@ use crate::draft_text::is_python_whitespace;
 use crate::markdown_code::find_inline_code;
 use crate::markdown_emphasis::find_emphasis;
 use crate::markdown_inline_stash::Scanner;
+use crate::markdown_link_syntax::TextStash;
 use crate::markdown_unicode_emoji::{self, UnicodeEmoji};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -87,6 +88,76 @@ pub struct State {
     pub parent_order: Vec<usize>,
     pub registry_used: bool,
     pub ancestors: Vec<String>,
+}
+
+/// Snapshot stash values for link unescaping without resolving nested placeholders.
+///
+/// Node values follow ElementTree's `itertext`: text, children in order, and
+/// child tails, excluding the stashed root's tail. Shared children are visited
+/// once per occurrence. Atomic strings have the same text as plain strings.
+///
+/// Invalid indices, cycles, more than 100,000 visits, or more than 8 MiB of
+/// combined snapshot text return `None`; callers must delegate the whole plan.
+/// This does not sanitize URLs and does not mutate the arena or stash.
+pub fn snapshot_text_stash(nodes: &[Node], stash: &[Stashed]) -> Option<TextStash> {
+    enum Visit {
+        Enter(usize),
+        Exit(usize),
+        Tail(usize),
+    }
+
+    let mut result = TextStash::new();
+    let mut active = vec![false; nodes.len()];
+    let mut remaining_visits = 100_000_usize;
+    let mut remaining_bytes = 8 * 1024 * 1024_usize;
+    for (identifier, stashed) in stash.iter().enumerate() {
+        remaining_visits = remaining_visits.checked_sub(1)?;
+        let mut value = String::new();
+        match stashed {
+            Stashed::Text(text) => {
+                remaining_bytes = remaining_bytes.checked_sub(text.value.len())?;
+                value.push_str(&text.value);
+            }
+            Stashed::Node(root) => {
+                let mut pending = vec![Visit::Enter(*root)];
+                while let Some(visit) = pending.pop() {
+                    remaining_visits = remaining_visits.checked_sub(1)?;
+                    let text = match visit {
+                        Visit::Enter(index) => {
+                            let node = nodes.get(index)?;
+                            if active[index] {
+                                return None;
+                            }
+                            let available = remaining_visits
+                                .checked_sub(pending.len())?
+                                .checked_sub(1)?;
+                            if node.children.len() > available / 2 {
+                                return None;
+                            }
+                            active[index] = true;
+                            pending.push(Visit::Exit(index));
+                            for &child in node.children.iter().rev() {
+                                pending.push(Visit::Tail(child));
+                                pending.push(Visit::Enter(child));
+                            }
+                            node.text.as_ref()
+                        }
+                        Visit::Exit(index) => {
+                            active[index] = false;
+                            None
+                        }
+                        Visit::Tail(index) => nodes.get(index)?.tail.as_ref(),
+                    };
+                    if let Some(text) = text {
+                        remaining_bytes = remaining_bytes.checked_sub(text.value.len())?;
+                        value.push_str(&text.value);
+                    }
+                }
+            }
+        }
+        result.insert(format!("{identifier:04}"), value);
+    }
+    Some(result)
 }
 
 struct Engine<'a, G> {
