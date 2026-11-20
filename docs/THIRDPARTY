@@ -750,11 +750,13 @@ License: BSD-3-Clause
 Comment: https://pypi.python.org/pypi/Markdown
 
 Files: rust-backend/src/markdown_links.rs
+       rust-backend/src/markdown_media.rs
 Copyright: 2001-2023 Python Software Foundation; All Rights Reserved
 License: PSF-2.0
-Comment: URL decomposition, recomposition and joining adapted from CPython 3.12
- urllib.parse to Rust. Unicode and bracketed authority validation are
- delegated, and Zulip's sanitizer and local link policy are applied.
+Comment: URL decomposition, recomposition, joining and strict MIME lookup adapted
+ from CPython 3.12 urllib.parse, posixpath and mimetypes to Rust. Unicode and
+ bracketed authority validation are delegated, and Zulip's sanitizer and local
+ link policy are applied.
 
 Files: rust-backend/src/markdown_link_syntax.rs
 Copyright: 2007-2023 The Python Markdown Project

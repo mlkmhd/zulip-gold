@@ -2470,6 +2470,63 @@ ownership, preserving registry priority and quote/code behavior, and committing
 tree and notification metadata atomically. Full rendering, notification delivery
 and performance parity remain separate work.
 
+## Prepare audio and Camo attributes natively
+
+With `native-markdown`, `markdown_media::prepare_audio` prepares the shared
+image/audio syntax, sanitized source, ordered audio attributes and pending
+attachment effect without Python. It does not modify a tree or rendering result.
+An explicit link title rejects audio before URL processing or attachment
+recording. The audio title instead comes from the stripped raw label, preserving
+literal formatting and stash placeholders. Rejected audio can still record an
+attachment; return `Err(Unsupported)` only for whole-plan delegation.
+
+An absent preview snapshot uses MIME lookup for all sources. A present snapshot
+uses authorized audio IDs for sources beginning with `/user_uploads/`, even if
+the filename has an audio extension. Lookup uses the full raw suffix, including
+query and fragment. Absolute local uploads rewritten to `user_uploads/…` use
+MIME lookup instead. Audio never changes `has_image` or other message metadata.
+Previews must already be authorized; this API does not grant attachment access.
+
+`MimePolicy` snapshots the initialized CPython 3.12 POSIX strict MIME tables,
+encoding suffixes, suffix aliases, `urlparse` parameter schemes and supported
+audio types. `mime_type` preserves query/parameter parsing differences between
+relative paths and URLs, case-sensitive compression suffixes, dotfiles and data
+URLs. Non-ASCII extensions and cyclic/excessive suffix expansion delegate.
+Unicode filename stems remain supported. The Rust host MIME database is unused.
+
+`AudioPolicy` snapshots static and current-realm exemptions, the optional public
+upload root (ending in `/`), and Camo settings. `is_static_url` retains the
+reference netloc, scheme and prefix checks; an apparent static host prefix does
+not exempt another host. `camo_url` implements the existing UTF-8 HMAC-SHA1/hex
+protocol with the already-cached SHA1 dependency. Empty Camo URI preserves the
+URL; enabled Camo without a key delegates. Ordered attributes remain unescaped
+ElementTree values, not HTML. Unicode/bracketed authorities delegate.
+
+This is a preparatory API. Live audio/image dispatch still uses Django. A future
+adapter must guard the reference helpers, POSIX/Python version, live MIME and
+URL tables, settings and authorized previews before committing the whole tree
+and rendering state atomically. Preserve audio-before-image registry priority
+and duplicate attachment effects across rejected candidates and handlers. No
+new flag, default activation or standalone HTTP operation is involved.
+
+Compare the actual Cargo probe with the reference MIME, static, Camo and audio
+handlers in the provisioned environment, without Rust feature flags:
+
+```bash
+cargo build --locked --offline --manifest-path rust-backend/Cargo.toml \
+    --no-default-features --features native-markdown --example media
+python rust-backend/tests/check_audio_parity.py \
+    --probe "${CARGO_TARGET_DIR:-rust-backend/target}/debug/examples/media" \
+    --cases 20000 --seed 962827 --report var/audio-parity.json
+```
+
+The report records actual probe, source and reference hashes, native/delegated
+counts, UTF-8 end offsets, ordered attributes and the full rendering-result
+state. It varies absent/empty/authorized previews, stashes, static and public
+upload policy, Camo URI and key lengths, file links and a custom MIME type.
+Native acceptance/delegation is mandatory for fixed cases. This is not a
+complete-renderer, attachment-authorization or performance comparison.
+
 ## Measure Markdown rendering bridges
 
 Use the provisioned development environment and a release wheel to measure

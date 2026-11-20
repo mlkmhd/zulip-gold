@@ -22,15 +22,15 @@ pub struct Policy {
 #[derive(Debug, PartialEq, Eq)]
 pub struct Unsupported;
 
-struct Parts<'a> {
-    scheme: String,
-    netloc: &'a str,
-    path: &'a str,
+pub(crate) struct Parts<'a> {
+    pub(crate) scheme: String,
+    pub(crate) netloc: &'a str,
+    pub(crate) path: &'a str,
     query: &'a str,
     fragment: &'a str,
 }
 
-fn split(url: &str) -> Result<Parts<'_>, Unsupported> {
+pub(crate) fn split(url: &str) -> Result<Parts<'_>, Unsupported> {
     let mut path = url;
     let mut scheme = String::new();
     if let Some(colon) = url.find(':') {
