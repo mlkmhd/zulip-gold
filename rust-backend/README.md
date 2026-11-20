@@ -2409,6 +2409,67 @@ This does not establish complete-renderer, media authorization or performance
 parity. Audio MIME selection, camo, live-helper guards and atomic planner
 integration remain separate work.
 
+### Prepare mention syntax and notification fields natively
+
+The `native-markdown` feature exposes `markdown_mention_syntax::find` and
+`markdown_inline_mentions` without Python dependencies. The candidate scanner
+returns UTF-8 byte ranges for the complete match and its name, plus the silent
+flag. Its boundary check includes the character before the search offset;
+invalid byte offsets return `Err(InvalidStart)`. It shares the implementation
+used for possible mentions and quote silencing. A syntax match does not resolve
+a user, interpret code/quotes, or grant permission to mention a group.
+
+`prepare_user` resolves the reference handler's `name|id` syntax, including
+Unicode decimal digits and the regex anchor's final-newline behavior. An
+explicit name must exactly equal the resolved user's canonical name. Unknown
+users and IDs outside the database integer range return no span. Supply the
+current renderer's complete non-ASCII decimal-digit map and live
+`sys.get_int_max_str_digits()` value in `UserPolicy`; exceeding that limit
+delegates so the reference renderer preserves its exception behavior.
+
+The lookup callback receives `UserReference::Name` or `UserReference::Id` and
+must read an authorized snapshot without mutating host state. Preserve the
+host's lowercase rules and duplicate-name ordering; this API does not substitute
+Rust's Unicode case conversion. Group display names, including translated
+system-group names, are also supplied by the caller to `group_mention_span`.
+
+The returned `MentionSpan` contains ordered attributes, atomic text and a pending
+`MentionNotification`. The caller must HTML-escape the attribute values and text
+when serializing, and commit notification effects only with the complete native
+plan. Silent syntax and inactive users/groups suppress notifications; wildcard
+names remain case sensitive. A silent or rejected mention must not clear an
+earlier notification. There is no new flag, live planner dispatch, HTTP route,
+permission lookup or default activation in this preparatory API.
+
+Build and compare offline with the reference checkout:
+
+```bash
+cargo build --locked --offline --manifest-path rust-backend/Cargo.toml \
+    --no-default-features --features native-markdown \
+    --example mention_syntax --example inline_mentions
+python rust-backend/tests/check_mention_syntax_parity.py \
+    --probe "${CARGO_TARGET_DIR:-rust-backend/target}/debug/examples/mention_syntax" \
+    --all-boundaries --cases 100000 --report var/mention-syntax-parity.json
+python rust-backend/tests/check_inline_mentions_parity.py \
+    --probe "${CARGO_TARGET_DIR:-rust-backend/target}/debug/examples/inline_mentions" \
+    --cases 100000 --report var/mention-fields-parity.json
+```
+
+Both drivers use only Python's standard library. The syntax oracle reads the
+actual regex assignments. The field oracle executes the selected reference
+handler definitions with snapshot lookups, capturing ordered attributes, atomic
+text and notification effects. It does not run the whole Markdown engine or
+exercise database authorization. Reports include source/probe hashes and a
+digest of the input and expected output corpus. `--reference-only` computes
+that digest without a probe; `--source` (and the field driver's
+`--mention-source`) can select a reference checkout on another Python runtime.
+Corpora involving decimal digits vary with the runtime's Unicode database.
+
+Native planner integration still requires guarding live helpers and snapshot
+ownership, preserving registry priority and quote/code behavior, and committing
+tree and notification metadata atomically. Full rendering, notification delivery
+and performance parity remain separate work.
+
 ## Measure Markdown rendering bridges
 
 Use the provisioned development environment and a release wheel to measure

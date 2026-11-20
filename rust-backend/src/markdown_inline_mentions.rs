@@ -1,5 +1,9 @@
+//! Prepare atomic mention spans and notification effects without mutating a renderer.
+
+use std::collections::HashMap;
+
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum MentionNotification {
+pub enum MentionNotification {
     User(i32),
     Group(i32),
     Channel,
@@ -7,19 +11,23 @@ pub(crate) enum MentionNotification {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct MentionSpan {
+pub struct MentionSpan {
     pub attributes: Vec<(&'static str, String)>,
     pub text: String,
     pub notification: Option<MentionNotification>,
 }
 
-pub(crate) struct MentionUser<'a> {
+pub struct MentionUser<'a> {
     pub id: i32,
     pub full_name: &'a str,
     pub is_active: bool,
 }
 
-pub(crate) fn user_mention_span(
+/// Prepare display fields from an already-resolved user, including wildcards.
+///
+/// The caller must perform the `name|id` consistency check first, or use
+/// `prepare_user`. Text is atomic and attribute values still need HTML escaping.
+pub fn user_mention_span(
     name: &str,
     mut silent: bool,
     user: Option<MentionUser<'_>>,
@@ -65,7 +73,7 @@ pub(crate) fn user_mention_span(
     })
 }
 
-pub(crate) fn group_mention_span(
+pub fn group_mention_span(
     group_id: i32,
     display_name: &str,
     silent: bool,
@@ -92,6 +100,85 @@ pub(crate) fn group_mention_span(
         },
         notification: (!silent).then_some(MentionNotification::Group(group_id)),
     }
+}
+
+/// Decimal property snapshot from the current renderer's Unicode database.
+///
+/// Include every non-ASCII decimal digit with its value in `0..=9`. The limit
+/// is the live CPython `int` decimal conversion limit; zero disables it.
+pub struct UserPolicy {
+    pub unicode_decimal: HashMap<char, u8>,
+    pub max_id_digits: usize,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Unsupported;
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum UserReference<'a> {
+    Name(&'a str),
+    Id(i32),
+}
+
+/// Resolve the reference handler's ID syntax before preparing mention fields.
+///
+/// Lookup receives the unmodified name or a numeric ID, and must use an
+/// authorized snapshot with the host's lowercase rules and duplicate-name
+/// ordering. Wildcards still perform the lookup before overriding its result.
+/// Lookup must not mutate host state, since a later handler can delegate.
+/// IDs outside PostgreSQL's integer range cannot resolve a user.
+/// Unsupported conversion limits require whole-plan delegation so Python can
+/// preserve its exception behavior. This never changes notification state.
+pub fn prepare_user<'a>(
+    name: &str,
+    silent: bool,
+    policy: &UserPolicy,
+    lookup: impl FnOnce(UserReference<'_>) -> Option<MentionUser<'a>>,
+) -> Result<Option<MentionSpan>, Unsupported> {
+    let mut full_name = None;
+    let mut reference = UserReference::Name(name);
+    if let Some((prefix, suffix)) = name.rsplit_once('|')
+        && !prefix.contains('\n')
+    {
+        // A Python '$' anchor also matches before one final newline.
+        let suffix = suffix.strip_suffix('\n').unwrap_or(suffix);
+        let mut digits = 0_usize;
+        let mut id = Some(0_i32);
+        let mut decimal = !suffix.is_empty();
+        for character in suffix.chars() {
+            let digit = if character.is_ascii_digit() {
+                Some(character as u8 - b'0')
+            } else {
+                policy.unicode_decimal.get(&character).copied()
+            };
+            let Some(digit) = digit else {
+                decimal = false;
+                break;
+            };
+            if digit > 9 {
+                return Err(Unsupported);
+            }
+            digits += 1;
+            id = id.and_then(|id| id.checked_mul(10)?.checked_add(i32::from(digit)));
+        }
+        if decimal {
+            if policy.max_id_digits != 0 && digits > policy.max_id_digits {
+                return Err(Unsupported);
+            }
+            let Some(id) = id else {
+                return Ok(None);
+            };
+            full_name = (!prefix.is_empty()).then_some(prefix);
+            reference = UserReference::Id(id);
+        }
+    }
+    let user = lookup(reference);
+    if let (Some(expected), Some(user)) = (full_name, user.as_ref())
+        && expected != user.full_name
+    {
+        return Ok(None);
+    }
+    Ok(user_mention_span(name, silent, user))
 }
 
 #[cfg(test)]
