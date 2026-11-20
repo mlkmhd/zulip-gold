@@ -4,7 +4,7 @@
 //! represents shared nodes with shared indices, and supplies a guard for handlers
 //! that still require the host renderer. A rejected guard discards the whole plan.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::draft_text::is_python_whitespace;
 use crate::markdown_code::find_inline_code;
@@ -12,6 +12,7 @@ use crate::markdown_emphasis::find_emphasis;
 use crate::markdown_inline_stash::Scanner;
 use crate::markdown_link_syntax::TextStash;
 use crate::markdown_links;
+use crate::markdown_media::{self, AudioPolicy, ImageMetadata};
 use crate::markdown_unicode_emoji::{self, UnicodeEmoji};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -62,7 +63,8 @@ pub enum Stashed {
 pub struct Pattern {
     /// 0: guarded host handler; 1: code; 2: strong/em; 3: strong; 4: em;
     /// 5: strikethrough; 6: literal emphasis markers; 7: line break; 8: named emoji;
-    /// 9: emoticon translation; 10: Unicode emoji; 11: explicit link.
+    /// 9: emoticon translation; 10: Unicode emoji; 11: explicit link;
+    /// 12: audio; 13: image.
     pub kind: u8,
     pub excludes: Vec<String>,
     pub emoji: Option<NamedEmoji>,
@@ -90,6 +92,18 @@ pub struct State {
     pub parent_order: Vec<usize>,
     pub registry_used: bool,
     pub ancestors: Vec<String>,
+    /// Pending effects, committed with the entire graph; duplicates are meaningful.
+    pub attachment_paths: Vec<String>,
+    /// Set the host's has_image when true; false never clears an existing value.
+    pub has_image: bool,
+}
+
+/// Already-authorized media snapshots and live renderer settings.
+pub struct Media {
+    pub realm_host: Option<String>,
+    pub audio_previews: Option<HashSet<String>>,
+    pub image_previews: Option<HashMap<String, ImageMetadata>>,
+    pub audio_policy: AudioPolicy,
 }
 
 /// Snapshot stash values for link unescaping without resolving nested placeholders.
@@ -165,9 +179,11 @@ pub fn snapshot_text_stash(nodes: &[Node], stash: &[Stashed]) -> Option<TextStas
 struct Engine<'a, G> {
     state: State,
     patterns: &'a [Pattern],
+    media: Option<&'a Media>,
     guard: G,
     remaining: usize,
     remaining_link_bytes: usize,
+    remaining_media_bytes: usize,
 }
 
 impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
@@ -425,6 +441,76 @@ impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
                         (
                             data[..start].to_owned(),
                             data[link.end..].to_owned(),
+                            Stashed::Node(node),
+                        )
+                    }
+                    12 | 13 => {
+                        if !data.contains("![") {
+                            break;
+                        }
+                        let media = self.media?;
+                        let stash = snapshot_text_stash(&self.state.nodes, &self.state.stash)?;
+                        let policy = self.patterns[index].links.as_ref()?.clone();
+                        let mut found = None;
+                        for (start, _) in data.match_indices("![") {
+                            self.step(depth)?;
+                            self.remaining_link_bytes =
+                                self.remaining_link_bytes.checked_sub(data.len() - start)?;
+                            let (element, attachment) = if kind == 12 {
+                                let outcome = markdown_media::prepare_audio(
+                                    &data,
+                                    start,
+                                    Some(&stash),
+                                    &policy,
+                                    media.realm_host.as_deref(),
+                                    media.audio_previews.as_ref(),
+                                    &media.audio_policy,
+                                )
+                                .ok()?;
+                                (
+                                    outcome.audio.map(|audio| (audio.end, audio.attributes)),
+                                    outcome.attachment_path,
+                                )
+                            } else {
+                                let outcome = markdown_media::prepare_image(
+                                    &data,
+                                    start,
+                                    Some(&stash),
+                                    &policy,
+                                    media.realm_host.as_deref(),
+                                    media.image_previews.as_ref(),
+                                )
+                                .ok()?;
+                                (
+                                    outcome.image.map(|image| (image.end, image.attributes)),
+                                    outcome.attachment_path,
+                                )
+                            };
+                            if let Some(path) = attachment {
+                                self.remaining_media_bytes =
+                                    self.remaining_media_bytes.checked_sub(path.len())?;
+                                self.state.attachment_paths.push(path);
+                            }
+                            if let Some(element) = element {
+                                for (key, value) in &element.1 {
+                                    self.remaining_media_bytes = self
+                                        .remaining_media_bytes
+                                        .checked_sub(key.len())?
+                                        .checked_sub(value.len())?;
+                                }
+                                found = Some((start, element));
+                                break;
+                            }
+                        }
+                        let Some((start, (end, attributes))) = found else {
+                            break;
+                        };
+                        let node = self.add_node(if kind == 12 { "audio" } else { "img" });
+                        self.state.nodes[node].attributes = attributes;
+                        self.state.has_image |= kind == 13;
+                        (
+                            data[..start].to_owned(),
+                            data[end..].to_owned(),
                             Stashed::Node(node),
                         )
                     }
@@ -745,6 +831,21 @@ pub fn run(
     ancestors: Vec<String>,
     guard: impl FnMut(usize, &str) -> Option<()>,
 ) -> Option<State> {
+    run_with_media(nodes, patterns, ancestors, None, guard)
+}
+
+/// Plan media in registry order, keeping all metadata pending until success.
+/// A rejected candidate may record an attachment, and scanning restarts after
+/// each successful substitution just as in Python-Markdown. Do not deduplicate
+/// these effects. Any unsupported input/guard/resource limit discards them with
+/// the entire graph. The caller must guard the live media helpers first.
+pub fn run_with_media(
+    nodes: Vec<Node>,
+    patterns: &[Pattern],
+    ancestors: Vec<String>,
+    media: Option<&Media>,
+    guard: impl FnMut(usize, &str) -> Option<()>,
+) -> Option<State> {
     if nodes.is_empty()
         || nodes.len() > 20_000
         || patterns.iter().any(|pattern| {
@@ -765,11 +866,15 @@ pub fn run(
             parent_order: Vec::new(),
             registry_used: false,
             ancestors: Vec::new(),
+            attachment_paths: Vec::new(),
+            has_image: false,
         },
         patterns,
+        media,
         guard,
         remaining: 100_000,
         remaining_link_bytes: 8 * 1024 * 1024,
+        remaining_media_bytes: 8 * 1024 * 1024,
     }
     .run(ancestors)
 }

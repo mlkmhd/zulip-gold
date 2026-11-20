@@ -2527,6 +2527,52 @@ upload policy, Camo URI and key lengths, file links and a custom MIME type.
 Native acceptance/delegation is mandatory for fixed cases. This is not a
 complete-renderer, attachment-authorization or performance comparison.
 
+## Plan native media with pending metadata
+
+`markdown_native_inline::run_with_media` extends the Python-independent arena
+planner with audio and image handler kinds 12 and 13. Supply their existing URL
+policy through `Pattern.links` and authorized preview/settings snapshots through
+`Media`. The registry order controls audio/image selection. The existing `run`
+entry point supplies no media snapshot; Django's live adapter and PyO3 signature
+remain unchanged.
+
+The returned `State.attachment_paths` and `State.has_image` are pending effects.
+Append paths without deduplication and OR `has_image` with the previous value,
+only after the whole plan succeeds. Rejected candidates still record attachment
+paths; rescanning from the beginning after each successful substitution can
+record the same rejected candidate again. An image followed by accepted audio
+can therefore record the image path three times across both handlers. Do not
+replace this with a single left-to-right media pass.
+
+Guards, unsupported authorities/parser ends, graph/work limits, the shared
+8 MiB candidate-suffix budget, and the separate 8 MiB combined media attribute
+and attachment budget discard the whole plan. A late failure returns `None`,
+including when an earlier candidate already produced an image or attachment.
+Atomic strings and ancestor exclusions bypass their handlers normally.
+
+The adapter must still validate live helper identity, URL/MIME tables, settings,
+authorized snapshots and resource limits before committing the tree and all
+metadata together. This API does not enable live media dispatch, establish
+attachment permissions, replace the complete renderer or change an HTTP route.
+
+Compare native graph, stash, parent-map ordering, ancestors, ordered attributes
+and the complete rendering result with Python-Markdown's actual inline engine:
+
+```bash
+cargo build --locked --offline --manifest-path rust-backend/Cargo.toml \
+    --no-default-features --features native-markdown --example media_plan
+python rust-backend/tests/check_media_plan_parity.py \
+    --probe "${CARGO_TARGET_DIR:-rust-backend/target}/debug/examples/media_plan" \
+    --cases 20000 --seed 962828 --report var/media-plan-parity.json
+```
+
+The fixed-policy probe uses link/audio/image registries in normal and reversed
+media order, absent/empty/authorized previews, atomic/plain text, Unicode labels,
+nested links, rejected candidates and existing rendering metadata. Both native
+acceptance and delegation are required by fixed cases. The report records source,
+reference and actual Cargo binary hashes. Other handlers, arbitrary graph shapes,
+live adapter guards, full rendering and performance are outside this comparison.
+
 ## Measure Markdown rendering bridges
 
 Use the provisioned development environment and a release wheel to measure

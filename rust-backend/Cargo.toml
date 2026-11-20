@@ -45,6 +45,10 @@ name = "media"
 required-features = ["native-markdown"]
 
 [[example]]
+name = "media_plan"
+required-features = ["native-markdown"]
+
+[[example]]
 name = "mention_syntax"
 required-features = ["native-markdown"]
 
