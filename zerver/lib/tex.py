@@ -19,6 +19,10 @@ _rust_markdown_tex = (
 _subprocess_check_output = subprocess.check_output
 _subprocess_popen = subprocess.Popen
 
+_rust_raw_latex = (
+    import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_RAW_LATEX") == "1" else None
+)
+
 
 class KatexSession(OutgoingSession):
     def __init__(self, **kwargs: Any) -> None:
@@ -112,6 +116,10 @@ def render_tex(tex: str, is_inline: bool = True) -> str | None:
 
 
 def change_katex_to_raw_latex(fragment: lxml.html.HtmlElement) -> None:
+    convert = getattr(_rust_raw_latex, "change_katex_to_raw_latex", None)
+    if convert is not None:
+        convert(fragment, globals())
+        return
     # Selecting the <span> elements with class 'katex'
     katex_spans = fragment.xpath("//span[@class='katex']")
 

@@ -1,12 +1,40 @@
 use std::path::Path;
 
-use pyo3::exceptions::{PyNotImplementedError, PyOSError, PyValueError};
+use pyo3::exceptions::{PyNameError, PyNotImplementedError, PyOSError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyString};
+use pyo3::types::{PyBytes, PyDict, PyString};
 
 use crate::{markdown_tex, markdown_tex_syntax};
 
 type TexMatch = (String, String, Option<String>, String);
+
+#[pyfunction]
+pub(crate) fn change_katex_to_raw_latex(
+    fragment: &Bound<'_, PyAny>,
+    context: &Bound<'_, PyDict>,
+) -> PyResult<()> {
+    let spans = fragment.call_method1("xpath", ("//span[@class='katex']",))?;
+    for span in spans.try_iter()? {
+        let span = span?;
+        let text = span
+            .call_method1("xpath", (".//annotation[@encoding='application/x-tex']",))?
+            .get_item(0)?
+            .getattr("text")?;
+        let tail = span.getattr("tail")?;
+        let lxml = context
+            .get_item("lxml")?
+            .ok_or_else(|| PyNameError::new_err("name 'lxml' is not defined"))?;
+        let replacement = lxml.getattr("html")?.call_method1("Element", ("span",))?;
+        replacement.setattr(
+            "text",
+            PyString::new(context.py(), "$${}$$").call_method1("format", (text,))?,
+        )?;
+        span.call_method0("getparent")?
+            .call_method1("replace", (&span, &replacement))?;
+        replacement.setattr("tail", tail)?;
+    }
+    Ok(())
+}
 
 #[pyfunction]
 pub(crate) fn find_markdown_tex(

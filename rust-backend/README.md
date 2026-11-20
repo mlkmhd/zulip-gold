@@ -3260,3 +3260,43 @@ counter values, callback order, renderer exceptions and unchanged list identity.
 The corpus uses controlled renderer results rather than invoking KaTeX for each
 input. Separate full-render tests and real CLI probes cover composition with
 the renderer and all message rendering metadata.
+
+## Convert KaTeX HTML to raw LaTeX through Rust
+
+`ZULIP_RUST_RAW_LATEX=1` independently opts into the PyO3 conversion used by
+mobile push content and email HTML. It is off by default. The bridge uses the
+existing lxml tree, XPath engine and element factory. It does not parse HTML
+in Rust or change the notification format.
+
+It retains the absolute `//span[@class='katex']` selection, including siblings
+outside a selected subtree and exact class equality. Each original match uses
+the first descendant `application/x-tex` annotation's direct text. Empty text
+keeps the existing `$$None$$` representation. Replacements discard math markup,
+preserve their tails and escape formula text during lxml serialization. Nested
+matches use the original XPath snapshot even after an ancestor is detached.
+Missing annotations and missing parents propagate their existing errors; prior
+replacements remain applied. Exceptions never trigger a second conversion.
+Disabled flags and older wheels use the Python implementation.
+
+Build and install once from cached dependencies:
+
+```sh
+maturin build --manifest-path rust-backend/Cargo.toml --release --locked --offline \
+    --out var/raw-latex-wheels
+python -m pip install --no-index --no-deps --target var/raw-latex-python \
+    var/raw-latex-wheels/*.whl
+PYTHONPATH="$PWD/var/raw-latex-python:$PWD" ZULIP_RUST_RAW_LATEX=1 \
+    ./tools/test-backend zerver.tests.test_raw_latex_rust \
+    zerver.tests.test_push_notifications.TestPushNotificationsContent \
+    zerver.tests.test_email_notifications
+PYTHONPATH="$PWD/var/raw-latex-python:$PWD" DJANGO_SETTINGS_MODULE=zproject.test_settings \
+    python rust-backend/tests/check_raw_latex_parity.py \
+    --cases 20000 --seed 962844 --report var/raw-latex-parity.json
+```
+
+The differential compares serialized trees, original node references and their
+parents, element factory order, partial changes and exceptions. It includes
+nested math, namespace and class differences, empty annotations, tails and
+controlled factory failures. The focused tests also compare real KaTeX fixtures
+and mobile push text. This is an orchestration migration, not an independent
+HTML renderer or a performance claim; no Python file is retired by this flag.
