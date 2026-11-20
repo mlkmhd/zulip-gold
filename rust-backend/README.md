@@ -2637,9 +2637,8 @@ optional topic-history `with` operand.
 Escape attribute values and text during serialization. Root text and the
 optional child tail are atomic Markdown text. For `empty_topic`, append an
 `em` child with the host's localized empty-topic fallback as plain text; the
-returned tail belongs to that child. Preserve attribute order. These APIs do
-not modify the native planner, live handler dispatch, rollout flags or
-HTTP routing.
+returned tail belongs to that child. Preserve attribute order. These field APIs do not mutate host trees or change live handler dispatch,
+rollout flags or HTTP routing.
 
 Build and compare the actual Cargo probe using cached dependencies:
 
@@ -2658,3 +2657,45 @@ atomic text, and includes all Unicode scalar boundary characters. It does
 not run the complete renderer, live database lookups or channel visibility
 checks. `--reference-only` emits a reproducible reference corpus digest
 without invoking Cargo.
+
+### Plan channel links with authorized snapshots
+
+`markdown_native_inline::run_with_inputs` accepts `Inputs` containing optional
+`Channels` and `Media` snapshots. Existing `run` and `run_with_media` remain
+compatible wrappers. Pattern kinds 14, 15 and 16 represent channel, topic and
+message links respectively; the supplied registry order controls priority.
+
+Channel names map to visible IDs and the resolved empty-topic-only policy.
+Topic-history anchors use exact channel/topic keys; absent anchors omit the
+`with` operand. Unknown channels and disallowed nonempty topics are skipped
+without consuming later candidates of the same handler. Message IDs remain
+unmodified syntax text. Labels and message suffixes are atomic, while the
+localized empty-topic `em` child remains plain text as in Python.
+
+The caller must validate the live regexes, lookup methods, authorized data,
+realm topic policy, fallback text, encoders and Unicode snapshot before using
+these handlers. The API performs no database lookup and grants no access.
+The host must commit the complete graph and any pending media metadata
+atomically. Unsupported handlers, missing required snapshots, invalid graphs
+or resource limits discard the entire plan.
+
+Channel candidate searches share the existing 8 MiB suffix-work budget with
+links/media. Channel field and fallback text have an additional 8 MiB combined
+budget. Long rejected-candidate inputs therefore delegate safely to Python.
+No live adapter, bridge signature, feature flag, deployment default or HTTP
+route is changed by this preparatory planner API.
+
+```sh
+python3 rust-backend/tests/check_channel_plan_parity.py \
+  --probe rust-backend/target/debug/examples/channel_links --cases 20000 \
+  --report /tmp/channel-plan-parity.json
+```
+
+Run this oracle inside the provisioned development environment with Rust flags
+unset. It uses the actual Python inline engine and channel handlers with
+snapshot-backed data, comparing graph structure, ordered attributes, atomic
+text, stash, parent maps, ancestors and unchanged rendering metadata. The
+restricted registry includes code, explicit links, emphasis and line breaks,
+with normal/reversed channel priority, absent/populated channel data,
+atomic/plain input and excluded ancestors. This is not a complete renderer,
+live permission test or deployment benchmark.

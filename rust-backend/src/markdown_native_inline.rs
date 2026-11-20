@@ -7,6 +7,8 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::draft_text::is_python_whitespace;
+use crate::markdown_channel_spans;
+use crate::markdown_channel_syntax::{self, Kind as ChannelKind};
 use crate::markdown_code::find_inline_code;
 use crate::markdown_emphasis::find_emphasis;
 use crate::markdown_inline_stash::Scanner;
@@ -64,7 +66,7 @@ pub struct Pattern {
     /// 0: guarded host handler; 1: code; 2: strong/em; 3: strong; 4: em;
     /// 5: strikethrough; 6: literal emphasis markers; 7: line break; 8: named emoji;
     /// 9: emoticon translation; 10: Unicode emoji; 11: explicit link;
-    /// 12: audio; 13: image.
+    /// 12: audio; 13: image; 14: channel; 15: topic; 16: message link.
     pub kind: u8,
     pub excludes: Vec<String>,
     pub emoji: Option<NamedEmoji>,
@@ -104,6 +106,26 @@ pub struct Media {
     pub audio_previews: Option<HashSet<String>>,
     pub image_previews: Option<HashMap<String, ImageMetadata>>,
     pub audio_policy: AudioPolicy,
+}
+
+/// Channel data already visible to the renderer, keyed by unmodified names.
+pub struct Channel {
+    pub id: i64,
+    pub empty_topic_only: bool,
+}
+
+pub struct Channels {
+    pub names: HashMap<String, Channel>,
+    pub topic_with: HashMap<(String, String), i64>,
+    pub empty_topic_name: String,
+    pub unicode_decimal: HashSet<char>,
+}
+
+/// Immutable authorized snapshots; none of the native handlers perform lookups.
+#[derive(Default)]
+pub struct Inputs<'a> {
+    pub media: Option<&'a Media>,
+    pub channels: Option<&'a Channels>,
 }
 
 /// Snapshot stash values for link unescaping without resolving nested placeholders.
@@ -180,10 +202,12 @@ struct Engine<'a, G> {
     state: State,
     patterns: &'a [Pattern],
     media: Option<&'a Media>,
+    channels: Option<&'a Channels>,
     guard: G,
     remaining: usize,
     remaining_link_bytes: usize,
     remaining_media_bytes: usize,
+    remaining_channel_bytes: usize,
 }
 
 impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
@@ -511,6 +535,101 @@ impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
                         (
                             data[..start].to_owned(),
                             data[end..].to_owned(),
+                            Stashed::Node(node),
+                        )
+                    }
+                    14..=16 => {
+                        if !data.contains("#**") {
+                            break;
+                        }
+                        let channels = self.channels?;
+                        let kind = match kind {
+                            14 => ChannelKind::Channel,
+                            15 => ChannelKind::Topic,
+                            _ => ChannelKind::Message,
+                        };
+                        let mut start = 0;
+                        let mut found = None;
+                        loop {
+                            self.step(depth)?;
+                            self.remaining_link_bytes =
+                                self.remaining_link_bytes.checked_sub(data.len() - start)?;
+                            let Some(candidate) = markdown_channel_syntax::find(
+                                &data,
+                                start,
+                                kind,
+                                &channels.unicode_decimal,
+                            )
+                            .ok()?
+                            else {
+                                break;
+                            };
+                            start = candidate.range.end;
+                            let channel_name = &data[candidate.channel];
+                            let Some(channel) = channels.names.get(channel_name) else {
+                                continue;
+                            };
+                            let topic_name = candidate.topic.map(|range| &data[range]);
+                            if topic_name.is_some_and(|topic| !topic.is_empty())
+                                && channel.empty_topic_only
+                            {
+                                continue;
+                            }
+                            let with_operand = topic_name.and_then(|topic| {
+                                channels
+                                    .topic_with
+                                    .get(&(channel_name.to_owned(), topic.to_owned()))
+                                    .copied()
+                            });
+                            let link = markdown_channel_spans::channel_link(
+                                channel.id,
+                                channel_name,
+                                topic_name,
+                                with_operand,
+                                candidate.message.map(|range| &data[range]),
+                            );
+                            found = Some((candidate.range, link));
+                            break;
+                        }
+                        let Some((range, link)) = found else {
+                            break;
+                        };
+                        self.remaining_channel_bytes =
+                            self.remaining_channel_bytes.checked_sub(link.text.len())?;
+                        for (key, value) in &link.attributes {
+                            self.remaining_channel_bytes = self
+                                .remaining_channel_bytes
+                                .checked_sub(key.len())?
+                                .checked_sub(value.len())?;
+                        }
+                        if link.empty_topic {
+                            self.remaining_channel_bytes = self
+                                .remaining_channel_bytes
+                                .checked_sub(channels.empty_topic_name.len())?;
+                        }
+                        let node = self.add_node("a");
+                        self.state.nodes[node].attributes = link
+                            .attributes
+                            .into_iter()
+                            .map(|(key, value)| (key.to_owned(), value))
+                            .collect();
+                        self.state.nodes[node].text = Some(Text {
+                            value: link.text,
+                            atomic: true,
+                        });
+                        if link.empty_topic {
+                            let child = self.add_node("em");
+                            self.state.nodes[child].text =
+                                Some(Text::plain(&channels.empty_topic_name));
+                            self.state.nodes[child].tail = link.tail.map(|tail| Text {
+                                value: tail.to_owned(),
+                                atomic: true,
+                            });
+                            self.state.nodes[node].children.push(child);
+                        }
+                        (
+                            data[..range.start].to_owned(),
+                            data[range.end..].to_owned(),
                             Stashed::Node(node),
                         )
                     }
@@ -846,6 +965,31 @@ pub fn run_with_media(
     media: Option<&Media>,
     guard: impl FnMut(usize, &str) -> Option<()>,
 ) -> Option<State> {
+    run_with_inputs(
+        nodes,
+        patterns,
+        ancestors,
+        Inputs {
+            media,
+            ..Inputs::default()
+        },
+        guard,
+    )
+}
+
+/// Plan with authorized snapshots, preserving the supplied registry order.
+///
+/// The caller must guard live syntax, lookup methods, topic policy, localized
+/// fallback text and Unicode properties before supplying channel data. This
+/// neither authorizes links nor verifies message existence. All graph and media
+/// effects are discarded together on unsupported input or resource limits.
+pub fn run_with_inputs(
+    nodes: Vec<Node>,
+    patterns: &[Pattern],
+    ancestors: Vec<String>,
+    inputs: Inputs<'_>,
+    guard: impl FnMut(usize, &str) -> Option<()>,
+) -> Option<State> {
     if nodes.is_empty()
         || nodes.len() > 20_000
         || patterns.iter().any(|pattern| {
@@ -870,11 +1014,13 @@ pub fn run_with_media(
             has_image: false,
         },
         patterns,
-        media,
+        media: inputs.media,
+        channels: inputs.channels,
         guard,
         remaining: 100_000,
         remaining_link_bytes: 8 * 1024 * 1024,
         remaining_media_bytes: 8 * 1024 * 1024,
+        remaining_channel_bytes: 8 * 1024 * 1024,
     }
     .run(ancestors)
 }
