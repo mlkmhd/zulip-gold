@@ -3,7 +3,7 @@ import random
 import re
 import sys
 from collections.abc import Callable
-from types import FrameType
+from types import FrameType, FunctionType
 from typing import cast
 from unittest import TestCase, mock
 from urllib import parse as urlparse
@@ -22,6 +22,7 @@ from zerver.lib.markdown import (
     inline_stash,
     native_channels,
     native_inline,
+    native_media,
     native_mentions,
 )
 from zerver.lib.markdown.inline_stash import InlineProcessor
@@ -32,7 +33,7 @@ from zerver.lib.mention import (
     MentionBackend,
     MentionData,
 )
-from zerver.lib.thumbnail import AttachmentData
+from zerver.lib.thumbnail import AttachmentData, MarkdownImageMetadata
 from zerver.models import Message, NamedUserGroup, Realm
 from zerver.models.realm_emoji import EmojiInfo
 from zerver.models.streams import StreamTopicsPolicyEnum
@@ -42,6 +43,7 @@ class MarkdownNativeInlineTest(TestCase):
     def markdown(self) -> ZulipMarkdown:
         md = ZulipMarkdown(linkifiers=[], linkifiers_key=0, email_gateway=False)
         md.zulip_db_data = None
+        md.zulip_realm = None
         md.zulip_rendering_result = MessageRenderingResult(
             "sentinel",
             False,
@@ -114,7 +116,11 @@ class MarkdownNativeInlineTest(TestCase):
         before = [(node, node.text, node.tail, list(node)) for node in root.iter()]
         metadata = copy.deepcopy(native_md.zulip_rendering_result)
         result = native_inline.try_run(
-            processor, root, ["outer"], native.plan_markdown_native_inline
+            processor,
+            root,
+            ["outer"],
+            native.plan_markdown_native_inline,
+            native.plan_markdown_native_inline_media,
         )
         if accepted is not None:
             self.assertEqual(result, accepted)
@@ -1596,3 +1602,410 @@ class MarkdownNativeInlineTest(TestCase):
         self.assertEqual(calls, [])
         self.assertEqual(md.zulip_rendering_result.mentions_user_ids, {42, 901})
         self.assertEqual(md.zulip_rendering_result.mentions_user_group_ids, {52, 902})
+
+    def media_data(self, md: ZulipMarkdown) -> None:
+        self.mention_data(md)
+        assert md.zulip_db_data is not None
+        md.zulip_db_data.user_upload_previews = AttachmentData(
+            audio_path_ids={"1/voice", "1/both", "1/voice?x#y"},
+            image_metadata={
+                path: MarkdownImageMetadata(None, False, 12, 24, "image/png")
+                for path in ["1/picture", "1/both", "1/picture?x#y"]
+            },
+        )
+        md.zulip_realm = Realm(string_id="zulip")
+        md.zulip_rendering_result.has_image = False
+
+    def require_native_media(self) -> None:
+        if inline_stash._rust_native_inline is None or sys.version_info[:2] != (3, 12):
+            self.skipTest("Native media requires the CPython 3.12 reference contract")
+
+    def test_native_media_complete_state_and_metadata(self) -> None:
+        self.require_native_media()
+        for content in [
+            "![picture](/user_uploads/1/picture) ![voice](/user_uploads/1/voice)",
+            "![both](/user_uploads/1/both) ![both](/user_uploads/1/both)",
+            "![unknown](/user_uploads/1/unknown) ![empty](/user_uploads/)",
+            "![picture](/user_uploads/1/picture?x#y) ![voice](/user_uploads/1/voice?x#y)",
+            "![**raw title**](https://other.example/a.mp3) ![picture](/user_uploads/1/picture '')",
+            "![picture](/user_uploads/1/picture 'title') ![voice](/user_uploads/1/voice 'title')",
+            "![bad](javascript:alert(1)) ![no](https://other.example/a.png)",
+            "**before** @**alice** @*devs* ![picture](/user_uploads/1/picture)",
+            "`![picture](/user_uploads/1/picture)` ![voice](/user_uploads/1/voice)",
+        ]:
+            with self.subTest(content=content):
+
+                def build(content: str = content) -> Element:
+                    root = Element("div")
+                    SubElement(root, "p").text = content
+                    SubElement(root, "code").text = AtomicString(content)
+                    shared = SubElement(root, "span")
+                    shared.tail = content
+                    SubElement(root, "section").append(shared)
+                    return root
+
+                self.compare(
+                    build, configure=self.media_data, accepted="javascript:" not in content
+                )
+
+    def test_native_media_absent_and_empty_previews(self) -> None:
+        self.require_native_media()
+        for context in [False, True]:
+
+            def configure(md: ZulipMarkdown, context: bool = context) -> None:
+                if context:
+                    md.zulip_db_data = self.emoji_data([])
+
+            def build() -> Element:
+                root = Element("div")
+                SubElement(
+                    root, "p"
+                ).text = "![voice](/user_uploads/1/a.mp3) ![picture](/user_uploads/1/picture)"
+                return root
+
+            self.compare(build, configure=configure)
+
+    def test_native_media_runtime_mime_and_camo(self) -> None:
+        import mimetypes
+
+        from django.test import override_settings
+
+        self.require_native_media()
+        mime_db = cast(mimetypes.MimeTypes, vars(mimetypes)["_db"])
+        for camo in ["", "https://proxy.example/"]:
+            with (
+                override_settings(CAMO_URI=camo, CAMO_KEY="فارسی" * 40),
+                mock.patch.dict(mime_db.types_map[1], {".custom": "audio/mpeg"}),
+            ):
+
+                def build() -> Element:
+                    root = Element("div")
+                    SubElement(root, "p").text = (
+                        "![a](https://other.example/a.custom) "
+                        "![b](https://other.example/a.mp3.gz) "
+                        "![c](/static/sound.mp3) "
+                        "![d](https://zulip.zulip.testserver/sound.mp3)"
+                    )
+                    return root
+
+                self.compare(build, configure=self.media_data)
+
+    def test_native_media_late_fallback_is_atomic(self) -> None:
+        self.require_native_media()
+        native = inline_stash._rust_native_inline
+        assert native is not None
+        md = self.markdown()
+        self.media_data(md)
+        processor = InlineProcessor(md)
+        md.treeprocessors.register(processor, "inline", 25)
+        root = Element("div")
+        SubElement(
+            root, "p"
+        ).text = "@**alice** ![picture](/user_uploads/1/picture) ![bad](http://[bad]/a)"
+        processor.stashed_nodes = {"0000": AtomicString("existing")}
+        processor.parent_map = {root[0]: root}
+        processor.ancestors = ["before"]
+        before = self.snapshot(processor, root)
+        metadata = copy.deepcopy(md.zulip_rendering_result)
+        registry = cast(native_inline.RegistryInternals, md.inlinePatterns)
+        priorities = registry._priority[:]
+        self.assertFalse(
+            native_inline.try_run(
+                processor,
+                root,
+                None,
+                native.plan_markdown_native_inline,
+                native.plan_markdown_native_inline_media,
+            )
+        )
+        self.assertEqual(self.snapshot(processor, root), before)
+        self.assertEqual(md.zulip_rendering_result, metadata)
+        self.assertEqual(registry._priority, priorities)
+        self.assertFalse(registry._is_sorted)
+
+    def test_native_media_preserves_attachment_list_identity(self) -> None:
+        self.require_native_media()
+        native = inline_stash._rust_native_inline
+        assert native is not None
+        md = self.markdown()
+        self.media_data(md)
+        processor = InlineProcessor(md)
+        md.treeprocessors.register(processor, "inline", 25)
+        root = Element("div")
+        SubElement(
+            root, "p"
+        ).text = "![picture](/user_uploads/1/picture) ![unknown](/user_uploads/1/unknown)"
+        paths = md.zulip_rendering_result.potential_attachment_path_ids
+        self.assertTrue(
+            native_inline.try_run(
+                processor,
+                root,
+                None,
+                native.plan_markdown_native_inline,
+                native.plan_markdown_native_inline_media,
+            )
+        )
+        self.assertIs(md.zulip_rendering_result.potential_attachment_path_ids, paths)
+        self.assertEqual(
+            paths, ["previous", "previous", "1/picture", "1/unknown", "1/picture", "1/unknown"]
+        )
+        self.assertTrue(md.zulip_rendering_result.has_image)
+
+    def test_native_media_helper_and_pattern_guards(self) -> None:
+        from zerver.lib import camo, markdown
+
+        self.require_native_media()
+        native = inline_stash._rust_native_inline
+        assert native is not None
+        md = self.markdown()
+        self.media_data(md)
+        processor = InlineProcessor(md)
+        md.treeprocessors.register(processor, "inline", 25)
+        root = Element("div")
+        SubElement(root, "p").text = "![picture](/user_uploads/1/picture)"
+        callback = mock.Mock(side_effect=AssertionError("custom media helper called"))
+        for owner, name in [
+            (markdown, "maybe_add_attachment_path_id"),
+            (markdown, "get_camo_url"),
+            (markdown, "guess_type"),
+            (markdown, "is_static_or_current_realm_url"),
+            (camo, "generate_camo_url"),
+            (camo, "get_camo_url"),
+        ]:
+            with self.subTest(name=name), mock.patch.object(owner, name, callback):
+                self.assertIsNone(native_media.snapshot(md))
+        for name in ["audio", "image"]:
+            with (
+                self.subTest(pattern=name),
+                mock.patch.object(md.inlinePatterns[name], "zulip_specific_src_changes", callback),
+            ):
+                self.assertFalse(
+                    native_inline.try_run(
+                        processor,
+                        root,
+                        None,
+                        native.plan_markdown_native_inline,
+                        native.plan_markdown_native_inline_media,
+                    )
+                )
+        callback.assert_not_called()
+        self.assertIsNotNone(native_media.snapshot(md))
+        self.assertEqual(root[0].text, "![picture](/user_uploads/1/picture)")
+
+    def test_native_media_snapshot_guards_and_limits(self) -> None:
+        from django.test import override_settings
+
+        self.require_native_media()
+        md = self.markdown()
+        self.media_data(md)
+        assert md.zulip_db_data is not None
+        previews = md.zulip_db_data.user_upload_previews
+        for name, guard_value in [
+            ("STATIC_URL", None),
+            ("STATIC_URL", "\ud800"),
+            ("CAMO_KEY", "\ud800"),
+            ("CAMO_URI", "\ud800"),
+            ("LOCAL_UPLOADS_DIR", None),
+        ]:
+            with (
+                self.subTest(name=name, value=guard_value),
+                override_settings(**{name: guard_value}),
+            ):
+                self.assertIsNone(native_media.snapshot(md))
+        with override_settings(CAMO_URI="https://proxy.example/", CAMO_KEY=None):
+            self.assertIsNone(native_media.snapshot(md))
+        deferred_realm = Realm()
+        del vars(deferred_realm)["string_id"]
+        with mock.patch.object(md, "zulip_realm", deferred_realm):
+            self.assertIsNone(native_media.snapshot(md))
+        with mock.patch.object(Realm, "host", property(lambda _: "changed")):
+            self.assertIsNone(native_media.snapshot(md))
+        for name, preview_value in [
+            ("audio_path_ids", ["1/voice"]),
+            ("audio_path_ids", {"\ud800"}),
+            ("image_metadata", {"1/picture": object()}),
+            (
+                "image_metadata",
+                {str(i): previews.image_metadata["1/picture"] for i in range(100_001)},
+            ),
+        ]:
+            with self.subTest(name=name), mock.patch.object(previews, name, preview_value):
+                self.assertIsNone(native_media.snapshot(md))
+        metadata = previews.image_metadata["1/picture"]
+        for name, metadata_value in [
+            ("original_width_px", True),
+            ("original_width_px", 2**2001),
+            ("original_height_px", "24"),
+            ("original_content_type", "\ud800"),
+        ]:
+            with self.subTest(name=name), mock.patch.object(metadata, name, metadata_value):
+                self.assertIsNone(native_media.snapshot(md))
+        with mock.patch.object(md.zulip_rendering_result, "potential_attachment_path_ids", ()):
+            self.assertIsNone(native_media.snapshot(md))
+        self.assertIsNotNone(native_media.snapshot(md))
+
+    def test_native_media_does_not_call_python_handlers(self) -> None:
+        from zerver.lib.markdown import _native_media_audio_callbacks, _native_media_callbacks
+
+        self.require_native_media()
+        native = inline_stash._rust_native_inline
+        assert native is not None
+        md = self.markdown()
+        self.media_data(md)
+        processor = InlineProcessor(md)
+        md.treeprocessors.register(processor, "inline", 25)
+        root = Element("div")
+        SubElement(
+            root, "p"
+        ).text = "![picture](/user_uploads/1/picture) ![a](https://other.example/a.mp3)"
+        forbidden = {
+            callback.__code__
+            for callback in (*_native_media_callbacks, *_native_media_audio_callbacks)
+            if isinstance(callback, FunctionType)
+        }
+        calls = []
+
+        def profile(frame: FrameType, event: str, arg: object) -> None:
+            if event == "call" and frame.f_code in forbidden:
+                calls.append(frame.f_code.co_name)
+
+        previous = sys.getprofile()
+        try:
+            sys.setprofile(profile)
+            self.assertTrue(
+                native_inline.try_run(
+                    processor,
+                    root,
+                    None,
+                    native.plan_markdown_native_inline,
+                    native.plan_markdown_native_inline_media,
+                )
+            )
+        finally:
+            sys.setprofile(previous)
+        self.assertEqual(calls, [])
+        self.assertEqual([node.tag for node in root[0]], ["img", "audio"])
+
+    def test_native_media_mime_snapshot_guards(self) -> None:
+        import mimetypes
+
+        from zerver.lib import markdown
+
+        self.require_native_media()
+        md = self.markdown()
+        self.media_data(md)
+        mime_db = cast(mimetypes.MimeTypes, vars(mimetypes)["_db"])
+        guards: list[tuple[object, str, object]] = [
+            (mimetypes, "_db", None),
+            (mime_db, "guess_type", mock.Mock()),
+            (mime_db, "types_map", ({},)),
+            (mime_db, "suffix_map", []),
+            (mime_db, "suffix_map", dict.fromkeys((str(i) for i in range(100_001)), ".mp3")),
+            (mime_db, "suffix_map", {".custom": "\ud800"}),
+            (markdown, "AUDIO_INLINE_MIME_TYPES", {"audio/mpeg"}),
+            (markdown, "AUDIO_INLINE_MIME_TYPES", ["\ud800"]),
+            (urlparse, "uses_params", ["\ud800"]),
+        ]
+        for owner, name, value in guards:
+            with self.subTest(name=name), mock.patch.object(owner, name, value):
+                self.assertIsNone(native_media.snapshot(md))
+        self.assertIsNotNone(native_media.snapshot(md))
+
+    def test_native_media_snapshot_budget_and_data_types(self) -> None:
+        from django.test import override_settings
+
+        self.require_native_media()
+        md = self.markdown()
+        self.media_data(md)
+        assert md.zulip_db_data is not None
+        with mock.patch.object(md, "zulip_db_data", object()):
+            self.assertIsNone(native_media.snapshot(md))
+        with mock.patch.object(md.zulip_db_data, "user_upload_previews", object()):
+            self.assertIsNone(native_media.snapshot(md))
+        with override_settings(REALM_HOSTS={}, EXTERNAL_HOST="x" * 600_000):
+            self.assertIsNone(native_media.snapshot(md))
+        large_images = {
+            str(i): MarkdownImageMetadata(None, False, 2**1999, 2**1999, None) for i in range(1000)
+        }
+        with mock.patch.object(
+            md.zulip_db_data.user_upload_previews, "image_metadata", large_images
+        ):
+            self.assertIsNone(native_media.snapshot(md))
+        metadata = md.zulip_db_data.user_upload_previews.image_metadata["1/picture"]
+        with mock.patch.object(metadata, "original_content_type", None):
+            snapshot = native_media.snapshot(md)
+            assert snapshot is not None and snapshot[2] is not None
+            self.assertEqual(snapshot[2]["1/picture"], ("12", "24", None))
+
+    def test_native_media_legacy_planner_and_changed_regex_delegate(self) -> None:
+        from django.test import override_settings
+
+        from zerver.lib import markdown
+
+        self.require_native_media()
+        native = inline_stash._rust_native_inline
+        assert native is not None
+        md = self.markdown()
+        self.media_data(md)
+        processor = InlineProcessor(md)
+        md.treeprocessors.register(processor, "inline", 25)
+        root = Element("div")
+        SubElement(root, "p").text = "![picture](/user_uploads/1/picture)"
+        self.assertFalse(
+            native_inline.try_run(
+                processor,
+                root,
+                None,
+                native.plan_markdown_native_inline,
+            )
+        )
+        with override_settings(LOCAL_UPLOADS_DIR=None):
+            self.assertFalse(
+                native_inline.try_run(
+                    processor,
+                    root,
+                    None,
+                    native.plan_markdown_native_inline,
+                    native.plan_markdown_native_inline_media,
+                )
+            )
+        pattern = md.inlinePatterns["image"]
+        changed = re.compile(r"custom", re.DOTALL)
+        with (
+            mock.patch.object(pattern, "compiled_re", changed),
+            mock.patch.object(inlinepatterns, "IMAGE_LINK_RE", "custom"),
+        ):
+            self.assertFalse(
+                native_inline.try_run(
+                    processor,
+                    root,
+                    None,
+                    native.plan_markdown_native_inline,
+                    native.plan_markdown_native_inline_media,
+                )
+            )
+        self.assertEqual(markdown._native_media_pattern, r"\!\[")
+        self.assertEqual(root[0].text, "![picture](/user_uploads/1/picture)")
+
+    def test_native_media_dimensions_and_missing_content_type(self) -> None:
+        self.require_native_media()
+        for width, height, content_type in [(0, -2, None), (2**1999, 2**1998, "")]:
+
+            def configure(
+                md: ZulipMarkdown,
+                width: int = width,
+                height: int = height,
+                content_type: str | None = content_type,
+            ) -> None:
+                self.media_data(md)
+                assert md.zulip_db_data is not None
+                md.zulip_db_data.user_upload_previews.image_metadata["1/picture"] = (
+                    MarkdownImageMetadata(None, False, width, height, content_type)
+                )
+
+            def build() -> Element:
+                root = Element("div")
+                SubElement(root, "p").text = "![picture](/user_uploads/1/picture)"
+                return root
+
+            self.compare(build, configure=configure)

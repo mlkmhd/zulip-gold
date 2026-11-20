@@ -38,6 +38,8 @@ class Case:
     empty_topic_only: bool = False
     mentions: bool = False
     mention_active: bool = True
+    media: int = 0
+    previous_image: bool = True
 
 
 def build(case: Case) -> Element:
@@ -103,6 +105,7 @@ def exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
 
     md = ZulipMarkdown(linkifiers=[], linkifiers_key=0, email_gateway=False)
     md.zulip_db_data = None
+    md.zulip_realm = None
     if case.translate_emoticons:
         from zerver.lib.markdown import DbData
         from zerver.lib.mention import MentionBackend, MentionData
@@ -196,6 +199,51 @@ def exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
         else:
             mentions.mention_backend = md.zulip_db_data.mention_data.mention_backend
             md.zulip_db_data.mention_data = mentions
+    if case.media:
+        from zerver.lib.markdown import DbData
+        from zerver.lib.mention import MentionData
+        from zerver.lib.thumbnail import AttachmentData, MarkdownImageMetadata
+        from zerver.models import Realm
+        from zerver.models.streams import StreamTopicsPolicyEnum
+
+        if case.media == 1:
+            md.zulip_db_data = None
+        else:
+            previews = AttachmentData(
+                audio_path_ids=set() if case.media == 2 else {"1/voice", "1/both", "1/voice?x#y"},
+                image_metadata={}
+                if case.media == 2
+                else {
+                    path: MarkdownImageMetadata(None, False, 12, 24, "image/png")
+                    for path in ["1/picture", "1/both", "1/picture?x#y"]
+                },
+            )
+            if md.zulip_db_data is None:
+                mentions = MentionData.__new__(MentionData)
+                mentions.full_name_info = {}
+                mentions.user_id_info = {}
+                mentions.user_group_name_info = {}
+                md.zulip_db_data = DbData(
+                    mentions,
+                    "https://example.com",
+                    None,
+                    {},
+                    False,
+                    {},
+                    {},
+                    case.translate_emoticons,
+                    previews,
+                )
+            else:
+                md.zulip_db_data.user_upload_previews = previews
+        md.zulip_realm = Realm(
+            string_id="zulip",
+            topics_policy=(
+                StreamTopicsPolicyEnum.empty_topic_only.value
+                if case.empty_topic_only
+                else StreamTopicsPolicyEnum.allow_empty_topic.value
+            ),
+        )
     from zerver.lib.markdown import MessageRenderingResult
 
     md.zulip_rendering_result = MessageRenderingResult(
@@ -209,7 +257,7 @@ def exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
         {3},
         ["a", "a"],
         {"spinner"},
-        True,
+        case.previous_image,
         True,
     )
     registry = cast(native_inline.RegistryInternals, md.inlinePatterns)
@@ -255,6 +303,7 @@ def exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
             root,
             ancestors,
             import_module("_zulip_backend").plan_markdown_native_inline,
+            import_module("_zulip_backend").plan_markdown_native_inline_media,
         )
         assert set(original_nodes).issubset(root.iter()), "Plan replaced an original element"
         assert all(
@@ -396,6 +445,29 @@ def cases(seed: int, count: int, *, unicode_scalars: bool = False) -> Iterator[C
                     mention_active=active,
                     channels=channels,
                 )
+    for context in (1, 2, 3):
+        for previous in (False, True):
+            for value in (
+                "![picture](/user_uploads/1/picture) ![voice](/user_uploads/1/voice)",
+                "![picture](/user_uploads/1/picture?x#y) ![voice](/user_uploads/1/voice?x#y)",
+                "![both](/user_uploads/1/both) ![both](/user_uploads/1/both)",
+                "![unknown](/user_uploads/1/unknown) ![empty](/user_uploads/)",
+                "@**alice** @*devs* #**dev tools>t** ![picture](/user_uploads/1/picture)",
+                "**format** ![voice](https://other.example/a.mp3) ![picture](/user_uploads/1/picture '')",
+            ):
+                yield Case(
+                    [
+                        Node("div", None, None, [1, 2]),
+                        Node("p", (value, False), None, []),
+                        Node("code", (value, True), None, []),
+                    ],
+                    ["outer"],
+                    accepted=True,
+                    media=context,
+                    previous_image=previous,
+                    channels=True,
+                    mentions=True,
+                )
     if unicode_scalars:
         for first in range(0, 0x110000, 256):
             value = " ".join(
@@ -472,6 +544,17 @@ def cases(seed: int, count: int, *, unicode_scalars: bool = False) -> Iterator[C
         "@**wrong|42**",
         "@**Alice <&> فارسی|42**",
         "@**|42\n**",
+        "![picture](/user_uploads/1/picture)",
+        "![voice](/user_uploads/1/voice)",
+        "![both](/user_uploads/1/both)",
+        "![unknown](/user_uploads/1/unknown)",
+        "![query](/user_uploads/1/picture?x#y)",
+        "![audio](https://other.example/a.mp3)",
+        "![static](/static/sound.mp3)",
+        "![empty](/user_uploads/)",
+        "![malformed](http://[bad]/a)",
+        "![unbounded](https://例.example/a)",
+        "![",
     ]
     for _ in range(count):
         nodes = []
@@ -501,6 +584,8 @@ def cases(seed: int, count: int, *, unicode_scalars: bool = False) -> Iterator[C
             empty_topic_only=bool(rng.randrange(2)),
             mentions=bool(rng.randrange(2)),
             mention_active=bool(rng.randrange(2)),
+            media=rng.randrange(4),
+            previous_image=bool(rng.randrange(2)),
         )
 
 
@@ -551,6 +636,14 @@ def main() -> None:
         args.repository / "zerver/lib/markdown/native_inline.py",
         args.repository / "zerver/lib/markdown/native_channels.py",
         args.repository / "zerver/lib/markdown/native_mentions.py",
+        args.repository / "zerver/lib/markdown/native_media.py",
+        args.repository / "zerver/lib/markdown/inline_stash.py",
+        args.repository / "rust-backend/src/markdown_media.rs",
+        args.repository / "rust-backend/src/python_media.rs",
+        args.repository / "zerver/lib/camo.py",
+        args.repository / "zerver/lib/mime_types.py",
+        args.repository / "zerver/lib/subdomains.py",
+        args.repository / "zerver/lib/thumbnail.py",
         args.repository / "rust-backend/src/markdown_mention_syntax.rs",
         args.repository / "rust-backend/src/markdown_inline_mentions.rs",
         args.repository / "rust-backend/src/markdown_mentions.rs",

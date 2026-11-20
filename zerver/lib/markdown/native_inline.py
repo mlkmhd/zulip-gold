@@ -8,10 +8,11 @@ from xml.etree.ElementTree import Element
 import regex
 from markdown import inlinepatterns, util
 
-from zerver.lib.markdown import native_channels, native_mentions
+from zerver.lib.markdown import native_channels, native_media, native_mentions
 from zerver.lib.markdown.emphasis import EmphasisPattern
 from zerver.lib.markdown.inline_code import BacktickPattern
 from zerver.lib.markdown.native_channels import ChannelInputs
+from zerver.lib.markdown.native_media import MediaInputs
 from zerver.lib.markdown.native_mentions import MentionInputs
 
 if TYPE_CHECKING:
@@ -49,6 +50,23 @@ Planner: TypeAlias = Callable[
     Plan | None,
 ]
 
+MediaPlanner: TypeAlias = Callable[
+    [
+        list[Node],
+        list[tuple[int, list[str]]],
+        list[str],
+        list[tuple[object, object | None]],
+        list[EmojiCatalog | None],
+        EmoticonCatalog | None,
+        UnicodeEmojiCatalog | None,
+        LinkPolicy | None,
+        ChannelInputs | None,
+        MentionInputs | None,
+        MediaInputs | None,
+    ],
+    tuple[Plan, list[str], bool] | None,
+]
+
 
 class RegistryInternals(Protocol):
     _data: dict[str, object]
@@ -71,16 +89,22 @@ _EMPHASIS = {
 
 
 def try_run(
-    processor: "InlineProcessor", root: Element, ancestors: list[str] | None, planner: Planner
+    processor: "InlineProcessor",
+    root: Element,
+    ancestors: list[str] | None,
+    planner: Planner,
+    media_planner: "MediaPlanner | None" = None,
 ) -> bool:
     from zerver.lib import markdown
     from zerver.lib.emoji import EMOTICON_CONVERSIONS, EMOTICON_RE
     from zerver.lib.markdown import (
         TEXT_PRESENTATION_RE,
+        AudioInlineProcessor,
         BacktickInlineProcessor,
         DbData,
         Emoji,
         EmoticonTranslation,
+        ImageInlineProcessor,
         LinkInlineProcessor,
         StreamPattern,
         StreamTopicMessagePattern,
@@ -95,6 +119,7 @@ def try_run(
         _native_inline_handlers,
         _native_link_callbacks,
         _native_link_patterns,
+        _native_media_pattern,
         _native_mention_patterns,
         _native_unicode_emoji_patterns,
         codepoint_to_name,
@@ -165,6 +190,7 @@ def try_run(
     link_policy = None
     has_channels = False
     has_mentions = False
+    has_media = False
     for name, _ in ordered:
         pattern = cast(inlinepatterns.Pattern, data[name])
         callbacks = _native_inline_handlers.get(type(pattern))
@@ -339,28 +365,50 @@ def try_run(
             ):
                 return False
             has_channels = True
-        elif type(pattern) is LinkInlineProcessor and sys.version_info[:2] == (3, 12):
+        elif type(pattern) in (
+            LinkInlineProcessor,
+            AudioInlineProcessor,
+            ImageInlineProcessor,
+        ) and sys.version_info[:2] == (3, 12):
             from django.conf import settings
 
-            renderer = pattern.zmd
+            link_pattern = cast(
+                LinkInlineProcessor | AudioInlineProcessor | ImageInlineProcessor, pattern
+            )
+            renderer = link_pattern.zmd
+            media_pattern = type(pattern) in (AudioInlineProcessor, ImageInlineProcessor)
+            if media_pattern and not native_media.standard_pattern(
+                cast(AudioInlineProcessor | ImageInlineProcessor, pattern)
+            ):
+                return False
             if (
-                expression.pattern != _native_link_patterns[2]
+                expression.pattern
+                != (_native_media_pattern if media_pattern else _native_link_patterns[2])
                 or type(renderer) is not ZulipMarkdown
                 or renderer is not processor.md
                 or pattern.md is not renderer
                 or tuple(
                     getattr(getattr(pattern, name), "__func__", None)
-                    for name in ("getText", "getLink", "unescape", "zulip_specific_link_changes")
+                    for name in ("getText", "getLink", "unescape")
                 )
-                != _native_link_callbacks[:4]
+                != _native_link_callbacks[:3]
+                or (
+                    not media_pattern
+                    and getattr(
+                        cast(LinkInlineProcessor, pattern).zulip_specific_link_changes,
+                        "__func__",
+                        None,
+                    )
+                    is not _native_link_callbacks[3]
+                )
                 or inlinepatterns.dequote is not _native_link_callbacks[4]
                 or inlinepatterns.LinkInlineProcessor.handleMatch is not _native_link_callbacks[5]
                 or markdown.sanitize_url is not _native_link_callbacks[6]
                 or markdown.rewrite_local_links_to_relative is not _native_link_callbacks[7]
                 or vars(markdown).get("urlsplit") is not _native_link_callbacks[8]
                 or vars(markdown).get("urlunsplit") is not _native_link_callbacks[9]
-                or pattern.RE_LINK is not _native_link_patterns[0]
-                or pattern.RE_TITLE_CLEAN is not _native_link_patterns[1]
+                or link_pattern.RE_LINK is not _native_link_patterns[0]
+                or link_pattern.RE_TITLE_CLEAN is not _native_link_patterns[1]
                 or type(markdown.allowed_schemes) not in (tuple, list)
                 or type(urlparse.uses_netloc) is not list
                 or any(
@@ -387,7 +435,8 @@ def try_run(
                 None if db_data is None else db_data.realm_url,
             )
             if trees._data.get("inline") is processor:
-                kind = 11
+                kind = 12 if type(pattern) is AudioInlineProcessor else 13 if media_pattern else 11
+                has_media |= media_pattern
         if (
             kind
             and kind not in (10, 14, 15, 16, 17, 18)
@@ -466,7 +515,16 @@ def try_run(
         )
         if mention_inputs is None:
             return False
-    plan = planner(
+    media_inputs = None
+    if has_media and any(
+        "![" in text[0] for node in nodes for text in (node[2], node[3]) if text is not None
+    ):
+        if media_planner is None:
+            return False
+        media_inputs = native_media.snapshot(cast(ZulipMarkdown, processor.md))
+        if media_inputs is None:
+            return False
+    arguments = (
         nodes,
         patterns,
         ancestors or [],
@@ -478,6 +536,16 @@ def try_run(
         channel_inputs,
         mention_inputs,
     )
+    paths: list[str] = []
+    has_image = False
+    if media_inputs is None:
+        plan = planner(*arguments)
+    else:
+        assert media_planner is not None
+        media_plan = media_planner(*arguments, media_inputs)
+        if media_plan is None:
+            return False
+        plan, paths, has_image = media_plan
     if plan is None:
         return False
     updates, parents, stash, final_ancestors, registry_used, mentions = plan
@@ -509,4 +577,8 @@ def try_run(
         rendering.mentions_user_group_ids.update(groups)
         rendering.mentions_stream_wildcard |= channel
         rendering.mentions_topic_wildcard |= topic
+    if media_inputs is not None:
+        rendering = cast(ZulipMarkdown, processor.md).zulip_rendering_result
+        rendering.potential_attachment_path_ids.extend(paths)
+        rendering.has_image |= has_image
     return True

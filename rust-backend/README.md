@@ -2533,8 +2533,8 @@ complete-renderer, attachment-authorization or performance comparison.
 planner with audio and image handler kinds 12 and 13. Supply their existing URL
 policy through `Pattern.links` and authorized preview/settings snapshots through
 `Media`. The registry order controls audio/image selection. The existing `run`
-entry point supplies no media snapshot; Django's live adapter and PyO3 signature
-remain unchanged.
+entry point supplies no media snapshot. The guarded Django adapter uses the
+separate PyO3 media entry point described below.
 
 The returned `State.attachment_paths` and `State.has_image` are pending effects.
 Append paths without deduplication and OR `has_image` with the previous value,
@@ -2550,7 +2550,7 @@ and attachment budget discard the whole plan. A late failure returns `None`,
 including when an earlier candidate already produced an image or attachment.
 Atomic strings and ancestor exclusions bypass their handlers normally.
 
-The adapter must still validate live helper identity, URL/MIME tables, settings,
+Adapters must validate live helper identity, URL/MIME tables, settings,
 authorized snapshots and resource limits before committing the tree and all
 metadata together. This API does not enable live media dispatch, establish
 attachment permissions, replace the complete renderer or change an HTTP route.
@@ -2877,9 +2877,9 @@ including duplicates and rejected candidates, and OR `has_image` into the
 existing rendering result only when committing the complete graph and pending
 mention notifications. A late unsupported candidate discards all those effects.
 
-The Django adapter does not dispatch media through this entry point yet.
-Guarded snapshot construction and atomic host application are the next slice;
-no flag, HTTP route or deployment default changes here.
+The guarded Django adapter uses this entry point under the existing
+`ZULIP_RUST_MARKDOWN_NATIVE_INLINE=1` flag, as described below. The flag remains
+off by default; no HTTP route or deployment default changes here.
 
 Using an offline release wheel installed into `var/media-bridge-python`:
 
@@ -2899,3 +2899,54 @@ metadata across absent, empty and populated previews, reversed media priority
 and atomic input. It also retains the existing `--probe` mode for testing the
 standalone Cargo example. This is neither complete renderer coverage nor a
 performance measurement.
+
+## Render media through the guarded native inline bridge
+
+The existing default-off `ZULIP_RUST_MARKDOWN_NATIVE_INLINE=1` path now includes
+Markdown audio and uploaded-image handlers on CPython 3.12 POSIX installations
+with local uploads. `native_media` validates the already-loaded `DbData`
+preview collections and copies the initialized runtime MIME tables. It does
+not initialize the MIME database, query attachments or authorize new previews.
+Absent data and a present empty preview collection retain distinct behavior.
+
+Parser, URL, attachment helper, Camo, MIME and realm descriptors are guarded.
+The shared link-policy validation also applies to audio and images, including
+when the link handler is absent from the registry. Static/Camo settings and
+MIME mappings are read for each media plan. Changed supported types and strict
+MIME mappings therefore take effect without restarting the renderer. Custom
+helpers, unsupported runtime versions, uninitialized MIME data and cloud
+upload settings delegate the entire plan to the existing Python engine.
+Public cloud upload-root snapshot construction remains a separate slice.
+
+Snapshot inputs are limited to 100,000 preview entries, 100,000 MIME/policy
+entries and one million combined source/output characters. Image dimensions
+must be plain integers of at most 2,000 bits; they cross PyO3 as decimal strings.
+This conservative bound also avoids CPython's minimum configurable integer
+conversion limit. Unusual values, surrogates, unloaded realm fields and
+unsupported plans delegate before changing any graph or rendering metadata.
+
+On success, the host applies the complete tree, stash, parent map, ancestors,
+registry state and pending mention notifications, then extends the existing
+attachment list in place and ORs `has_image`. Attachment order and duplicates
+are preserved, including effects from rejected candidates and rescans. A late
+failure preserves all previous objects and metadata before Python executes.
+
+Using the cached wheel containing `plan_markdown_native_inline_media`:
+
+```bash
+PYTHONPATH="$PWD/var/media-bridge-python:$PWD" \
+    ZULIP_RUST_MARKDOWN_NATIVE_INLINE=1 \
+    ./tools/test-backend zerver.tests.test_markdown_native_inline
+PYTHONPATH="$PWD/var/media-bridge-python:$PWD" \
+    python rust-backend/tests/check_native_inline_parity.py \
+    --cases 30000 --seed 962834 --report var/media-live-parity.json
+```
+
+The actual-extension differential compares the entire graph, attribute order,
+atomic text, stash, parent-map order, ancestors, registry and rendering metadata.
+It combines media with formatting, channels and mentions and checks that
+fallback preserves input state before the reference engine runs. Dedicated
+regressions cover live MIME/Camo changes, preview absence, query suffixes,
+attachment-list identity, source budgets, parser/helper guards and late failure.
+This does not establish a complete Rust renderer, attachment authorization,
+notification delivery, HTTP coverage or a performance improvement.

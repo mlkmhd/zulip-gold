@@ -33,7 +33,7 @@ from markdown.extensions import codehilite, nl2br, sane_lists
 from tlds import tld_set
 from typing_extensions import Self, override
 
-from zerver.lib import mention, url_encoding
+from zerver.lib import camo, mention, url_encoding
 from zerver.lib.alert_words import AlertWordAutomaton
 from zerver.lib.camo import get_camo_url
 from zerver.lib.emoji import EMOTICON_RE
@@ -3278,6 +3278,29 @@ _native_mention_field_callbacks = (
 )
 _native_mention_re_match = re.match
 _native_mention_system_names = SystemGroups.GROUP_DISPLAY_NAME_MAP.copy()
+
+_native_media_pattern = markdown.inlinepatterns.IMAGE_LINK_RE
+_native_media_audio_callbacks = (
+    AudioInlineProcessor.maybe_audio_element,
+    AudioInlineProcessor.zulip_specific_src_changes,
+    AudioInlineProcessor.is_supported_audio_url,
+)
+_native_media_image_callbacks = (ImageInlineProcessor.zulip_specific_src_changes,)
+_native_media_callbacks = (
+    maybe_add_attachment_path_id,
+    is_static_or_current_realm_url,
+    get_camo_url,
+    camo.generate_camo_url,
+    markdown.inlinepatterns.ImageInlineProcessor.handleMatch,
+    getattr(_rust_markdown_upload_paths, "local_markdown_upload_path", None),
+)
+_native_media_url_callbacks = (urlsplit, urljoin)
+_native_media_realm_callbacks = (
+    Realm.host,
+    Realm.subdomain,
+    Realm.host_for_subdomain,
+    vars(Realm)["string_id"],
+)
 
 _native_inline_handlers: dict[type[object], tuple[Callable[..., object], ...]] = {
     cls: (cls.handleMatch, cls.getCompiledRegExp, cls.type)

@@ -55,7 +55,11 @@ class InlineProcessor(PythonInlineProcessor):
     @override
     def run(self, tree: Element, ancestors: list[str] | None = None) -> Element:
         if _rust_native_inline is not None and native_inline.try_run(
-            self, tree, ancestors, _rust_native_inline.plan_markdown_native_inline
+            self,
+            tree,
+            ancestors,
+            _rust_native_inline.plan_markdown_native_inline,
+            _rust_native_inline.plan_markdown_native_inline_media,
         ):
             return tree
         if _rust_inline_engine is not None:
