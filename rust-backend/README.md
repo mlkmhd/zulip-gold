@@ -2098,6 +2098,30 @@ ZULIP_RUST_MARKDOWN_INLINE_ENGINE=1 ./tools/test-backend --parallel 1 \
     zerver.tests.test_scheduled_messages zerver.tests.test_reminders
 ```
 
+## Run the native inline Markdown planner
+
+Set `ZULIP_RUST_MARKDOWN_NATIVE_INLINE=1` after installing a fresh Python
+extension wheel, then restart Django processes. This default-off flag runs a
+native tree, text, and placeholder planner for the built-in backtick, emphasis,
+strike-through, and newline patterns. It preserves the existing Element
+objects and their attributes when applying the completed plan.
+
+Before changing the tree, the planner checks the processor, pattern registry,
+regular expressions, callbacks, string types, and input depth. Other syntax,
+custom handlers, and unsupported input use the existing inline engine or
+Python path. Unsupported syntax found after an earlier supported match also
+uses that fallback before mutating the tree. The Python renderer remains the
+default and the reference for output and metadata.
+
+Run the native planner tests with the flag both off and on, and with the
+coordinated inline engine flag on to check fallback between the two paths:
+
+```bash
+ZULIP_RUST_MARKDOWN_NATIVE_INLINE=1 ./tools/test-backend --parallel 1 \
+    zerver.tests.test_markdown_native_inline zerver.tests.test_markdown \
+    zerver.tests.test_markdown_inline_engine
+```
+
 ## Measure Markdown rendering bridges
 
 Use the provisioned development environment and a release wheel to measure

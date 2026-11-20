@@ -10,6 +10,8 @@ from markdown.inlinepatterns import Pattern
 from markdown.treeprocessors import InlineProcessor as PythonInlineProcessor
 from typing_extensions import override
 
+from zerver.lib.markdown import native_inline
+
 _rust_inline_stash = (
     import_module("_zulip_backend")
     if os.environ.get("ZULIP_RUST_MARKDOWN_INLINE_STASH") == "1"
@@ -42,9 +44,20 @@ _rust_inline_engine = (
 )
 
 
+_rust_native_inline = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_MARKDOWN_NATIVE_INLINE") == "1"
+    else None
+)
+
+
 class InlineProcessor(PythonInlineProcessor):
     @override
     def run(self, tree: Element, ancestors: list[str] | None = None) -> Element:
+        if _rust_native_inline is not None and native_inline.try_run(
+            self, tree, ancestors, _rust_native_inline.plan_markdown_native_inline
+        ):
+            return tree
         if _rust_inline_engine is not None:
             return cast(
                 Element,

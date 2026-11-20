@@ -67,6 +67,9 @@ mod markdown_inline_runtime;
 mod markdown_inline_stash;
 
 #[cfg(feature = "python")]
+mod markdown_native_inline;
+
+#[cfg(feature = "python")]
 mod markdown_list_blocks;
 
 #[cfg(feature = "python")]

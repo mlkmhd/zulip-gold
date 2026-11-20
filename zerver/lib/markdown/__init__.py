@@ -3197,3 +3197,30 @@ def get_markdown_link_for_url(filename: str, url: str) -> str:
 
 def get_markdown_image_for_url(filename: str, url: str) -> str:
     return f"!{get_markdown_link_for_url(filename, url)}"
+
+
+_native_inline_handlers: dict[type[object], tuple[Callable[..., object], ...]] = {
+    cls: (cls.handleMatch, cls.getCompiledRegExp, cls.type)
+    for cls in (
+        BacktickInlineProcessor,
+        markdown.inlinepatterns.DoubleTagPattern,
+        markdown.inlinepatterns.SimpleTagPattern,
+        markdown.inlinepatterns.SimpleTextInlineProcessor,
+        markdown.inlinepatterns.SubstituteTagInlineProcessor,
+        markdown.inlinepatterns.HtmlInlineProcessor,
+        UserMentionPattern,
+        Tex,
+        StreamTopicMessagePattern,
+        StreamTopicPattern,
+        StreamPattern,
+        Timestamp,
+        UserGroupMentionPattern,
+        LinkInlineProcessor,
+        AudioInlineProcessor,
+        ImageInlineProcessor,
+        AutoLink,
+        Emoji,
+        EmoticonTranslation,
+        UnicodeEmoji,
+    )
+}

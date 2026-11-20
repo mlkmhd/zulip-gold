@@ -23,10 +23,10 @@ use crate::{
     markdown_channel_spans, markdown_code, markdown_code_blocks, markdown_emphasis,
     markdown_fences, markdown_headings, markdown_horizontal_rules, markdown_inline_mentions,
     markdown_inline_stash, markdown_list_blocks, markdown_list_indent, markdown_list_indent_layout,
-    markdown_list_layout, markdown_lists, markdown_mentions, markdown_paragraphs,
-    markdown_postprocessing, markdown_prettify, markdown_serialization, markdown_tables,
-    markdown_unescape, markdown_upload, markdown_whitespace, reminder_access, reminder_context,
-    reminder_quote, scheduled_attachments, send_permissions,
+    markdown_list_layout, markdown_lists, markdown_mentions, markdown_native_inline,
+    markdown_paragraphs, markdown_postprocessing, markdown_prettify, markdown_serialization,
+    markdown_tables, markdown_unescape, markdown_upload, markdown_whitespace, reminder_access,
+    reminder_context, reminder_quote, scheduled_attachments, send_permissions,
 };
 
 #[pyclass]
@@ -68,6 +68,23 @@ type SerializationNode = (
     Option<String>,
     Vec<(String, String)>,
     usize,
+);
+
+type NativeInlineText = (String, bool);
+type NativeInlineNode = (
+    String,
+    String,
+    Option<NativeInlineText>,
+    Option<NativeInlineText>,
+    Vec<usize>,
+);
+type NativeInlineStash = (Option<usize>, Option<NativeInlineText>);
+type NativeInlineResult = (
+    Vec<NativeInlineNode>,
+    Vec<(usize, usize)>,
+    Vec<NativeInlineStash>,
+    Vec<String>,
+    bool,
 );
 
 type PrettifyNode = (String, Option<String>, Option<String>, bool, usize);
@@ -203,6 +220,92 @@ mod _zulip_backend {
         apply_markdown_inline, handle_markdown_inline, run_markdown_inline,
         run_markdown_inline_engine,
     };
+
+    #[pyfunction]
+    fn plan_markdown_native_inline(
+        nodes: Vec<NativeInlineNode>,
+        patterns: Vec<(u8, Vec<String>)>,
+        ancestors: Vec<String>,
+        guards: Vec<(Bound<'_, PyAny>, Option<Bound<'_, PyAny>>)>,
+    ) -> Option<NativeInlineResult> {
+        use markdown_native_inline::{Node, Pattern, Stashed, Text};
+        let text = |(value, atomic)| Text { value, atomic };
+        let nodes = nodes
+            .into_iter()
+            .map(|(tag, lower_tag, content, tail, children)| Node {
+                tag,
+                lower_tag,
+                text: content.map(text),
+                tail: tail.map(text),
+                children,
+            })
+            .collect();
+        let patterns = patterns
+            .into_iter()
+            .map(|(kind, excludes)| Pattern { kind, excludes })
+            .collect::<Vec<_>>();
+        if patterns.len() != guards.len() {
+            return None;
+        }
+        let result = markdown_native_inline::run(nodes, &patterns, ancestors, |index, data| {
+            let (compiled, text_presentation) = &guards[index];
+            if let Some(text_presentation) = text_presentation {
+                for matched in compiled
+                    .call_method1("finditer", (data,))
+                    .ok()?
+                    .try_iter()
+                    .ok()?
+                {
+                    let syntax = matched.ok()?.call_method1("group", ("syntax",)).ok()?;
+                    if text_presentation
+                        .call_method1("fullmatch", (syntax,))
+                        .ok()?
+                        .is_none()
+                    {
+                        return None;
+                    }
+                }
+                Some(())
+            } else {
+                compiled
+                    .call_method1("search", (data,))
+                    .ok()?
+                    .is_none()
+                    .then_some(())
+            }
+        })?;
+        let text = |text: Text| (text.value, text.atomic);
+        Some((
+            result
+                .nodes
+                .into_iter()
+                .map(|node| {
+                    (
+                        node.tag,
+                        node.lower_tag,
+                        node.text.map(text),
+                        node.tail.map(text),
+                        node.children,
+                    )
+                })
+                .collect(),
+            result
+                .parent_order
+                .into_iter()
+                .map(|child| (child, result.parents[child].unwrap()))
+                .collect(),
+            result
+                .stash
+                .into_iter()
+                .map(|stashed| match stashed {
+                    Stashed::Node(node) => (Some(node), None),
+                    Stashed::Text(value) => (None, Some(text(value))),
+                })
+                .collect(),
+            result.ancestors,
+            result.registry_used,
+        ))
+    }
 
     #[pyfunction]
     fn scan_markdown_inline_stash(
