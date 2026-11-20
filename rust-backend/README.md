@@ -2187,6 +2187,44 @@ cargo test --locked --offline --manifest-path rust-backend/Cargo.toml \
     --no-default-features --features native-markdown
 ```
 
+### Parse inline link and image syntax from Rust
+
+The `native-markdown` feature also exposes `markdown_link_syntax::parse`
+and `parse_image` for the shared link, image, and audio grammar. Pass the
+input and the UTF-8 byte offset of its opening `[` or `!`. A successful
+result contains ranges for the label, destination, and optional title,
+and the byte offset immediately after the link. Nested brackets,
+parentheses, angle destinations, Unicode whitespace, and the reference
+parser's primary and secondary title quotes retain their existing rules.
+
+`Ok(None)` means no complete match. `Err(ParseError::InvalidEnd)` requires
+delegation to the reference handler: some unclosed title inputs cause
+Python-Markdown to return a negative end index. Treating this error as a
+missing link would change how the rest of the input is processed.
+
+These ranges contain raw Markdown placeholders. The caller must still
+unescape the destination, normalize the title, sanitize the URL, and apply
+realm-local rewriting before constructing an element. Image and audio
+callers also retain media selection and attachment checks. This is a
+preparatory API for native rendering; the Django link and media handlers
+continue to run through their existing paths.
+
+The differential compares the raw strings passed to the installed
+Python-Markdown parser's unescape callback, along with labels and end
+offsets. It records source, reference-module, and probe-binary hashes.
+Run it in the provisioned environment using the Cargo-built probe:
+
+```bash
+cargo build --locked --offline --manifest-path rust-backend/Cargo.toml \
+    --no-default-features --features native-markdown --example link_syntax
+for mode in link image; do
+    python rust-backend/tests/check_link_syntax_parity.py \
+        --probe "${CARGO_TARGET_DIR:-rust-backend/target}/debug/examples/link_syntax" \
+        --mode "$mode" --cases 100000 --exhaustive-depth 5 \
+        --report "var/link-syntax-$mode-parity.json"
+done
+```
+
 ### Compare complete native and Python state
 
 The state comparison tool also checks shared element identity, atomic text,

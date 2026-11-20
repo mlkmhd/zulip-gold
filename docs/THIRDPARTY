@@ -749,6 +749,13 @@ Copyright: 2006-2008 Waylan Limberg
 License: BSD-3-Clause
 Comment: https://pypi.python.org/pypi/Markdown
 
+Files: rust-backend/src/markdown_link_syntax.rs
+Copyright: 2007-2023 The Python Markdown Project
+           2004-2006 Yuri Takhteyev
+           2004 Manfred Stienstra
+License: BSD-3-Clause
+Comment: Adapted from Python-Markdown 3.10.3's LinkInlineProcessor.
+
 License: Apache-2.0
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.

@@ -73,6 +73,9 @@ mod markdown_inline_runtime;
 mod markdown_inline_stash;
 
 #[cfg(feature = "native-markdown")]
+pub mod markdown_link_syntax;
+
+#[cfg(feature = "native-markdown")]
 pub mod markdown_native_inline;
 
 #[cfg(feature = "python")]
