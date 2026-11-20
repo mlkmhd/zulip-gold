@@ -2687,3 +2687,82 @@ checkout آزمایش `/home/ubuntu/zulip-rust-markdown-tables` و wheel
 `merge-tree` تعارض‌های موجود فورک، از جمله Markdown و changelog،
 را تأیید کرد؛ مبنای فورک حفظ شد. rebase روی شاخهٔ زنده، push و
 استقرار انجام نشد.
+
+## ادامهٔ مهاجرت: شکلک متنی در runtime بومی — ۲۰۲۶-۱۱-۲۰
+
+کامیت کد این برش `0d62c9cc0a` است.
+
+handler شمارهٔ ۹ برنامه‌ریز `native-markdown` تشخیص و تبدیل شکلک‌هایی
+مانند `:)` را در Rust انجام می‌دهد. کاتالوگ `Emoticons` ترتیب
+جایگزینی‌های جاری و نام‌های Unicode را نگه می‌دارد. مرز تشخیص همان
+فهرست کاراکترهای ASCII مسیر Python است؛ فاصلهٔ Unicode و CR معادل
+space و LF نیستند. تنظیم `translate_emoticons` در هر اجرا خوانده
+می‌شود؛ نبود دادهٔ پیام یا خاموش‌بودن تنظیم، شکلک را تغییر نمی‌دهد.
+
+ساخت گرهٔ `span`، ویژگی‌های مرتب، متن atomic و stash در همان هسته
+انجام می‌شود. شکلک متنی از کاتالوگ Unicode استفاده می‌کند، حتی اگر
+سازمان ایموجی سفارشی هم‌نام داشته باشد. محتوای code محافظت می‌شود.
+کلید و regex ناسازگار، helper سفارشی، replacement دارای escape،
+surrogate و هدف ناشناخته پیش از mutation کل اجرا را واگذار می‌کنند.
+در حالت پذیرفته‌شده `EmoticonTranslation.handleMatch` و
+`translate_emoticons` و `make_emoji` در Python فراخوانی نمی‌شوند.
+
+پرچم همان `ZULIP_RUST_MARKDOWN_NATIVE_INLINE` و پیش‌فرض خاموش است.
+API عمومی Rust اکنون فیلد `Pattern.emoticons` دارد؛ مقدار `None`
+ترجمه را غیرفعال می‌کند. آرگومان جدید planner در PyO3 اختیاری است؛
+فراخوانی پنج‌آرگومانی قبلی همچنان معتبر است. هنوز renderer کامل مستقل
+نیست و این برش هیچ بهبود سرعتی را اثبات نمی‌کند.
+
+### تأیید
+
+یازده تست عمومی Rust، شامل سه تست تازه، ترتیب تبدیل، مرزها، تنظیم
+خاموش، کد محافظت‌شده و رد هدف ناشناخته را بررسی می‌کنند. تست‌های
+Python برای هر دوازده شکلک، هر ۱۲۸ کاراکتر ASCII و سه مرز Unicode،
+در هر دو سمت و هر دو حالت تنظیم، وضعیت کامل درخت و stash را مقایسه
+می‌کنند. این تست مرزی handlerهای مستقل لینک و نام ایموجی را حذف
+می‌کند؛ آزمون ترکیبی جداگانه با registry کامل هم وجود دارد. guard
+قبلی نام غیر ASCII ممکن است ورودی ترکیبی را پیش از handler شکلک
+واگذار کند؛ آزمون تصادفی الزام پذیرش همهٔ چنین ورودی‌هایی ندارد.
+
+هر سه حالت خاموش، فقط native و ترکیب شش پرچم inline، ۲۹۸ تست
+Markdown، زمان‌بندی و یادآوری را گذراندند. حالت native هفت skip و
+ترکیبی دو skip داشت؛ دو تست HTTP حذف به‌علت نبود vhost آزمایشی
+RabbitMQ اجرا نشدند. staging HTTP تازه انجام نشد.
+
+Cargo مستقل native، ۶۲ تست و حالت همهٔ featureها ۱۲۷ تست موفق
+داشت؛ تست قدیمی PostgreSQL و Memcached همچنان ignored است.
+rustfmt، Clippy همهٔ targetها و featureها، lint هدفمند و mypy موفق
+بودند. checkout آزمایش مرجع `upstream/main` ندارد؛ gitlint پیام
+کامیت جداگانه اجرا می‌شود.
+
+مقایسهٔ نهایی روی کد ثابت با Python 3.12.3 و seed برابر `962819`،
+۳٬۰۳۹ حالت را بدون اختلاف بررسی کرد: ۸۵۳ پذیرش بومی و ۲٬۱۸۶ واگذاری.
+گزارش hash کد و باینری واقعی بارگذاری‌شده را ثبت می‌کند و در
+`/home/ubuntu/zulip-rust-emoticons-final-parity.json` نگهداری می‌شود.
+مقایسهٔ اولیه هنگام اصلاح lint متوقف و با کد ثابت تکرار شد؛ آن
+اجرای متوقف‌شده مدرک پذیرش نهایی نیست. یک wheel در Python 3.10 و
+3.12 برای ۱۶ حالت مستقیم planner خروجی برابر داد؛ این بررسی ABI
+اجرای کامل Django در Python 3.10 نیست.
+
+پوشش هدفمند نهایی، ۲۳ تست را گذراند و ۱۴۵ از ۱۵۷ statement
+adapter را پوشاند؛ ۱۲ statement باقی‌مانده همان guardهای قبلی‌اند.
+هر ۱۱ statement افزوده‌شده اجرا شد. این سنجش پوشش branch یا کل
+renderer نیست. گزارش
+`/home/ubuntu/zulip-rust-emoticons-final-coverage.json` حفظ شده است.
+
+### محیط و قدم بعدی
+
+checkout آزمایش `/home/ubuntu/zulip-rust-markdown-tables` و wheel
+`var/emoticons-python` هستند؛ پیشوند لاگ‌ها
+`/home/ubuntu/zulip-rust-emoticons-` است. ساخت release با target
+موجود headings، یک job، incremental خاموش و `--locked --offline`
+انجام شد. نصب فقط با `--no-index --no-deps --upgrade` بود. هیچ
+بسته‌ای دانلود و هیچ کشی پاک نشد. fetch تازه تکرار نشد؛ نتیجهٔ
+بررسی همان اجرای قبلی، بالادست `d770d79da7` و تعارض‌های فورک، حفظ
+شد. push، rebase شاخهٔ زنده و استقرار انجام نشد.
+
+شمار عملیات مستقل همان ۲۸ از ۱۷۱ OpenAPI و ۲۸ از ۱۹۰ وب است؛
+هیچ فایل Python حذف نشد. قدم بعدی ایموجی Unicode با حفظ grammar
+و نسخهٔ propertyهای renderer است؛ سپس لینک و mention، metadata
+کامل، highlighting، TeX، preview و اتصال مجوز و پیوست به listener
+زمان‌بندی باقی‌اند.

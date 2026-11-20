@@ -1129,3 +1129,14 @@ Django هنوز snapshot و اعتبارسنجی و serialization را انجا�
 این مرحله عملیات HTTP جدیدی را منتقل و پرچم پیش‌فرضی را فعال نمی‌کند.
 شمار عملیات مستقل همان ۲۸ از ۱۷۱ OpenAPI و ۲۸ از ۱۹۰ وب است.
 [روش اجرا و حدود پشتیبانی](README.md#run-the-native-inline-markdown-planner)
+
+## شکلک متنی در هستهٔ inline بومی
+
+handler شمارهٔ ۹ و کاتالوگ `Emoticons` تشخیص مرز ASCII، ترتیب
+جایگزینی، تنظیم جاری فرستنده و ساخت گرهٔ Unicode را در Rust انجام
+می‌دهند. محتویات code و وضعیت کامل stash و درخت حفظ می‌شوند؛
+پیکربندی ناسازگار یا helper سفارشی پیش از mutation واگذار می‌شود.
+همان پرچم `ZULIP_RUST_MARKDOWN_NATIVE_INLINE` پیش‌فرض خاموش است.
+این مرحله عملیات HTTP تازه‌ای را مستقل نمی‌کند؛ شمار همان ۲۸ از
+۱۷۱ OpenAPI و ۲۸ از ۱۹۰ وب و شمار فایل‌های Python حذف‌شده صفر است.
+[قرارداد اجرا](README.md#run-the-native-inline-markdown-planner)
