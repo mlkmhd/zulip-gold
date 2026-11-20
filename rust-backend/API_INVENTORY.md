@@ -1475,5 +1475,28 @@ trigger ربات، در هر حالت ۳۶ تست موفق داشت. Cargo می�
   گذراندند. Clippy، rustfmt و lint هدفمند شامل mypy و README پاس شدند.
 - wheel تازه جدا و کاملاً آفلاین ساخته شد؛ بسته‌ای دانلود و کشی حذف
   نشد. مسیر HTTP، پیش‌فرض و بازنشستگی فایل Python تغییر نکردند:
-  ۲۸/۱۷۱ OpenAPI و ۲۸/۱۹۰ وب و صفر فایل بازنشسته. autolink، TeX،
+  ۲۸/۱۷۱ OpenAPI و ۲۸/۱۹۰ وب و صفر فایل بازنشسته. TeX،
   highlighting، preview و orchestration listener همچنان باقی‌اند.
+
+## لینک‌های خودکار در inline بومی — ۲۰۲۶-۱۱-۲۱
+
+- کامیت `b7b263b8de` matcher و handler لینک خودکار را به arena مستقل
+  Rust می‌برد. کلاس word از CPython 3.12 و Unicode 15.0، TLD و scheme
+  و file links زنده، تقدم غیرحریص host و مسیر و مرز و punctuation
+  مرجع حفظ شده‌اند. sanitizer همان کد موجود Rust است.
+- kind جدید ۲۱ و entrypoint دارای snapshot و cache محدود، اثر درخت و
+  HTML و اعلان و پیوست را اتمیک نگه می‌دارند. هر سه entrypoint قبلی
+  و wheel قدیمی سازگارند؛ تنظیم یا helper نامنطبق fallback دارد.
+- extension واقعی روی ۴۵٬۱۵۲ گراف، ۳۴٬۰۷۲ پذیرش native و
+  ۱۱٬۰۸۰ واگذاری و صفر اختلاف داشت. oracle مستقل روی
+  ۴٬۵۴۸٬۵۶۸ محدوده، شامل تمام scalarهای Unicode در چهار جایگاه، بدون
+  اختلاف گذشت. این تست exhaustive همهٔ رشته‌ها یا benchmark نیست.
+- ۳۵۷ تست در هر دو حالت، هشت تست coverage، چهار تست مستقیم پل و
+  probe رندر کامل موفق بودند؛ همهٔ ۴۷ statement تازهٔ adapter و
+  snapshot و ثبت callback پوشش داشتند. Cargo میزبان ۴۰ بدون feature
+  و ۱۷۶ native و Linux تعداد ۱۳۸ تست مرتبط با همهٔ featureها گذراند.
+  Clippy، rustfmt، lint هدفمند شامل mypy و README و پیام کامیت‌ها پاس شدند.
+- بسته‌ای دانلود و cache یا wheel قبلی حذف نشد. پیش‌فرض و HTTP و
+  بازنشستگی Python تغییر نکردند: ۲۸/۱۷۱ OpenAPI، ۲۸/۱۹۰ وب و صفر فایل
+  بازنشسته. TeX، highlighting، preview و renderer کامل و orchestration
+  listener باقی‌اند. جزئیات و شرط بازنشستگی در انتهای مستند تحویل است.
