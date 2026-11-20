@@ -1219,3 +1219,21 @@ authority غیر ASCII یا براکت‌دار، helper و regex سفارشی �
 عملیات مستقل همان ۲۸ از ۱۷۱ OpenAPI و ۲۸ از ۱۹۰ وب و شمار فایل
 Python حذف‌شده صفر است. مسیر HTTP یا پیش‌فرض تازه‌ای فعال نشد.
 [قرارداد و بازتولید](README.md#render-supported-explicit-links-natively)
+
+## آماده‌سازی تصویر و اثر پیوست بدون Python
+
+API عمومی `markdown_media::prepare_image` با feature موجود
+`native-markdown`، parser مشترک، restore متن، sanitizer، بازنویسی
+محلی و lookup preview مجاز را به attributeهای مرتب spinner و اثر
+معوق ثبت پیوست تبدیل می‌کند. رد نمایش می‌تواند اثر پیوست داشته
+باشد؛ واگذاری باید کل plan را پیش از mutation کنار بگذارد.
+`markdown_media::attachment_path` قرارداد URL joining مرجع، مسیر
+Unicode، بخش نقطه و خالی و پارامتر semicolon را حفظ می‌کند. کلید
+خام preview با مسیر نرمال‌شدهٔ پیوست متفاوت است.
+
+هفت تست عمومی و ۱٬۴۲۲٬۰۳۲ مقایسهٔ نهایی بدون اختلاف گذشتند؛ گزارش
+پذیرش و واگذاری را جدا ثبت می‌کند. API مستقل هنوز به dispatch زنده
+وصل نیست. صوت، guard helperها و commit اتمی metadata و درخت باقی‌اند.
+renderer مستقل کامل، پرچم یا مسیر HTTP تازه ایجاد نشد؛ شمار عملیات
+همان ۲۸ از ۱۷۱ OpenAPI و ۲۸ از ۱۹۰ وب و فایل Python حذف‌شده صفر است.
+[قرارداد و بازتولید](README.md#prepare-uploaded-images-and-attachment-effects-natively)
