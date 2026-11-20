@@ -1454,3 +1454,26 @@ trigger ربات، در هر حالت ۳۶ تست موفق داشت. Cargo می�
   دانلود نشد. پیش‌فرض، HTTP و بازنشستگی Python تغییر نکردند:
   ۲۸/۱۷۱ OpenAPI، ۲۸/۱۹۰ وب و صفر فایل بازنشسته. باقی‌ماندهٔ renderer
   و listener و شرط بازنشستگی در انتهای سند تحویل آمده‌اند.
+
+## entityهای HTML در planner بومی
+
+- کامیت `f5309c36df` تشخیص نام و عدد entity را با همان
+  `ENTITY_RE` مرجع به Rust منتقل می‌کند. HTML stash، درخت، mention
+  و پیوست به صورت اتمیک اعمال می‌شوند؛ decode و serializer مرجع
+  حفظ شده‌اند و HTML خام فعال نمی‌شود.
+- entrypoint تازهٔ `plan_markdown_native_inline_html` اثرهای HTML را
+  جدا برمی‌گرداند؛ دو entrypoint قدیمی و wheel قبلی سازگار می‌مانند.
+  پرچم همان native inline و پیش‌فرض خاموش است. guardها و بودجهٔ
+  تجمعی ۸ MiB در [مستند تحویل](MIGRATION_HANDOFF.md) توضیح داده شده‌اند.
+- extension واقعی روی ۴۰٬۱۵۲ گراف، ۲۷٬۸۸۵ پذیرش native و ۱۲٬۲۶۷
+  واگذاری و صفر اختلاف داشت؛ mutant حذف اثر HTML با ۱۰ اختلاف از
+  ۱۶۲ حالت رد شد. ترتیب attributeها، HTML stash و تمام metadata و
+  حفظ ورودی پیش از fallback مقایسه شدند؛ این تست exhaustive نیست.
+- در هر دو حالت پرچم ۳۵۰ تست موفق، و چهار تست مستقیم پل، هفت تست
+  coverage و probe رندر کامل موفق بودند. Cargo میزبان ۴۰ تست بدون
+  feature و ۱۷۲ native و Linux تعداد ۱۳۴ تست مرتبط با همهٔ featureها
+  گذراندند. Clippy، rustfmt و lint هدفمند شامل mypy و README پاس شدند.
+- wheel تازه جدا و کاملاً آفلاین ساخته شد؛ بسته‌ای دانلود و کشی حذف
+  نشد. مسیر HTTP، پیش‌فرض و بازنشستگی فایل Python تغییر نکردند:
+  ۲۸/۱۷۱ OpenAPI و ۲۸/۱۹۰ وب و صفر فایل بازنشسته. autolink، TeX،
+  highlighting، preview و orchestration listener همچنان باقی‌اند.
