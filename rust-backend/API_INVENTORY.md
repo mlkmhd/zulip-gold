@@ -1584,3 +1584,16 @@ trigger ربات، در هر حالت ۳۶ تست موفق داشت. Cargo می�
   پیش‌فرض و HTTP تغییر نکردند: ۲۸/۱۷۱ OpenAPI، ۲۸/۱۹۰ وب و صفر
   فایل بازنشسته.
   [قرارداد](README.md#handle-katex-service-responses-through-rust)
+
+## خروجی CLI در Rust — ۲۰۲۶-۱۱-۲۱
+
+- کامیت `f6b57a4d05` با همان `ZULIP_RUST_MARKDOWN_TEX=1` پردازش
+  UTF-8 معتبر، newline و strip خروجی CLI را بومی می‌کند. codecهای
+  دیگر و خطاهای decode مسیر Python دارند و subprocess تکرار نمی‌شود.
+  ۱٬۲۳۲٬۱۰۴ مقایسه بدون اختلاف، شش تست تازه و ۴۳۷ تست در هر دو
+  حالت موفق بودند. هر سه statement تازهٔ adapter پوشش دارند. پنج
+  رندر واقعی و wheel قبلی تمام metadata برابر داشتند. Cargo، Clippy،
+  mypy و lint هدفمند موفق بودند؛ ساخت و نصب آفلاین بود. locale،
+  encode ورودی و transport سرویس هنوز Python هستند؛ فایل بازنشسته
+  نشد. HTTP و پیش‌فرض همان ۲۸/۱۷۱ OpenAPI و ۲۸/۱۹۰ وب باقی‌اند.
+  [قرارداد](README.md#normalize-katex-cli-output-through-rust)
