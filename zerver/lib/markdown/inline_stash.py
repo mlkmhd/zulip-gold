@@ -60,6 +60,7 @@ class InlineProcessor(PythonInlineProcessor):
             ancestors,
             _rust_native_inline.plan_markdown_native_inline,
             _rust_native_inline.plan_markdown_native_inline_media,
+            getattr(_rust_native_inline, "plan_markdown_native_inline_html", None),
         ):
             return tree
         if _rust_inline_engine is not None:

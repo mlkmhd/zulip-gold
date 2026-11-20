@@ -276,8 +276,9 @@ mod _zulip_backend {
             channel_inputs,
             mention_inputs,
             None,
+            None,
         )
-        .map(|(result, _, _)| result)
+        .map(|(result, _, _, _)| result)
     }
 
     #[pyfunction]
@@ -308,6 +309,41 @@ mod _zulip_backend {
             channel_inputs,
             mention_inputs,
             media_inputs,
+            None,
+        )
+        .map(|(plan, paths, image, _)| (plan, paths, image))
+    }
+
+    #[pyfunction]
+    #[pyo3(signature = (nodes, patterns, ancestors, guards, emoji_catalogs, emoticon_catalog=None, unicode_emoji_catalog=None, link_policy=None, channel_inputs=None, mention_inputs=None, media_inputs=None, html_counter=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn plan_markdown_native_inline_html(
+        nodes: Vec<NativeInlineNode>,
+        patterns: Vec<(u8, Vec<String>)>,
+        ancestors: Vec<String>,
+        guards: Vec<(Bound<'_, PyAny>, Option<Bound<'_, PyAny>>)>,
+        emoji_catalogs: Vec<Option<NativeEmojiCatalog>>,
+        emoticon_catalog: Option<NativeEmoticonCatalog>,
+        unicode_emoji_catalog: Option<NativeUnicodeEmojiCatalog>,
+        link_policy: Option<NativeLinkPolicy>,
+        channel_inputs: Option<NativeChannelInputs>,
+        mention_inputs: Option<NativeMentionInputs>,
+        media_inputs: Option<crate::python_media::MediaInputs>,
+        html_counter: Option<usize>,
+    ) -> Option<(NativeInlineResult, Vec<String>, bool, Vec<String>)> {
+        plan_native_inline(
+            nodes,
+            patterns,
+            ancestors,
+            guards,
+            emoji_catalogs,
+            emoticon_catalog,
+            unicode_emoji_catalog,
+            link_policy,
+            channel_inputs,
+            mention_inputs,
+            media_inputs,
+            html_counter,
         )
     }
 
@@ -324,9 +360,13 @@ mod _zulip_backend {
         channel_inputs: Option<NativeChannelInputs>,
         mention_inputs: Option<NativeMentionInputs>,
         media_inputs: Option<crate::python_media::MediaInputs>,
-    ) -> Option<(NativeInlineResult, Vec<String>, bool)> {
+        html_counter: Option<usize>,
+    ) -> Option<(NativeInlineResult, Vec<String>, bool, Vec<String>)> {
         use markdown_native_inline::{Emoticons, NamedEmoji, Node, Pattern, Stashed, Text};
-        if patterns.len() != guards.len() || patterns.len() != emoji_catalogs.len() {
+        if (html_counter.is_none() && patterns.iter().any(|(kind, _)| *kind == 20))
+            || patterns.len() != guards.len()
+            || patterns.len() != emoji_catalogs.len()
+        {
             return None;
         }
         let text = |(value, atomic)| Text { value, atomic };
@@ -451,6 +491,7 @@ mod _zulip_backend {
                 media: media.as_ref(),
                 channels: channels.as_ref(),
                 mentions: mentions.as_ref(),
+                html_counter,
             },
             |index, data| {
                 let (compiled, text_presentation) = &guards[index];
@@ -518,7 +559,12 @@ mod _zulip_backend {
                 result.mentions.topic,
             ),
         );
-        Some((planned, result.attachment_paths, result.has_image))
+        Some((
+            planned,
+            result.attachment_paths,
+            result.has_image,
+            result.html_blocks,
+        ))
     }
 
     #[pyfunction]

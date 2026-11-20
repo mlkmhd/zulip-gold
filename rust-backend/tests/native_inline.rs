@@ -1,6 +1,8 @@
 #![cfg(feature = "native-markdown")]
 
-use _zulip_backend::markdown_native_inline::{NamedEmoji, Node, Pattern, Stashed, Text, run};
+use _zulip_backend::markdown_native_inline::{
+    Inputs, NamedEmoji, Node, Pattern, Stashed, Text, run, run_with_inputs,
+};
 
 fn node(tag: &str, text: Option<Text>, children: Vec<usize>) -> Node {
     Node {
@@ -35,6 +37,49 @@ fn pattern(kind: u8) -> Pattern {
         emoticons: None,
         unicode_emoji: None,
         links: None,
+    }
+}
+
+#[test]
+fn entities_preserve_raw_spelling_and_host_stash_offset() {
+    let plan = run_with_inputs(
+        paragraph("&amp; &#xFF; &#000; &unknown; &12; &#XFF; &é; &; &bad&amp;"),
+        &[pattern(20)],
+        vec![],
+        Inputs {
+            html_counter: Some(99),
+            ..Inputs::default()
+        },
+        |_, _| panic!("entities are native"),
+    )
+    .unwrap();
+    assert_eq!(
+        plan.html_blocks,
+        ["&amp;", "&#xFF;", "&#000;", "&unknown;", "&12;", "&amp;"]
+    );
+    assert_eq!(
+        plan.nodes[1].text.as_ref().unwrap().value,
+        "\u{2}wzxhzdk:99\u{3} \u{2}wzxhzdk:100\u{3} \u{2}wzxhzdk:101\u{3} \u{2}wzxhzdk:102\u{3} \u{2}wzxhzdk:103\u{3} &#XFF; &é; &; &bad\u{2}wzxhzdk:104\u{3}"
+    );
+}
+
+#[test]
+fn entities_need_a_counter_and_discard_pending_stash_on_failure() {
+    assert!(run(paragraph("&amp;"), &[pattern(20)], vec![], |_, _| None).is_none());
+    for value in ["&amp; $$x$$".to_owned(), "&amp; ".repeat(2000)] {
+        assert!(
+            run_with_inputs(
+                paragraph(&value),
+                &[pattern(20), pattern(0)],
+                vec![],
+                Inputs {
+                    html_counter: Some(0),
+                    ..Inputs::default()
+                },
+                |_, _| None,
+            )
+            .is_none()
+        );
     }
 }
 

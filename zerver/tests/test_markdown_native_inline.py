@@ -87,7 +87,14 @@ class MarkdownNativeInlineTest(TestCase):
             )
             for node in nodes
         ]
-        return tree, stash, parents, processor.ancestors
+        return (
+            tree,
+            stash,
+            parents,
+            processor.ancestors,
+            processor.md.htmlStash.html_counter,
+            processor.md.htmlStash.rawHtmlBlocks[:],
+        )
 
     def compare(
         self,
@@ -121,6 +128,7 @@ class MarkdownNativeInlineTest(TestCase):
             ["outer"],
             native.plan_markdown_native_inline,
             native.plan_markdown_native_inline_media,
+            getattr(native, "plan_markdown_native_inline_html", None),
         )
         if accepted is not None:
             self.assertEqual(result, accepted)
@@ -132,6 +140,175 @@ class MarkdownNativeInlineTest(TestCase):
             PythonInlineProcessor.run(processor, root, ["outer"])
         self.assertEqual(reference, self.snapshot(processor, root))
         self.assertEqual(reference_md.zulip_rendering_result, native_md.zulip_rendering_result)
+
+    def test_native_entities_and_complete_html_stash(self) -> None:
+        samples = [
+            "&amp; &lt; &gt; &quot; &apos; &copy; &unknown; &123;",
+            "&#0; &#999999999999999999999; &#xD800; &#x10ffff; &#x110000;",
+            "&; &#; &#x; &#Xff; &é; &#۱۲; &#xＦＦ; &a_b; &amp &amp\n;",
+            "&&amp; &bad&amp; &#xg&amp; فارسی &amp;;",
+            "**&amp;** `&copy;` ~~&#x1F600;~~ [a &copy;](https://example.com/?a&b)",
+            "<time:1900-02-29> &lt;time:bad&gt; &amp;",
+            "&amp; \x02klzzwxh:0000\x03 &#1;",
+        ]
+        for value in samples:
+            with self.subTest(value=value):
+
+                def configure(md: ZulipMarkdown) -> None:
+                    md.htmlStash.store("previous")
+                    md.htmlStash.store("previous")
+                    md.htmlStash.html_counter = 99
+
+                def build(value: str = value) -> Element:
+                    root = Element("div")
+                    paragraph = SubElement(root, "p")
+                    paragraph.text = value
+                    shared = SubElement(paragraph, "span")
+                    shared.text = AtomicString(value)
+                    shared.tail = value
+                    SubElement(root, "section").append(shared)
+                    return root
+
+                self.compare(build, configure=configure)
+
+    def test_native_entities_commit_mentions_media_and_html_together(self) -> None:
+        self.require_native_media()
+
+        def configure(md: ZulipMarkdown) -> None:
+            self.media_data(md)
+            md.htmlStash.store("previous")
+
+        def build() -> Element:
+            root = Element("div")
+            SubElement(
+                root, "p"
+            ).text = "@**alice** @*devs* ![picture](/user_uploads/1/picture) &copy;"
+            SubElement(root, "p").text = "&#123; <time:1900-02-29>"
+            return root
+
+        self.compare(build, configure=configure)
+
+    def test_native_entities_late_failure_preserves_html_stash(self) -> None:
+        def configure(md: ZulipMarkdown) -> None:
+            self.media_data(md)
+            md.htmlStash.store("previous")
+
+        def build() -> Element:
+            root = Element("div")
+            SubElement(root, "p").text = "@**alice** ![picture](/user_uploads/1/picture) &copy;"
+            SubElement(root, "p").text = "$$x$$"
+            return root
+
+        self.compare(build, configure=configure, accepted=False)
+
+    def test_native_entities_budget_and_legacy_extension(self) -> None:
+        native = inline_stash._rust_native_inline
+        if native is None:
+            self.skipTest("Native inline engine is disabled")
+        md = self.markdown()
+        processor = InlineProcessor(md)
+        md.treeprocessors.register(processor, "inline", 25)
+        root = Element("div")
+        SubElement(root, "p").text = "&amp;"
+        self.assertFalse(
+            native_inline.try_run(
+                processor,
+                root,
+                None,
+                native.plan_markdown_native_inline,
+                native.plan_markdown_native_inline_media,
+            )
+        )
+        self.assertEqual(md.htmlStash.rawHtmlBlocks, [])
+        self.assertEqual(root[0].text, "&amp;")
+
+        def build() -> Element:
+            root = Element("div")
+            SubElement(root, "p").text = "&amp; " * 2000
+            return root
+
+        self.compare(build, accepted=False)
+
+    def test_native_entities_guard_helpers_and_stash(self) -> None:
+        native = inline_stash._rust_native_inline
+        if native is None:
+            self.skipTest("Native inline engine is disabled")
+        md = self.markdown()
+        processor = InlineProcessor(md)
+        md.treeprocessors.register(processor, "inline", 25)
+        root = Element("div")
+        SubElement(root, "p").text = "**before** &amp;"
+        for target, name, replacement in [
+            (md.inlinePatterns["entity"], "unescape", mock.Mock()),
+            (md.inlinePatterns["entity"], "backslash_unescape", mock.Mock()),
+            (md.htmlStash, "store", mock.Mock()),
+            (md.htmlStash, "get_placeholder", mock.Mock()),
+            (md.htmlStash, "html_counter", -1),
+            (md.htmlStash, "html_counter", True),
+            (md.htmlStash, "html_counter", 1_000_001),
+            (md.htmlStash, "rawHtmlBlocks", ()),
+            (util, "HTML_PLACEHOLDER", "changed"),
+            (util, "INLINE_PLACEHOLDER_RE", re.compile("&amp;")),
+            (md.treeprocessors["unescape"], "RE", re.compile("&amp;")),
+        ]:
+            with (
+                self.subTest(name=name, replacement=replacement),
+                mock.patch.object(target, name, replacement),
+            ):
+                self.assertFalse(
+                    native_inline.try_run(
+                        processor,
+                        root,
+                        None,
+                        native.plan_markdown_native_inline,
+                        native.plan_markdown_native_inline_media,
+                        native.plan_markdown_native_inline_html,
+                    )
+                )
+                if isinstance(replacement, mock.Mock):
+                    replacement.assert_not_called()
+        self.assertEqual(root[0].text, "**before** &amp;")
+        self.assertEqual(md.htmlStash.rawHtmlBlocks, [])
+
+    def test_native_entities_do_not_call_python_handlers(self) -> None:
+        native = inline_stash._rust_native_inline
+        if native is None:
+            self.skipTest("Native inline engine is disabled")
+        md = self.markdown()
+        processor = InlineProcessor(md)
+        md.treeprocessors.register(processor, "inline", 25)
+        blocks = md.htmlStash.rawHtmlBlocks
+        root = Element("div")
+        SubElement(root, "p").text = "&amp; **&copy;** &#xFF;"
+        forbidden = {
+            inlinepatterns.HtmlInlineProcessor.handleMatch.__code__,
+            *(callback.__code__ for callback in native_inline._ENTITY_CALLBACKS),
+        }
+        calls = []
+
+        def profile(frame: FrameType, event: str, arg: object) -> None:
+            if event == "call" and frame.f_code in forbidden:
+                calls.append(frame.f_code.co_name)
+
+        previous = sys.getprofile()
+        try:
+            sys.setprofile(profile)
+            self.assertTrue(
+                native_inline.try_run(
+                    processor,
+                    root,
+                    None,
+                    native.plan_markdown_native_inline,
+                    native.plan_markdown_native_inline_media,
+                    native.plan_markdown_native_inline_html,
+                )
+            )
+        finally:
+            sys.setprofile(previous)
+        self.assertEqual(calls, [])
+        self.assertIs(md.htmlStash.rawHtmlBlocks, blocks)
+        self.assertEqual(blocks, ["&amp;", "&copy;", "&#xFF;"])
+        self.assertEqual(md.htmlStash.html_counter, 3)
 
     def test_native_timestamps_and_complete_state(self) -> None:
         samples = [
@@ -1165,7 +1342,6 @@ class MarkdownNativeInlineTest(TestCase):
             "**earlier** [link](https://例.example)",
             '**earlier** [link](url"(tail',
             "**earlier** :نام:",
-            "**earlier** &copy;",
             "**earlier** $$x$$",
         ]:
             with self.subTest(text=text):
@@ -1613,7 +1789,7 @@ class MarkdownNativeInlineTest(TestCase):
         self.compare(build)
 
     def test_native_mentions_late_failure_discards_notifications(self) -> None:
-        for suffix in ["&copy;", "$$x$$", "[x](https://[::1])"]:
+        for suffix in ["&copy; $$x$$", "$$x$$", "[x](https://[::1])"]:
             with self.subTest(suffix=suffix):
 
                 def build(suffix: str = suffix) -> Element:
@@ -1995,6 +2171,7 @@ class MarkdownNativeInlineTest(TestCase):
                 None,
                 native.plan_markdown_native_inline,
                 native.plan_markdown_native_inline_media,
+                getattr(native, "plan_markdown_native_inline_html", None),
             )
         )
         self.assertEqual(self.snapshot(processor, root), before)
@@ -2022,6 +2199,7 @@ class MarkdownNativeInlineTest(TestCase):
                 None,
                 native.plan_markdown_native_inline,
                 native.plan_markdown_native_inline_media,
+                getattr(native, "plan_markdown_native_inline_html", None),
             )
         )
         self.assertIs(md.zulip_rendering_result.potential_attachment_path_ids, paths)
@@ -2065,6 +2243,7 @@ class MarkdownNativeInlineTest(TestCase):
                         None,
                         native.plan_markdown_native_inline,
                         native.plan_markdown_native_inline_media,
+                        getattr(native, "plan_markdown_native_inline_html", None),
                     )
                 )
         callback.assert_not_called()
@@ -2158,6 +2337,7 @@ class MarkdownNativeInlineTest(TestCase):
                     None,
                     native.plan_markdown_native_inline,
                     native.plan_markdown_native_inline_media,
+                    getattr(native, "plan_markdown_native_inline_html", None),
                 )
             )
         finally:
@@ -2246,6 +2426,7 @@ class MarkdownNativeInlineTest(TestCase):
                     None,
                     native.plan_markdown_native_inline,
                     native.plan_markdown_native_inline_media,
+                    getattr(native, "plan_markdown_native_inline_html", None),
                 )
             )
         pattern = md.inlinePatterns["image"]
@@ -2261,6 +2442,7 @@ class MarkdownNativeInlineTest(TestCase):
                     None,
                     native.plan_markdown_native_inline,
                     native.plan_markdown_native_inline_media,
+                    getattr(native, "plan_markdown_native_inline_html", None),
                 )
             )
         self.assertEqual(markdown._native_media_pattern, r"\!\[")
@@ -2420,6 +2602,7 @@ class MarkdownNativeInlineTest(TestCase):
                             None,
                             native.plan_markdown_native_inline,
                             native.plan_markdown_native_inline_media,
+                            getattr(native, "plan_markdown_native_inline_html", None),
                         )
                     )
                 finally:

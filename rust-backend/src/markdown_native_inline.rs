@@ -72,7 +72,7 @@ pub struct Pattern {
     /// 5: strikethrough; 6: literal emphasis markers; 7: line break; 8: named emoji;
     /// 9: emoticon translation; 10: Unicode emoji; 11: explicit link;
     /// 12: audio; 13: image; 14: channel; 15: topic; 16: message link;
-    /// 17: user mention; 18: group mention; 19: ISO timestamp.
+    /// 17: user mention; 18: group mention; 19: ISO timestamp; 20: HTML entity.
     pub kind: u8,
     pub excludes: Vec<String>,
     pub emoji: Option<NamedEmoji>,
@@ -106,6 +106,8 @@ pub struct State {
     pub has_image: bool,
     /// Union these notifications with existing host metadata after plan success.
     pub mentions: MentionEffects,
+    /// Raw entities for the host HTML stash, in encounter order.
+    pub html_blocks: Vec<String>,
 }
 
 /// Already-authorized media snapshots and live renderer settings.
@@ -172,6 +174,7 @@ pub struct Inputs<'a> {
     pub media: Option<&'a Media>,
     pub channels: Option<&'a Channels>,
     pub mentions: Option<&'a Mentions>,
+    pub html_counter: Option<usize>,
 }
 
 /// Snapshot stash values for link unescaping without resolving nested placeholders.
@@ -257,6 +260,8 @@ struct Engine<'a, G> {
     remaining_channel_bytes: usize,
     remaining_mention_bytes: usize,
     remaining_timestamp_bytes: usize,
+    remaining_entity_bytes: usize,
+    html_counter: Option<usize>,
 }
 
 impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
@@ -827,6 +832,22 @@ impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
                             stashed,
                         )
                     }
+                    20 => {
+                        self.remaining_entity_bytes =
+                            self.remaining_entity_bytes.checked_sub(data.len())?;
+                        let Some((start, end)) = find_entity(&data) else {
+                            break;
+                        };
+                        let counter = self
+                            .html_counter?
+                            .checked_add(self.state.html_blocks.len())?;
+                        self.state.html_blocks.push(data[start..end].to_owned());
+                        (
+                            data[..start].to_owned(),
+                            data[end..].to_owned(),
+                            Stashed::Text(Text::plain(format!("\u{2}wzxhzdk:{counter}\u{3}"))),
+                        )
+                    }
                     _ => return None,
                 };
                 if let Stashed::Node(node) = &mut stashed {
@@ -1069,6 +1090,24 @@ impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
     }
 }
 
+fn find_entity(data: &str) -> Option<(usize, usize)> {
+    for (start, _) in data.match_indices('&') {
+        let body = &data.as_bytes()[start + 1..];
+        let (prefix, accepts): (usize, fn(&u8) -> bool) = if body.starts_with(b"#x") {
+            (2, u8::is_ascii_hexdigit)
+        } else if body.starts_with(b"#") {
+            (1, u8::is_ascii_digit)
+        } else {
+            (0, u8::is_ascii_alphanumeric)
+        };
+        let length = body[prefix..].iter().take_while(|c| accepts(c)).count();
+        if length > 0 && body.get(prefix + length) == Some(&b';') {
+            return Some((start, start + 1 + prefix + length + 1));
+        }
+    }
+    None
+}
+
 fn find_not_strong(data: &str) -> Option<(usize, usize)> {
     let mut previous = None;
     for (start, c) in data.char_indices() {
@@ -1209,6 +1248,7 @@ pub fn run_with_inputs(
             attachment_paths: Vec::new(),
             has_image: false,
             mentions: MentionEffects::default(),
+            html_blocks: Vec::new(),
         },
         patterns,
         media: inputs.media,
@@ -1221,6 +1261,8 @@ pub fn run_with_inputs(
         remaining_channel_bytes: 8 * 1024 * 1024,
         remaining_mention_bytes: 8 * 1024 * 1024,
         remaining_timestamp_bytes: 8 * 1024 * 1024,
+        remaining_entity_bytes: 8 * 1024 * 1024,
+        html_counter: inputs.html_counter,
     }
     .run(ancestors)
 }

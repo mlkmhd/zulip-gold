@@ -42,6 +42,7 @@ class Case:
     media: int = 0
     previous_image: bool = True
     cloud: bool = False
+    html_offset: int = 0
 
 
 def build(case: Case) -> Element:
@@ -100,6 +101,8 @@ def snapshot(processor: "PythonInlineProcessor", root: Element) -> dict[str, obj
         "html_stash": (
             processor.md.htmlStash.html_counter,
             processor.md.htmlStash.rawHtmlBlocks[:],
+            processor.md.htmlStash.tag_counter,
+            processor.md.htmlStash.tag_data[:],
         ),
     }
 
@@ -238,12 +241,14 @@ def _exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
         else:
             previews = AttachmentData(
                 audio_path_ids=set() if case.media == 2 else {"1/voice", "1/both", "1/voice?x#y"},
-                image_metadata={}
-                if case.media == 2
-                else {
-                    path: MarkdownImageMetadata(None, False, 12, 24, "image/png")
-                    for path in ["1/picture", "1/both", "1/picture?x#y"]
-                },
+                image_metadata=(
+                    {}
+                    if case.media == 2
+                    else {
+                        path: MarkdownImageMetadata(None, False, 12, 24, "image/png")
+                        for path in ["1/picture", "1/both", "1/picture?x#y"]
+                    }
+                ),
             )
             if md.zulip_db_data is None:
                 mentions = MentionData.__new__(MentionData)
@@ -287,6 +292,10 @@ def _exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
         case.previous_image,
         True,
     )
+    if case.html_offset:
+        md.htmlStash.store("previous")
+        md.htmlStash.store("previous")
+        md.htmlStash.html_counter = case.html_offset
     registry = cast(native_inline.RegistryInternals, md.inlinePatterns)
     if case.registry == "empty":
         md.inlinePatterns = util.Registry()
@@ -294,11 +303,11 @@ def _exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
         for name in list(registry._data):
             if name != "unicodeemoji":
                 md.inlinePatterns.deregister(name)
-    elif case.registry in ("formatting", "timestamp"):
+    elif case.registry in ("formatting", "timestamp", "entity"):
         for name in list(registry._data):
             if name not in (
-                {"timestamp"}
-                if case.registry == "timestamp"
+                {case.registry}
+                if case.registry in ("timestamp", "entity")
                 else {
                     "backtick",
                     "strong_em",
@@ -310,6 +319,10 @@ def _exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
                 }
             ):
                 md.inlinePatterns.deregister(name)
+    elif case.registry == "entity_first":
+        md.inlinePatterns.register(md.inlinePatterns["entity"], "entity", 110)
+    elif case.registry == "entity_excluded":
+        md.inlinePatterns["entity"].__dict__["ANCESTOR_EXCLUDES"] = ("P", "outer")
     elif case.registry == "excluded":
         for name in ("backtick", "strong", "emphasis"):
             md.inlinePatterns[name].__dict__["ANCESTOR_EXCLUDES"] = ("P", "outer")
@@ -329,19 +342,27 @@ def _exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
         original_registry = cast(native_inline.RegistryInternals, md.inlinePatterns)
         priorities = original_registry._priority[:]
         sorted_before = original_registry._is_sorted
+        html_before = (md.htmlStash.html_counter, md.htmlStash.rawHtmlBlocks[:])
+        html_blocks = md.htmlStash.rawHtmlBlocks
         accepted = native_inline.try_run(
             cast(InlineProcessor, processor),
             root,
             ancestors,
             import_module("_zulip_backend").plan_markdown_native_inline,
             import_module("_zulip_backend").plan_markdown_native_inline_media,
+            getattr(import_module("_zulip_backend"), "plan_markdown_native_inline_html", None),
         )
+        assert md.htmlStash.rawHtmlBlocks is html_blocks, "Plan replaced the HTML stash list"
         assert set(original_nodes).issubset(root.iter()), "Plan replaced an original element"
         assert all(
             node.attrib is attrs
             for node, attrs in zip(original_nodes, original_attributes, strict=True)
         )
         if not accepted:
+            assert html_before == (
+                md.htmlStash.html_counter,
+                md.htmlStash.rawHtmlBlocks,
+            ), "Rejected plan mutated the HTML stash"
             assert asdict(md.zulip_rendering_result) == original_rendering, (
                 "Rejected plan mutated metadata"
             )
@@ -365,6 +386,77 @@ def _exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
     state["input_ancestors"] = ancestors
     state["rendering"] = asdict(md.zulip_rendering_result)
     return accepted, state
+
+
+def entity_cases(seed: int, count: int) -> Iterator[Case]:
+    rng = random.Random(seed + 20)
+    pieces = [
+        "&amp;",
+        "&lt;",
+        "&quot;",
+        "&apos;",
+        "&copy;",
+        "&notAnEntity;",
+        "&#0;",
+        "&#9999999999999999999999;",
+        "&#xD800;",
+        "&#x110000;",
+        "&123;",
+        "&;",
+        "&#;",
+        "&#x;",
+        "&#XFF;",
+        "&é;",
+        "&a_b;",
+        "&#۱۲;",
+        "&#xＦＦ;",
+        "&&amp;",
+        "&bad&amp;",
+        "&amp",
+        "&amp\n;",
+        "\x02klzzwxh:9999\x03",
+        "*",
+        "**",
+        "`",
+        "~~",
+        "\n",
+        " ",
+        "فارسی",
+        "💡",
+        "<time:1900-02-29>",
+        "@**alice**",
+        "@*devs*",
+        "#**dev tools**",
+        "![picture](/user_uploads/1/picture)",
+        "[&copy;](https://example.com)",
+        "$$x$$",
+        "[x](https://[::1])",
+    ]
+    for index in range(count):
+        value = "".join(rng.choices(pieces, k=rng.randrange(1, 20)))
+        if rng.randrange(2):
+            alphabet = rng.choice(["abcXYZ09", "0123456789", "0123456789abcdefABCDEF", "aé#_ "])
+            prefix = rng.choice(["", "#", "#x", "#X"])
+            value += "&" + prefix + "".join(rng.choices(alphabet, k=rng.randrange(20))) + ";"
+        shared = index % 2 == 0
+        yield Case(
+            (
+                [
+                    Node("div", None, None, [1, 3]),
+                    Node("p", (value, False), None, [2]),
+                    Node("span", (value, bool(rng.randrange(2))), (value, False), []),
+                    Node("section", None, None, [2]),
+                ]
+                if shared
+                else [Node("div", None, None, [1]), Node("p", (value, False), None, [])]
+            ),
+            rng.choice([None, [], ["outer"]]),
+            rng.choice(["default", "entity", "entity_first", "entity_excluded"]),
+            channels=True,
+            mentions=True,
+            media=rng.randrange(4),
+            html_offset=rng.choice([0, 2, 99, 9999]),
+        )
 
 
 def timestamp_cases(seed: int, count: int, *, week: bool = False) -> Iterator[Case]:
@@ -449,7 +541,6 @@ def cases(seed: int, count: int, *, unicode_scalars: bool = False) -> Iterator[C
     for unsupported in (
         ":نام:",
         "$$x$$",
-        "&copy;",
         "[link](https://[::1])",
         "\ud800",
     ):
@@ -723,6 +814,7 @@ def main() -> None:
         description="Compare native inline graph state with Python-Markdown."
     )
     parser.add_argument("--cases", type=int, default=10000)
+    parser.add_argument("--entity-cases", type=int, default=0)
     parser.add_argument("--timestamp-cases", type=int, default=0)
     parser.add_argument("--week-timestamp-cases", type=int, default=0)
     parser.add_argument("--seed", type=int, default=962817)
@@ -733,6 +825,7 @@ def main() -> None:
     args = parser.parse_args()
     if (
         args.cases < 0
+        or args.entity_cases < 0
         or args.timestamp_cases < 0
         or args.week_timestamp_cases < 0
         or args.max_failures < 1
@@ -762,6 +855,9 @@ def main() -> None:
         Path(__file__),
         args.repository / "rust-backend/src/markdown_native_inline.rs",
         args.repository / "rust-backend/src/markdown_timestamp.rs",
+        args.repository / "rust-backend/tests/test_native_html_bridge.py",
+        args.repository / "rust-backend/tests/native_inline.rs",
+        args.repository / "zerver/tests/test_markdown_native_inline.py",
         args.repository / "rust-backend/src/markdown_links.rs",
         args.repository / "rust-backend/src/markdown_link_syntax.rs",
         args.repository / "rust-backend/src/markdown_unicode_emoji.rs",
@@ -798,6 +894,7 @@ def main() -> None:
         "extension": extension_path,
         "seed": args.seed,
         "generated_cases": args.cases,
+        "entity_cases": args.entity_cases,
         "timestamp_cases": args.timestamp_cases,
         "week_timestamp_cases": args.week_timestamp_cases,
         "unicode_scalars": args.unicode_scalars,
@@ -808,6 +905,7 @@ def main() -> None:
     for number, case in enumerate(
         chain(
             cases(args.seed, args.cases, unicode_scalars=args.unicode_scalars),
+            entity_cases(args.seed, args.entity_cases),
             timestamp_cases(args.seed, args.timestamp_cases),
             timestamp_cases(args.seed, args.week_timestamp_cases, week=True),
         )

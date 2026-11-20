@@ -3000,3 +3000,51 @@ fractions, invalid and unsupported inputs, shared nodes and atomic text. The com
 includes ordered attributes, stash, parent mappings, ancestors, registry,
 HTML stash and all rendering metadata. It is not a benchmark or an exhaustive
 test of CPython's ISO parser.
+
+## Plan HTML entities without Python handlers
+
+`ZULIP_RUST_MARKDOWN_NATIVE_INLINE=1` also plans the registered HTML entity
+processor in Rust. The supported pattern is Python-Markdown's `ENTITY_RE`:
+named ASCII alphanumeric entities, decimal references and hexadecimal references
+with a lowercase `x`. Raw spelling is retained, including unknown names and
+out-of-range numeric references. Decoding and final serialization continue to
+follow the existing renderer. This does not enable raw HTML tags.
+
+`plan_markdown_native_inline_html` returns `(plan, paths, has_image, html_blocks)`.
+It takes the same arguments as the media planner plus an optional `html_counter`.
+Kind 20 requires a counter; the older entrypoints reject that kind rather than
+silently discarding HTML effects. Their signatures and result shapes are
+unchanged. A previous wheel without the new entrypoint retains the Python
+fallback. The Python-independent `Inputs::html_counter` and `State::html_blocks`
+provide the same pending-stash contract to Rust callers.
+
+The adapter verifies the entity expression, flags, handler/unescape methods,
+standard HTML stash methods, placeholder constants, unescape regex and host
+registry before planning. The current stash counter must be a nonnegative exact
+integer no greater than one million. Existing blocks and their list identity
+are preserved; the counter need not equal the number of existing blocks.
+Entities, graph changes, mentions and attachments commit only after the entire
+plan succeeds. A cumulative 8 MiB scan budget bounds repeated entity processing;
+unsupported syntax or exhausted budgets retain all original host state.
+
+Using a fresh offline wheel containing the new entrypoint:
+
+```bash
+PYTHONPATH="$PWD/var/entity-python:$PWD" \
+    ZULIP_RUST_MARKDOWN_NATIVE_INLINE=1 ZULIP_RUST_MARKDOWN_UPLOAD_PATHS=1 \
+    ./tools/test-backend zerver.tests.test_markdown_native_inline
+PYTHONPATH="$PWD/var/entity-python:$PWD" \
+    python rust-backend/tests/test_native_html_bridge.py
+PYTHONPATH="$PWD/var/entity-python:$PWD" \
+    python rust-backend/tests/check_native_inline_parity.py \
+    --cases 10000 --entity-cases 20000 --timestamp-cases 5000 \
+    --week-timestamp-cases 5000 --seed 962839 --report var/entity-inline-parity.json
+```
+
+The oracle compares the complete graph, ordered attributes, atomic text, inline
+stash, parent order, ancestors, registry, HTML stash and all rendering metadata.
+It checks original HTML-stash list identity and pre-fallback immutability too.
+Entity cases vary counter offsets, shared graphs, excluded ancestors, handler
+priority, malformed references, media and mentions. This remains an opt-in
+Django bridge; autolinks, TeX, highlighting, previews and standalone scheduled
+message orchestration remain dependencies before Python renderer retirement.

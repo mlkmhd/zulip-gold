@@ -14,6 +14,7 @@ from zerver.lib.markdown.inline_code import BacktickPattern
 from zerver.lib.markdown.native_channels import ChannelInputs
 from zerver.lib.markdown.native_media import MediaInputs
 from zerver.lib.markdown.native_mentions import MentionInputs
+from zerver.lib.markdown.unescape import UnescapeTreeprocessor
 
 if TYPE_CHECKING:
     from zerver.lib.markdown.inline_stash import InlineProcessor
@@ -67,6 +68,24 @@ MediaPlanner: TypeAlias = Callable[
     tuple[Plan, list[str], bool] | None,
 ]
 
+HtmlPlanner: TypeAlias = Callable[
+    [
+        list[Node],
+        list[tuple[int, list[str]]],
+        list[str],
+        list[tuple[object, object | None]],
+        list[EmojiCatalog | None],
+        EmoticonCatalog | None,
+        UnicodeEmojiCatalog | None,
+        LinkPolicy | None,
+        ChannelInputs | None,
+        MentionInputs | None,
+        MediaInputs | None,
+        int,
+    ],
+    tuple[Plan, list[str], bool, list[str]] | None,
+]
+
 
 class RegistryInternals(Protocol):
     _data: dict[str, object]
@@ -78,6 +97,14 @@ _REGISTRY_CALLBACKS = {
     name: getattr(util.Registry, name) for name in ("__iter__", "__getitem__", "__len__", "_sort")
 }
 _PRIORITY_ITEM_TYPE = util._PriorityItem  # type: ignore[attr-defined] # Missing from upstream stubs.
+_ENTITY_CALLBACKS = (
+    inlinepatterns.HtmlInlineProcessor.unescape,
+    inlinepatterns.HtmlInlineProcessor.backslash_unescape,
+    util.HtmlStash.store,
+    util.HtmlStash.get_placeholder,
+)
+_ENTITY_PLACEHOLDER_RE = util.INLINE_PLACEHOLDER_RE
+_ENTITY_UNESCAPE_RE = UnescapeTreeprocessor.RE
 
 _SURROGATE_RE = re.compile("[\ud800-\udfff]")
 _EMPHASIS = {
@@ -94,6 +121,7 @@ def try_run(
     ancestors: list[str] | None,
     planner: Planner,
     media_planner: "MediaPlanner | None" = None,
+    html_planner: "HtmlPlanner | None" = None,
 ) -> bool:
     from zerver.lib import markdown
     from zerver.lib.emoji import EMOTICON_CONVERSIONS, EMOTICON_RE
@@ -193,6 +221,7 @@ def try_run(
     has_channels = False
     has_mentions = False
     has_media = False
+    has_entities = False
     for name, _ in ordered:
         pattern = cast(inlinepatterns.Pattern, data[name])
         callbacks = _native_inline_handlers.get(type(pattern))
@@ -241,6 +270,37 @@ def try_run(
             if expression.pattern != r"\n" or pattern.tag != "br":
                 return False
             kind = 7
+        elif type(pattern) is inlinepatterns.HtmlInlineProcessor and html_planner is not None:
+            if expression.pattern == r"(&(?:\#[0-9]+|\#x[0-9a-fA-F]+|[a-zA-Z0-9]+);)":
+                trees = cast(RegistryInternals, processor.md.treeprocessors)
+                if (
+                    pattern.md is not processor.md
+                    or type(processor.md.treeprocessors) is not util.Registry
+                    or type(trees._data) is not dict
+                    or trees._data.get("inline") is not processor
+                    or type(trees._data.get("unescape")) is not UnescapeTreeprocessor
+                    or cast(UnescapeTreeprocessor, trees._data["unescape"]).RE
+                    is not _ENTITY_UNESCAPE_RE
+                    or util.INLINE_PLACEHOLDER_RE is not _ENTITY_PLACEHOLDER_RE
+                    or tuple(
+                        getattr(getattr(pattern, name), "__func__", None)
+                        for name in ("unescape", "backslash_unescape")
+                    )
+                    != _ENTITY_CALLBACKS[:2]
+                    or type(processor.md.htmlStash) is not util.HtmlStash
+                    or tuple(
+                        getattr(getattr(processor.md.htmlStash, name), "__func__", None)
+                        for name in ("store", "get_placeholder")
+                    )
+                    != _ENTITY_CALLBACKS[2:]
+                    or util.HTML_PLACEHOLDER != "\x02wzxhzdk:%s\x03"
+                    or type(processor.md.htmlStash.html_counter) is not int
+                    or not 0 <= processor.md.htmlStash.html_counter <= 1_000_000
+                    or type(processor.md.htmlStash.rawHtmlBlocks) is not list
+                ):
+                    return False
+                kind = 20
+                has_entities = True
         elif (
             type(pattern) is Timestamp
             and sys.implementation.name == "cpython"
@@ -554,7 +614,15 @@ def try_run(
     )
     paths: list[str] = []
     has_image = False
-    if media_inputs is None:
+    html_blocks: list[str] = []
+    plan: Plan | None
+    if has_entities:
+        assert html_planner is not None
+        html_plan = html_planner(*arguments, media_inputs, processor.md.htmlStash.html_counter)
+        if html_plan is None:
+            return False
+        plan, paths, has_image, html_blocks = html_plan
+    elif media_inputs is None:
         plan = planner(*arguments)
     else:
         assert media_planner is not None
@@ -597,4 +665,7 @@ def try_run(
         rendering = cast(ZulipMarkdown, processor.md).zulip_rendering_result
         rendering.potential_attachment_path_ids.extend(paths)
         rendering.has_image |= has_image
+    if html_blocks:
+        processor.md.htmlStash.rawHtmlBlocks.extend(html_blocks)
+        processor.md.htmlStash.html_counter += len(html_blocks)
     return True
