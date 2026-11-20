@@ -1281,3 +1281,25 @@ commit اتمی درخت و metadata در adapter قدم بعدی است. مسی
 ۲۸ از ۱۹۰ وب است و فایل Python حذف‌شده صفر باقی ماند.
 [قرارداد صوت](README.md#prepare-audio-and-camo-attributes-natively) و
 [planner رسانه](README.md#plan-native-media-with-pending-metadata)
+
+## arena بومی mention و اثرهای معوق اعلان
+
+`7e57b05e4c`، آماده‌سازی mentionهای کاربر، گروه و wildcard را در
+planner مستقل با kindهای ۱۷ و ۱۸ اجرا می‌کند. دادهٔ مجاز، نام‌های
+خام و نتیجهٔ lookup میزبان، نام نمایشی محلی‌شده و سیاست decimal
+زنده از snapshot می‌آیند. lookup ناموفقِ صریح با کلید غایب فرق دارد؛
+کلید غایب کل plan را واگذار می‌کند تا syntax ساخته‌شده در handler
+قبلی، بدون lookup معتبر رد نشود.
+
+مجموعه‌های اعلان و دو پرچم wildcard تا موفقیت کل arena معوق‌اند.
+caller باید آن‌ها را با حفظ metadata قبلی و همراه درخت و همهٔ
+اثرهای دیگر commit کند. شکست guard، محدودیت تبدیل عدد یا بودجهٔ
+منابع، درخت و اثرها را با هم واگذار می‌کند. هشت تست عمومی جدید و
+مقایسهٔ ۳۷۵٬۹۳۶ حالت با موتور واقعی inline در میزبان بدون اختلاف
+گذشتند؛ mutant حذف اعلان، ۹۰۰ اختلاف داشت. Cargo مستقل میزبان
+۱۶۱ تست native و ۴۰ تست بدون feature داشت. این API به adapter
+زنده یا PyO3 متصل نشده و renderer کامل مستقل نیست.
+
+شمار عملیات مستقل همان ۲۸ از ۱۷۱ OpenAPI و ۲۸ از ۱۹۰ وب و شمار
+فایل Python حذف‌شده صفر است. هیچ پیش‌فرض تازه‌ای فعال نشد.
+[قرارداد و بازتولید](README.md#plan-native-mentions-with-pending-notification-effects)

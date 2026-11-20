@@ -2737,3 +2737,58 @@ snapshots, inherited topic policy, mixed/shared graphs and prior rendering
 metadata. Run it with Rust flags unset and the fresh wheel on `PYTHONPATH`;
 it invokes the native planner directly and checks every delegated plan for
 unchanged input state before running Python's fallback.
+
+### Plan native mentions with pending notification effects
+
+`markdown_native_inline::run_with_inputs` accepts user and group mention
+handlers as kinds 17 and 18 through `Inputs.mentions`. This is an independent
+arena API; the live Python adapter and PyO3 bridge do not dispatch these kinds.
+The existing native renderer remains off by default.
+
+`Mentions.data = None` represents a renderer without database context, where
+user, group and wildcard syntax remains unresolved. `Inputs.mentions = None`
+means no snapshot is available and delegates mention candidates. With database
+context, `MentionData` contains a complete authorized user-ID map and raw-name
+lookup results for users and groups. Supply the exact host lookup results,
+including its lowercase rules and duplicate-name ordering. Store a known
+lookup miss as a `None` map value. An absent raw-name
+key delegates the entire plan: earlier handlers can introduce syntax that was
+not present in the initial snapshot. The planner never performs database reads
+or grants mention permissions.
+
+Supply localized group display names and the current interpreter's Unicode
+decimal properties and integer conversion limit through `UserPolicy`.
+Conversion-limit failures delegate before returning a plan. Exact `name|id`
+checks, silent and inactive mentions, case-sensitive wildcards and the given
+registry priority are preserved. Mention span text is atomic; attribute order
+and text still need the normal serializer's escaping.
+
+On success, union `State.mentions.users` and `.groups` into the existing host
+notification sets and OR `.channel` and `.topic` into their existing flags.
+Commit these effects together with the graph, stash, parent map, ancestors,
+registry and pending media effects. Never clear prior notifications. Missing
+snapshots, late guards, unsupported inputs and graph/work/output limits discard
+all effects. Candidate scanning shares the existing 8 MiB suffix budget with
+links, channels and media; mention text and attributes have a separate 8 MiB
+output budget.
+
+```bash
+cargo test --manifest-path rust-backend/Cargo.toml --locked --offline \
+  --features native-markdown --test native_inline_mentions
+cargo build --manifest-path rust-backend/Cargo.toml --locked --offline \
+  --features native-markdown --example mention_plan
+python rust-backend/tests/check_mention_plan_parity.py \
+  --probe rust-backend/target/debug/examples/mention_plan --cases 5000 \
+  --report /tmp/mention-plan-parity.json
+```
+
+Run the oracle with Rust flags unset and the project's Python-Markdown installed.
+It executes the actual reference mention methods, code handler and rendering
+result definition extracted from trusted checkout source, together with the
+real Python inline engine and configured emphasis/line-break handlers. Raw
+candidate snapshots come from the reference regexes. It compares the complete
+graph, attribute order, atomic strings, stash, parent-map order, ancestors and
+all rendering metadata after merging pending notifications with existing state.
+Normal/reversed registry order, missing/empty/populated context, active/inactive
+users and groups, excluded ancestors and live digit limits are varied. This is
+not full-renderer, live lookup, notification delivery or benchmark coverage.
