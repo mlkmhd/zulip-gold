@@ -2202,9 +2202,21 @@ delegation to the reference handler: some unclosed title inputs cause
 Python-Markdown to return a negative end index. Treating this error as a
 missing link would change how the rest of the input is processed.
 
-These ranges contain raw Markdown placeholders. The caller must still
-unescape the destination, normalize the title, sanitize the URL, and apply
-realm-local rewriting before constructing an element. Image and audio
+These ranges contain raw Markdown placeholders. `prepare_text` restores
+the destination and title from a `TextStash` snapshot and normalizes them
+in the reference parser's order. Snapshot element entries with their full
+`itertext()` content, including descendant tails and excluding the root's
+tail. Pass `None` when the inline treeprocessor is absent; an empty map
+instead removes unknown placeholders. Substitution is one pass, preserves
+exact identifier strings, and leaves numeric escape placeholders alone.
+The destination is stripped after substitution. The title is stripped
+before substitution, dequoted, then has each Python whitespace character
+replaced by one space without collapsing runs. The label remains raw.
+Invalid destination or title ranges return `None`.
+
+The resulting destination is still untrusted. The caller must sanitize
+the URL and apply realm-local rewriting before constructing an element.
+Image and audio
 callers also retain media selection and attachment checks. This is a
 preparatory API for native rendering; the Django link and media handlers
 continue to run through their existing paths.
@@ -2223,6 +2235,20 @@ for mode in link image; do
         --mode "$mode" --cases 100000 --exhaustive-depth 5 \
         --report "var/link-syntax-$mode-parity.json"
 done
+```
+
+The text differential also compares the real `getLink` output with absent,
+empty, and mixed text/element stashes. It covers restored quotes and
+whitespace, nonrecursive replacements, unknown identifiers, nested element
+text, and malformed links. It verifies destination/title text, raw labels,
+and end offsets, rather than complete rendered HTML or metadata:
+
+```bash
+cargo build --locked --offline --manifest-path rust-backend/Cargo.toml \
+    --no-default-features --features native-markdown --example link_text
+python rust-backend/tests/check_link_text_parity.py \
+    --probe "${CARGO_TARGET_DIR:-rust-backend/target}/debug/examples/link_text" \
+    --cases 100000 --report var/link-text-parity.json
 ```
 
 ### Compare complete native and Python state

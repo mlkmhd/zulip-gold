@@ -7,7 +7,11 @@
 //! Adapted from Python-Markdown 3.10.3's LinkInlineProcessor under BSD-3-Clause;
 //! see docs/THIRDPARTY for its copyright and license notice.
 
+use std::collections::HashMap;
 use std::ops::Range;
+use std::sync::LazyLock;
+
+use regex::Regex;
 
 use crate::draft_text::is_python_whitespace;
 
@@ -17,6 +21,68 @@ pub struct Link {
     pub href: Range<usize>,
     pub title: Option<Range<usize>>,
     pub end: usize,
+}
+
+/// Text-only stash snapshot. Element entries contain `''.join(element.itertext())`,
+/// including descendant tails and excluding the root's tail.
+pub type TextStash = HashMap<String, String>;
+
+static PLACEHOLDER: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new("\u{2}klzzwxh:([0-9]+)\u{3}").unwrap());
+
+/// Restore inline stash text in one pass, without interpreting the replacement.
+///
+/// `None` means the inline treeprocessor is absent, rather than an empty stash.
+/// A present stash removes unknown placeholders, matching Python-Markdown.
+pub fn unescape(text: &str, stash: Option<&TextStash>) -> String {
+    let Some(stash) = stash else {
+        return text.to_owned();
+    };
+    PLACEHOLDER
+        .replace_all(text, |captures: &regex::Captures<'_>| {
+            stash.get(&captures[1]).map_or("", String::as_str)
+        })
+        .into_owned()
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct LinkText {
+    pub href: String,
+    pub title: Option<String>,
+}
+
+/// Normalize raw destination/title spans as Python-Markdown's `getLink` does.
+///
+/// These strings are NOT safe URLs or HTML. Callers must still apply Zulip's
+/// URL sanitizer, local rewriting and media/attachment policy before rendering.
+/// The label remains raw and is available in [`Link::text`].
+pub fn prepare_text(data: &str, link: &Link, stash: Option<&TextStash>) -> Option<LinkText> {
+    let href = unescape(data.get(link.href.clone())?, stash)
+        .trim_matches(is_python_whitespace)
+        .to_owned();
+    let title = if let Some(range) = &link.title {
+        let raw = data.get(range.clone())?.trim_matches(is_python_whitespace);
+        let restored = unescape(raw, stash);
+        let dequoted = if (restored.starts_with('"') && restored.ends_with('"'))
+            || (restored.starts_with('\'') && restored.ends_with('\''))
+        {
+            // A single quote is both an opening and a closing quote in Python.
+            restored
+                .get(1..restored.len().saturating_sub(1))
+                .unwrap_or("")
+        } else {
+            &restored
+        };
+        Some(
+            dequoted
+                .chars()
+                .map(|c| if is_python_whitespace(c) { ' ' } else { c })
+                .collect(),
+        )
+    } else {
+        None
+    };
+    Some(LinkText { href, title })
 }
 
 #[derive(Debug, PartialEq, Eq)]

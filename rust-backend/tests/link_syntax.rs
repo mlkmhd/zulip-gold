@@ -1,6 +1,8 @@
 #![cfg(feature = "native-markdown")]
 
-use _zulip_backend::markdown_link_syntax::{ParseError, parse, parse_image};
+use _zulip_backend::markdown_link_syntax::{
+    Link, LinkText, ParseError, TextStash, parse, parse_image, prepare_text, unescape,
+};
 
 fn check(data: &str, label: &str, href: &str, title: Option<&str>, remaining: &str) {
     let parsed = parse(data, 0).unwrap().unwrap();
@@ -139,4 +141,100 @@ fn image_openers_retain_invalid_end_and_offset_handling() {
     ] {
         assert_eq!(parse_image(data, start), Ok(None));
     }
+}
+
+#[test]
+fn restores_stash_identifiers_verbatim_and_only_once() {
+    let stash = TextStash::from([
+        ("0000".to_owned(), "\u{2}klzzwxh:0001\u{3}".to_owned()),
+        ("0001".to_owned(), "دنیا 🌍".to_owned()),
+        ("1".to_owned(), "different key".to_owned()),
+    ]);
+    assert_eq!(
+        unescape(
+            "\u{2}klzzwxh:0000\u{3} / \u{2}klzzwxh:0001\u{3} / \u{2}klzzwxh:1\u{3}",
+            Some(&stash)
+        ),
+        "\u{2}klzzwxh:0001\u{3} / دنیا 🌍 / different key"
+    );
+}
+
+#[test]
+fn distinguishes_missing_treeprocessor_from_empty_stash() {
+    let input = "before \u{2}klzzwxh:0000\u{3} after";
+    assert_eq!(unescape(input, None), input);
+    assert_eq!(unescape(input, Some(&TextStash::new())), "before  after");
+}
+
+#[test]
+fn preserves_malformed_and_non_ascii_placeholders() {
+    let input = "\u{2}klzzwxh:bad \u{2}klzzwxh:0042\u{3} \u{2}klzzwxh:۴۲\u{3} \u{2}42\u{3}";
+    assert_eq!(
+        unescape(input, Some(&TextStash::new())),
+        "\u{2}klzzwxh:bad  \u{2}klzzwxh:۴۲\u{3} \u{2}42\u{3}"
+    );
+}
+
+#[test]
+fn normalizes_title_whitespace_after_substitution_and_dequoting() {
+    let data = "[label]( \u{2}klzzwxh:0000\u{3} '\u{1c}\u{2}klzzwxh:0001\u{3}\u{85}')";
+    let stash = TextStash::from([
+        ("0000".to_owned(), "\u{2003}url\u{2003}".to_owned()),
+        ("0001".to_owned(), "\" a\n\tb\u{a0} \"".to_owned()),
+    ]);
+    let link = parse(data, 0).unwrap().unwrap();
+    assert_eq!(
+        prepare_text(data, &link, Some(&stash)),
+        Some(LinkText {
+            href: "url".to_owned(),
+            title: Some(" a  b  ".to_owned()),
+        })
+    );
+    assert_eq!(&data[link.text], "label");
+}
+
+#[test]
+fn preserves_absent_empty_and_single_quote_titles() {
+    for (data, expected) in [
+        ("[x](url)", None),
+        ("[x](url '')", Some("")),
+        ("[x](url '\"')", Some("")),
+        ("[x](url '\"mismatch')", Some("\"mismatch")),
+        ("[x](url '\"\"')", Some("")),
+    ] {
+        let link = parse(data, 0).unwrap().unwrap();
+        assert_eq!(
+            prepare_text(data, &link, None).unwrap().title.as_deref(),
+            expected,
+            "{data:?}"
+        );
+    }
+}
+
+#[test]
+fn leaves_restored_whitespace_and_unsafe_destinations_for_sanitization() {
+    let stash = TextStash::from([("0000".to_owned(), " \"title\" ".to_owned())]);
+    let data = "[x](javascript:alert(1) '\u{2}klzzwxh:0000\u{3}')";
+    let link = parse(data, 0).unwrap().unwrap();
+    assert_eq!(
+        prepare_text(data, &link, Some(&stash)),
+        Some(LinkText {
+            href: "javascript:alert(1)".to_owned(),
+            title: Some(" \"title\" ".to_owned()),
+        })
+    );
+}
+
+#[test]
+fn rejects_invalid_public_ranges_without_panicking() {
+    let mut link = Link {
+        text: 0..0,
+        href: 1..2,
+        title: None,
+        end: 0,
+    };
+    assert_eq!(prepare_text("🌍", &link, None), None);
+    link.href = 0..4;
+    link.title = Some(4..usize::MAX);
+    assert_eq!(prepare_text("🌍", &link, None), None);
 }
