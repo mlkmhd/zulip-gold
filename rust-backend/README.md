@@ -3300,3 +3300,38 @@ nested math, namespace and class differences, empty annotations, tails and
 controlled factory failures. The focused tests also compare real KaTeX fixtures
 and mobile push text. This is an orchestration migration, not an independent
 HTML renderer or a performance claim; no Python file is retired by this flag.
+
+## Handle KaTeX service responses through Rust
+
+`ZULIP_RUST_KATEX_RESPONSE=1` independently opts into the PyO3 response handler
+for `KATEX_SERVER=True`. It is off by default. HTTP still uses `KatexSession`,
+the fixed localhost URL, existing form fields, shared secret, explicit proxy
+bypass and 0.5-second timeout. Request exceptions and their logging stay in
+Python, preserving the handled exception context. This is not a native HTTP
+client, and no Python file is retired.
+
+The response bridge decodes successful bodies as strict UTF-8 and applies
+Python's Unicode `strip`. Status 400 returns `None` without decoding. Other
+statuses log their unstripped decoded body once and return `None`. Status
+attributes are read at the same decision points as the reference. Decode,
+property and logging failures propagate without retrying the request or response
+handler. Older wheels retain Python response handling. Local CLI rendering is
+independent of this flag.
+
+```sh
+maturin build --manifest-path rust-backend/Cargo.toml --release --locked --offline \
+    --out var/katex-response-wheels
+python -m pip install --no-index --no-deps --target var/katex-response-python \
+    var/katex-response-wheels/*.whl
+PYTHONPATH="$PWD/var/katex-response-python:$PWD" ZULIP_RUST_KATEX_RESPONSE=1 \
+    ./tools/test-backend zerver.tests.test_katex_response_rust \
+    zerver.tests.test_tex_rust zerver.tests.test_markdown_tex_handlers
+PYTHONPATH="$PWD/var/katex-response-python:$PWD" DJANGO_SETTINGS_MODULE=zproject.test_settings \
+    python rust-backend/tests/check_katex_response_parity.py \
+    --cases 20000 --seed 962845 --report var/katex-response-parity.json
+```
+
+The offline differential compares complete `render_tex` outcomes with controlled
+HTTP responses, request failures and warning calls, including invalid UTF-8,
+Unicode whitespace, exact POST arguments and error bodies. It does not contact a
+KaTeX server or benchmark the transport.

@@ -4,7 +4,7 @@ import os
 import subprocess
 import sys
 from importlib import import_module
-from typing import Any
+from typing import Any, cast
 
 import lxml.html
 import requests
@@ -21,6 +21,10 @@ _subprocess_popen = subprocess.Popen
 
 _rust_raw_latex = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_RAW_LATEX") == "1" else None
+)
+
+_rust_katex_response = (
+    import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_KATEX_RESPONSE") == "1" else None
 )
 
 
@@ -68,6 +72,9 @@ def render_tex(tex: str, is_inline: bool = True) -> str | None:
             logging.warning("KaTeX rendering service failed: %s", type(e).__name__)
             return None
 
+        response_handler = getattr(_rust_katex_response, "render_katex_response", None)
+        if response_handler is not None:
+            return cast(str | None, response_handler(resp, globals()))
         if resp.status_code == 200:
             return resp.content.decode().strip()
         elif resp.status_code == 400:

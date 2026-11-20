@@ -9,6 +9,29 @@ use crate::{markdown_tex, markdown_tex_syntax};
 type TexMatch = (String, String, Option<String>, String);
 
 #[pyfunction]
+pub(crate) fn render_katex_response<'py>(
+    response: &Bound<'py, PyAny>,
+    context: &Bound<'py, PyDict>,
+) -> PyResult<Bound<'py, PyAny>> {
+    if response.getattr("status_code")?.eq(200)? {
+        return response
+            .getattr("content")?
+            .call_method0("decode")?
+            .call_method0("strip");
+    }
+    if !response.getattr("status_code")?.eq(400)? {
+        let logging = context
+            .get_item("logging")?
+            .ok_or_else(|| PyNameError::new_err("name 'logging' is not defined"))?;
+        let warning = logging.getattr("warning")?;
+        let status = response.getattr("status_code")?;
+        let content = response.getattr("content")?.call_method0("decode")?;
+        warning.call1(("KaTeX rendering service failed: (%s) %s", status, content))?;
+    }
+    Ok(context.py().None().into_bound(context.py()))
+}
+
+#[pyfunction]
 pub(crate) fn change_katex_to_raw_latex(
     fragment: &Bound<'_, PyAny>,
     context: &Bound<'_, PyDict>,
