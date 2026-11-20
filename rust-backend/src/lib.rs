@@ -145,6 +145,9 @@ mod message_topic;
 mod python;
 
 #[cfg(feature = "python")]
+mod python_media;
+
+#[cfg(feature = "python")]
 mod reminder_access;
 
 #[cfg(any(feature = "python", test))]

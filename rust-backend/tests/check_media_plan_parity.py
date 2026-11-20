@@ -10,8 +10,9 @@ import platform
 import random
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import asdict
+from importlib import import_module
 from importlib.metadata import version
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,6 +22,17 @@ from xml.etree.ElementTree import Element, SubElement
 
 from markdown import util
 from markdown.treeprocessors import InlineProcessor
+
+NativeText = tuple[str, bool] | None
+NativeNode = tuple[str, str, NativeText, NativeText, list[int], list[tuple[str, str]]]
+NativeResult = tuple[
+    list[NativeNode],
+    list[tuple[int, int]],
+    list[tuple[int | None, NativeText]],
+    list[str],
+    bool,
+    tuple[list[int], list[int], bool, bool],
+]
 
 
 def cases(seed: int, count: int) -> Iterator[tuple[str, bool | None]]:
@@ -149,9 +161,80 @@ def decode_plan(line: str) -> tuple[object, list[str], bool]:
     return snapshot(nodes[0], stash, parents, ancestors), paths, fields[1] == "1"
 
 
+def extension_plan(
+    plan: Callable[..., object], data: str, context: int, registry: str, atomic: bool
+) -> tuple[object, list[str], bool] | None:
+    media: tuple[object, ...] = (
+        "chat.example" if context else None,
+        None
+        if context == 0
+        else set()
+        if context == 1
+        else {"1/voice", "1/both", "1/sound.mp3?x#y"},
+        None
+        if context == 0
+        else {}
+        if context == 1
+        else dict.fromkeys(["1/picture", "1/both"], ("10", "20", "image/png")),
+        (
+            (
+                {},
+                {".gz"},
+                {".mp3": "audio/mpeg", ".png": "image/png"},
+                {"audio/mpeg"},
+                {"", "http", "https"},
+            ),
+            "/static/",
+            "https://",
+            None,
+            "https://camo.example/",
+            "secret",
+        ),
+    )
+    kinds = [11, 12, 13] if registry == "normal" else [11, 13, 12]
+    result = plan(
+        [("div", "div", None, None, [1]), ("p", "p", (data, atomic), None, [])],
+        [(kind, []) for kind in kinds],
+        ["outer"],
+        [(None, None)] * 3,
+        [None] * 3,
+        link_policy=(
+            ["http", "https", "file", "mailto"],
+            ["http", "https", "file"],
+            False,
+            "https://chat.example" if context else None,
+        ),
+        media_inputs=media,
+    )
+    if result is None:
+        return None
+    planned, paths, has_image = cast(tuple[NativeResult, list[str], bool], result)
+    specs, parent_pairs, stash_specs, ancestors, _, mentions = planned
+    assert mentions == ([], [], False, False)
+
+    def restore(value: tuple[str, bool] | None) -> str | None:
+        return None if value is None else util.AtomicString(value[0]) if value[1] else value[0]
+
+    nodes = [Element(spec[0]) for spec in specs]
+    for node, spec in zip(nodes, specs, strict=True):
+        node.text = restore(spec[2])
+        node.tail = restore(spec[3])
+        node[:] = [nodes[index] for index in spec[4]]
+        node.attrib.update(spec[5])
+    stash: dict[str, Element | str] = {}
+    for index, (node_id, text) in enumerate(stash_specs):
+        item = nodes[node_id] if node_id is not None else restore(text)
+        assert item is not None
+        stash[f"{index:04}"] = item
+    parents = {nodes[child]: nodes[parent] for child, parent in parent_pairs}
+    return snapshot(nodes[0], stash, parents, ancestors), paths, has_image
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compare native media graph and metadata planning")
-    parser.add_argument("--probe", required=True, type=Path)
+    backend = parser.add_mutually_exclusive_group(required=True)
+    backend.add_argument("--probe", type=Path)
+    backend.add_argument("--extension", type=Path)
     parser.add_argument("--cases", type=int, default=20000)
     parser.add_argument("--seed", type=int, default=962828)
     parser.add_argument("--report", required=True, type=Path)
@@ -160,6 +243,12 @@ def main() -> None:
         parser.error("--cases must be nonnegative")
     root = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(root))
+    extension = None
+    if args.extension:
+        sys.path.insert(0, str(args.extension.resolve().parent))
+        module = import_module("_zulip_backend")
+        assert Path(cast(str, module.__file__)).resolve() == args.extension.resolve()
+        extension = module.plan_markdown_native_inline_media
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "zproject.test_settings")
     import django
 
@@ -203,24 +292,33 @@ def main() -> None:
                 for atomic in [False, True]:
                     for offset in range(0, len(all_cases), 2048):
                         batch = all_cases[offset : offset + 2048]
-                        wire = "".join(
-                            f"{data.encode().hex()}\t{context}\t{registry}\t{int(atomic)}\n"
-                            for data, _ in batch
-                        )
-                        process = subprocess.run(
-                            [str(args.probe.resolve())],
-                            input=wire,
-                            text=True,
-                            capture_output=True,
-                            check=True,
-                        )
-                        lines = process.stdout.splitlines()
-                        assert len(lines) == len(batch), process.stderr
-                        for (data, required), line in zip(batch, lines, strict=True):
+                        if extension is not None:
+                            plans = [
+                                extension_plan(extension, data, context, registry, atomic)
+                                for data, _ in batch
+                            ]
+                        else:
+                            wire = "".join(
+                                f"{data.encode().hex()}\t{context}\t{registry}\t{int(atomic)}\n"
+                                for data, _ in batch
+                            )
+                            process = subprocess.run(
+                                [str(args.probe.resolve())],
+                                input=wire,
+                                text=True,
+                                capture_output=True,
+                                check=True,
+                            )
+                            lines = process.stdout.splitlines()
+                            assert len(lines) == len(batch), process.stderr
+                            plans = [
+                                None if line == "delegate" else decode_plan(line) for line in lines
+                            ]
+                        for (data, required), planned in zip(batch, plans, strict=True):
                             checked += 1
                             if atomic:
                                 required = True
-                            if line == "delegate":
+                            if planned is None:
                                 counts["delegated"] += 1
                                 if required is True:
                                     failures.append(
@@ -293,7 +391,7 @@ def main() -> None:
                                 processor.parent_map,
                                 processor.ancestors,
                             )
-                            actual, paths, has_image = decode_plan(line)
+                            actual, paths, has_image = planned
                             actual_result.potential_attachment_path_ids.extend(paths)
                             actual_result.has_image |= has_image
                             counts["attachment"] += bool(paths)
@@ -326,9 +424,12 @@ def main() -> None:
                 break
     sources = [
         Path(__file__).resolve(),
-        args.probe.resolve(),
+        (args.extension or args.probe).resolve(),
         root / "rust-backend/src/markdown_native_inline.rs",
         root / "rust-backend/src/markdown_media.rs",
+        root / "rust-backend/src/lib.rs",
+        root / "rust-backend/src/python.rs",
+        root / "rust-backend/src/python_media.rs",
         root / "rust-backend/src/markdown_links.rs",
         root / "rust-backend/src/markdown_link_syntax.rs",
         root / "rust-backend/examples/media_plan.rs",

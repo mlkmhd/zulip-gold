@@ -264,6 +264,67 @@ mod _zulip_backend {
         channel_inputs: Option<NativeChannelInputs>,
         mention_inputs: Option<NativeMentionInputs>,
     ) -> Option<NativeInlineResult> {
+        plan_native_inline(
+            nodes,
+            patterns,
+            ancestors,
+            guards,
+            emoji_catalogs,
+            emoticon_catalog,
+            unicode_emoji_catalog,
+            link_policy,
+            channel_inputs,
+            mention_inputs,
+            None,
+        )
+        .map(|(result, _, _)| result)
+    }
+
+    #[pyfunction]
+    #[pyo3(signature = (nodes, patterns, ancestors, guards, emoji_catalogs, emoticon_catalog=None, unicode_emoji_catalog=None, link_policy=None, channel_inputs=None, mention_inputs=None, media_inputs=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn plan_markdown_native_inline_media(
+        nodes: Vec<NativeInlineNode>,
+        patterns: Vec<(u8, Vec<String>)>,
+        ancestors: Vec<String>,
+        guards: Vec<(Bound<'_, PyAny>, Option<Bound<'_, PyAny>>)>,
+        emoji_catalogs: Vec<Option<NativeEmojiCatalog>>,
+        emoticon_catalog: Option<NativeEmoticonCatalog>,
+        unicode_emoji_catalog: Option<NativeUnicodeEmojiCatalog>,
+        link_policy: Option<NativeLinkPolicy>,
+        channel_inputs: Option<NativeChannelInputs>,
+        mention_inputs: Option<NativeMentionInputs>,
+        media_inputs: Option<crate::python_media::MediaInputs>,
+    ) -> Option<(NativeInlineResult, Vec<String>, bool)> {
+        plan_native_inline(
+            nodes,
+            patterns,
+            ancestors,
+            guards,
+            emoji_catalogs,
+            emoticon_catalog,
+            unicode_emoji_catalog,
+            link_policy,
+            channel_inputs,
+            mention_inputs,
+            media_inputs,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn plan_native_inline(
+        nodes: Vec<NativeInlineNode>,
+        patterns: Vec<(u8, Vec<String>)>,
+        ancestors: Vec<String>,
+        guards: Vec<(Bound<'_, PyAny>, Option<Bound<'_, PyAny>>)>,
+        emoji_catalogs: Vec<Option<NativeEmojiCatalog>>,
+        emoticon_catalog: Option<NativeEmoticonCatalog>,
+        unicode_emoji_catalog: Option<NativeUnicodeEmojiCatalog>,
+        link_policy: Option<NativeLinkPolicy>,
+        channel_inputs: Option<NativeChannelInputs>,
+        mention_inputs: Option<NativeMentionInputs>,
+        media_inputs: Option<crate::python_media::MediaInputs>,
+    ) -> Option<(NativeInlineResult, Vec<String>, bool)> {
         use markdown_native_inline::{Emoticons, NamedEmoji, Node, Pattern, Stashed, Text};
         if patterns.len() != guards.len() || patterns.len() != emoji_catalogs.len() {
             return None;
@@ -309,7 +370,7 @@ mod _zulip_backend {
                 } else {
                     None
                 },
-                links: if kind == 11 {
+                links: if matches!(kind, 11..=13) {
                     link_policy.as_ref().map(|(allowed, netloc, files, realm)| {
                         crate::markdown_links::Policy {
                             allowed_schemes: allowed.clone(),
@@ -381,14 +442,15 @@ mod _zulip_backend {
                 },
             }
         });
+        let media = media_inputs.map(crate::python_media::into_media);
         let result = markdown_native_inline::run_with_inputs(
             nodes,
             &patterns,
             ancestors,
             markdown_native_inline::Inputs {
+                media: media.as_ref(),
                 channels: channels.as_ref(),
                 mentions: mentions.as_ref(),
-                ..markdown_native_inline::Inputs::default()
             },
             |index, data| {
                 let (compiled, text_presentation) = &guards[index];
@@ -419,7 +481,7 @@ mod _zulip_backend {
             },
         )?;
         let text = |text: Text| (text.value, text.atomic);
-        Some((
+        let planned = (
             result
                 .nodes
                 .into_iter()
@@ -455,7 +517,8 @@ mod _zulip_backend {
                 result.mentions.channel,
                 result.mentions.topic,
             ),
-        ))
+        );
+        Some((planned, result.attachment_paths, result.has_image))
     }
 
     #[pyfunction]
