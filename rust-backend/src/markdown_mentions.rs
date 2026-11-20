@@ -2,35 +2,18 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
-use crate::draft_text::is_python_whitespace;
+use crate::markdown_mention_syntax::{Kind, find};
 
 fn visit_mentions(content: &str, stars: &str, mut visit: impl FnMut(Range<usize>, &str, bool)) {
-    let mut mention_end = 0;
-    for (start, _) in content.match_indices('@') {
-        if start < mention_end {
-            continue;
-        }
-        if content[..start].chars().next_back().is_some_and(|before| {
-            !is_python_whitespace(before)
-                && !matches!(before, '\'' | '"' | '(' | '{' | '[' | '/' | '<')
-        }) {
-            continue;
-        }
-        let silent = content[start + 1..].starts_with('_');
-        let marker_start = start + 1 + usize::from(silent);
-        if !content[marker_start..].starts_with(stars) {
-            continue;
-        }
-        let body_start = marker_start + stars.len();
-        let Some(body_length) = content[body_start..].find('*') else {
-            break;
-        };
-        let body_end = body_start + body_length;
-        if body_length == 0 || !content[body_end..].starts_with(stars) {
-            continue;
-        }
-        mention_end = body_end + stars.len();
-        visit(start..mention_end, &content[body_start..body_end], silent);
+    let kind = if stars == "**" {
+        Kind::User
+    } else {
+        Kind::Group
+    };
+    let mut start = 0;
+    while let Some(candidate) = find(content, start, kind).expect("valid mention boundary") {
+        start = candidate.range.end;
+        visit(candidate.range, &content[candidate.name], candidate.silent);
     }
 }
 

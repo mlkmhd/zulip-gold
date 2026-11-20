@@ -102,6 +102,9 @@ mod markdown_lists;
 #[cfg(any(feature = "python", test))]
 mod markdown_mentions;
 
+#[cfg(any(feature = "native-markdown", test))]
+pub mod markdown_mention_syntax;
+
 #[cfg(feature = "python")]
 mod markdown_paragraphs;
 
