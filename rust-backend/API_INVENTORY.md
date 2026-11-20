@@ -1543,3 +1543,16 @@ trigger ربات، در هر حالت ۳۶ تست موفق داشت. Cargo می�
   مسیر HTTP، پیش‌فرض و شمار بازنشستگی Python تغییر نکردند:
   ۲۸/۱۷۱ OpenAPI، ۲۸/۱۹۰ وب و صفر فایل بازنشسته.
   [جزئیات و گام بعد](MIGRATION_HANDOFF.md)
+
+## handlerهای TeX در Rust — ۲۰۲۶-۱۱-۲۱
+
+- کامیت `035f977980` با `ZULIP_RUST_MARKDOWN_TEX_HANDLERS=1`
+  handlerهای inline و بلوک math را در جایگاه قبلی callback اجرا می‌کند.
+  renderer، ElementTree و helperهای Python باقی‌اند؛ planner پیش از
+  رندر TeX واگذار می‌شود. خطا و stash تکرار نمی‌شوند و wheel قدیمی
+  fallback دارد. ۴۰٬۰۲۶ مقایسه بدون اختلاف، ۳۹۰ تست در هر حالت و
+  شش رندر واقعی با metadata برابر موفق بودند. نه statement تازهٔ
+  adapter پوشش دارند؛ lint و mypy و Clippy موفق بودند. ساخت آفلاین
+  بود و کش و wheelهای قبلی حفظ شدند. HTTP و پیش‌فرض تغییر نکردند:
+  ۲۸/۱۷۱ OpenAPI، ۲۸/۱۹۰ وب و صفر فایل Python بازنشسته.
+  [شواهد و محدودیت‌ها](MIGRATION_HANDOFF.md)
