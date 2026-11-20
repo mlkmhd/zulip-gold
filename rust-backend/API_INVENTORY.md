@@ -1170,3 +1170,18 @@ Python-Markdown 3.10.3 بدون اختلاف گذشتند.
 شمار مستقل همان ۲۸ از ۱۷۱ OpenAPI و ۲۸ از ۱۹۰ وب و شمار فایل‌های
 Python حذف‌شده صفر است.
 [قرارداد و بازتولید](README.md#parse-inline-link-and-image-syntax-from-rust)
+
+## آماده‌سازی متن مقصد و عنوان لینک
+
+APIهای عمومی `markdown_link_syntax::unescape` و `prepare_text` با
+feature موجود `native-markdown` جایگزینی یک‌مرحله‌ای stash و ترتیب
+strip، dequote و فاصله‌های Python را بدون Python اجرا می‌کنند.
+snapshot متنی عنصرها قرارداد ورودی است؛ استخراج آن از arena و
+اتصال handler زنده، sanitizer، بازنویسی محلی و metadata باقی‌اند.
+مقصد خروجی همچنان نامطمئن است و نباید مستقیم رندر شود.
+
+هفت تست تازه و ۱٬۲۵۷٬۱۳۸ مقایسهٔ متن لینک و تصویر/صوت با
+Python-Markdown 3.10.3 بدون اختلاف گذشتند. این API آماده‌سازی،
+عملیات HTTP تازه یا حذف Python نیست؛ شمار همان ۲۸ از ۱۷۱ OpenAPI
+و ۲۸ از ۱۹۰ وب و شمار فایل‌های Python حذف‌شده صفر است.
+[قرارداد و بازتولید](README.md#parse-inline-link-and-image-syntax-from-rust)
