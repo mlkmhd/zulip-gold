@@ -99,6 +99,9 @@ pub mod markdown_timestamp;
 #[cfg(feature = "native-markdown")]
 pub mod markdown_tex;
 
+#[cfg(feature = "native-markdown")]
+pub mod markdown_tex_syntax;
+
 #[cfg(feature = "python")]
 mod markdown_list_blocks;
 

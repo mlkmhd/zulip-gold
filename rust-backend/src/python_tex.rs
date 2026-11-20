@@ -2,9 +2,30 @@ use std::path::Path;
 
 use pyo3::exceptions::{PyNotImplementedError, PyOSError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyBytes;
+use pyo3::types::{PyBytes, PyString};
 
-use crate::markdown_tex;
+use crate::{markdown_tex, markdown_tex_syntax};
+
+type TexMatch = (String, String, Option<String>, String);
+
+#[pyfunction]
+pub(crate) fn find_markdown_tex(
+    data: Bound<'_, PyString>,
+    unicode_version: &str,
+) -> Option<(Option<TexMatch>,)> {
+    let data = data.to_str().ok()?;
+    if data.len() > 8 * 1024 * 1024 || unicode_version != markdown_tex_syntax::UNICODE_VERSION {
+        return None;
+    }
+    Some((markdown_tex_syntax::find_tex(data).map(|matched| {
+        (
+            matched.before.to_owned(),
+            matched.body.to_owned(),
+            matched.last.map(str::to_owned),
+            matched.after.to_owned(),
+        )
+    }),))
+}
 
 #[pyfunction]
 pub(crate) fn run_katex_cli(

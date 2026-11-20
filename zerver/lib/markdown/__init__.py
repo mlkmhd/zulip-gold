@@ -53,6 +53,7 @@ from zerver.lib.markdown.list_layout import run_list_layout
 from zerver.lib.markdown.prettify import PrettifyTreeprocessor
 from zerver.lib.markdown.serialization import to_html_string
 from zerver.lib.markdown.tables import TableExtension
+from zerver.lib.markdown.tex_syntax import tex_pattern
 from zerver.lib.markdown.unescape import UnescapeTreeprocessor
 from zerver.lib.markdown.whitespace import ZulipNormalizeWhitespace
 from zerver.lib.mention import (
@@ -2724,7 +2725,9 @@ class ZulipMarkdown(markdown.Markdown):
         reg.register(BacktickInlineProcessor(markdown.inlinepatterns.BACKTICK_RE), "backtick", 105)
         reg.register(emphasis.tag_pattern(STRONG_EM_RE, "strong,em"), "strong_em", 100)
         reg.register(UserMentionPattern(mention.MENTIONS_RE, self), "usermention", 95)
-        reg.register(Tex(TEX_RE, self), "tex", 90)
+        tex = Tex(TEX_RE, self)
+        tex.compiled_re = tex_pattern(tex.compiled_re)
+        reg.register(tex, "tex", 90)
         reg.register(
             StreamTopicMessagePattern(get_compiled_stream_topic_message_link_regex(), self),
             "stream_topic_message",

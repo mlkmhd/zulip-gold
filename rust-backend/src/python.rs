@@ -245,7 +245,7 @@ mod _zulip_backend {
     use super::*;
 
     #[pymodule_export]
-    use crate::python_tex::run_katex_cli;
+    use crate::python_tex::{find_markdown_tex, run_katex_cli};
 
     #[pymodule_export]
     use crate::markdown_inline_runtime::{

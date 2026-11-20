@@ -3163,3 +3163,51 @@ pipes, encoding failures, old-wheel fallback and complete Markdown render
 metadata. This does not retire `zerver/lib/tex.py`: the service client,
 encoding boundary and raw-LaTeX conversion still need migration. Inline
 TeX also still delegates its pattern handler to Python.
+
+## Scan inline TeX delimiters through Rust
+
+`ZULIP_RUST_MARKDOWN_TEX_SYNTAX=1` replaces the inline `Tex` pattern's
+delimiter scanning with `markdown_tex_syntax::find_tex`. It preserves
+Python's word boundaries, first-body-character restrictions, escaped-dollar
+alternative and greedy backtracking, including the last repeated capture.
+The full legacy Pattern captures and offsets include trailing newlines.
+The matcher reuses the generated CPython 3.12 Unicode 15.0 word class.
+
+The PyO3 entrypoint `find_markdown_tex(data, unicode_version)` returns
+`((before, body, last_capture, after),)` for a match and `(None,)` for a
+missing match. `None` delegates unsupported Unicode versions, surrogate
+strings and inputs exceeding 8 MiB. The adapter also delegates other
+Python runtimes, changed pattern text or flags and older wheels.
+
+The flag is off by default and independent of `ZULIP_RUST_MARKDOWN_TEX`
+and `ZULIP_RUST_MARKDOWN_NATIVE_INLINE`. The native planner recognizes
+the wrapper and retains its guarded Python regex for unsupported TeX.
+A matching TeX expression still rejects that entire plan before rendering;
+the existing inline engine then invokes the renderer once in registry
+order. HTML stash writes, error spans, KaTeX service/CLI selection and
+all rendering metadata retain their existing behavior. This is a syntax
+migration, not full native TeX handling or a Python file retirement.
+
+Build and install one offline release wheel into `var/tex-syntax-python`
+using the preceding section's commands with separate wheel/output paths:
+
+```bash
+PYTHONPATH="$PWD/var/tex-syntax-python:$PWD" \
+    python rust-backend/tests/test_tex_syntax_bridge.py
+PYTHONPATH="$PWD/var/tex-syntax-python:$PWD" \
+    ZULIP_RUST_MARKDOWN_TEX_SYNTAX=1 ZULIP_RUST_MARKDOWN_NATIVE_INLINE=1 \
+    ./tools/test-backend zerver.tests.test_markdown_tex_syntax \
+    zerver.tests.test_markdown zerver.tests.test_markdown_native_inline
+PYTHONPATH="$PWD/var/tex-syntax-python:$PWD" \
+    python rust-backend/tests/check_tex_syntax_parity.py \
+    --max-length 8 --cases 100000 --unicode-scalars --seed 962842 \
+    --report var/tex-syntax-parity.json
+```
+
+Unset Rust feature flags for the differential. It loads the live Python
+`Tex` expression and compares all captures against the actual extension,
+using exhaustive short strings over six characters, seeded random inputs
+and every Unicode scalar in four contexts. It does not render KaTeX,
+exhaust all strings or measure performance. Dedicated rendering tests
+also check renderer call order, errors, HTML escaping, complete metadata,
+pre-fallback immutability and native acceptance of graphs without TeX.

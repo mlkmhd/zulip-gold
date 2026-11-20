@@ -15,6 +15,7 @@ from zerver.lib.markdown.native_autolinks import AutolinkSpec
 from zerver.lib.markdown.native_channels import ChannelInputs
 from zerver.lib.markdown.native_media import MediaInputs
 from zerver.lib.markdown.native_mentions import MentionInputs
+from zerver.lib.markdown.tex_syntax import TexPattern
 from zerver.lib.markdown.unescape import UnescapeTreeprocessor
 
 if TYPE_CHECKING:
@@ -160,6 +161,7 @@ def try_run(
         StreamPattern,
         StreamTopicMessagePattern,
         StreamTopicPattern,
+        Tex,
         Timestamp,
         UnicodeEmoji,
         UserGroupMentionPattern,
@@ -263,8 +265,8 @@ def try_run(
             return False
         wrapped: object = pattern.compiled_re
         compiled = wrapped
-        if type(wrapped) in (BacktickPattern, EmphasisPattern):
-            compiled = cast(BacktickPattern | EmphasisPattern, wrapped).fallback
+        if type(wrapped) in (BacktickPattern, EmphasisPattern, TexPattern):
+            compiled = cast(BacktickPattern | EmphasisPattern | TexPattern, wrapped).fallback
         if type(compiled) not in (re.Pattern, regex.Pattern):
             return False
         expression = cast(re.Pattern[str] | regex.Pattern[str], compiled)
@@ -576,6 +578,8 @@ def try_run(
         if type(wrapped) is EmphasisPattern and (
             not isinstance(pattern, inlinepatterns.SimpleTagPattern) or wrapped.kind != pattern.tag
         ):
+            return False
+        if type(wrapped) is TexPattern and type(pattern) is not Tex:
             return False
         patterns.append((kind, [tag.lower() for tag in excludes]))
         guards.append((compiled, TEXT_PRESENTATION_RE if type(pattern) is UnicodeEmoji else None))
