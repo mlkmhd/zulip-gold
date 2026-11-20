@@ -1200,3 +1200,22 @@ handler لینک، sanitizer، بازنویسی، رسانه و metadata هنو�
 شمار همان ۲۸ از ۱۷۱ OpenAPI و ۲۸ از ۱۹۰ وب است و فایل Python
 حذف نشده است.
 [قرارداد و بازتولید](README.md#snapshot-native-inline-stash-text)
+
+## لینک صریح در planner بومی
+
+پرچم موجود و پیش‌فرض خاموش `ZULIP_RUST_MARKDOWN_NATIVE_INLINE=1`
+روی CPython 3.12 اکنون لینک صریح را از parser و snapshot متن stash
+تا sanitizer، سیاست file، بازنویسی محلی و متن atomic در Rust اجرا
+می‌کند. لینک پاسخ و فرزندان sender/excerpt نیز بومی هستند.
+authority غیر ASCII یا براکت‌دار، helper و regex سفارشی یا سقف
+اسکن ۸ MiB، کل plan را پیش از تغییر درخت میزبان واگذار می‌کند.
+سیاست‌های جاری هر بار خوانده می‌شوند؛ ElementTree همچنان خروجی
+را escape و serialize می‌کند. رسانه، مجوز پیوست و metadata اعلان
+هنوز منتقل نشده‌اند و renderer مستقل کامل وجود ندارد.
+
+مقایسهٔ مستقل sanitizer و لینک روی باینری نهایی Cargo، ۱٬۲۳۲٬۹۵۲
+حالت را بدون اختلاف گذراند. گزارش پذیرش native و واگذاری را جدا
+ثبت می‌کند؛ این شمار به معنی پذیرش بومی همهٔ حالت‌ها نیست.
+عملیات مستقل همان ۲۸ از ۱۷۱ OpenAPI و ۲۸ از ۱۹۰ وب و شمار فایل
+Python حذف‌شده صفر است. مسیر HTTP یا پیش‌فرض تازه‌ای فعال نشد.
+[قرارداد و بازتولید](README.md#render-supported-explicit-links-natively)
