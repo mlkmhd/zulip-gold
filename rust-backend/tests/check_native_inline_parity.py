@@ -367,14 +367,19 @@ def _exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
     return accepted, state
 
 
-def timestamp_cases(seed: int, count: int) -> Iterator[Case]:
+def timestamp_cases(seed: int, count: int, *, week: bool = False) -> Iterator[Case]:
     rng = random.Random(seed)
     for _ in range(count):
         year = rng.choice([1, 4, 100, 400, 1900, 2000, 2024, 9999, rng.randrange(10000)])
-        month = rng.randrange(14)
-        day = rng.randrange(33)
         date_separator = rng.choice(["", "-"])
-        value = f"{year:04}{date_separator}{month:02}{date_separator}{day:02}"
+        if week:
+            value = f"{year:04}{date_separator}W{rng.randrange(55):02}"
+            if rng.randrange(4):
+                value += f"{date_separator}{rng.randrange(10)}"
+        else:
+            month = rng.randrange(14)
+            day = rng.randrange(33)
+            value = f"{year:04}{date_separator}{month:02}{date_separator}{day:02}"
         if rng.randrange(8):
             value += rng.choice(["T", "t", " ", "💡", "0", "\n", "\x00", "-", "+", "Z"])
             value += f"{rng.randrange(100):02}"
@@ -719,13 +724,19 @@ def main() -> None:
     )
     parser.add_argument("--cases", type=int, default=10000)
     parser.add_argument("--timestamp-cases", type=int, default=0)
+    parser.add_argument("--week-timestamp-cases", type=int, default=0)
     parser.add_argument("--seed", type=int, default=962817)
     parser.add_argument("--unicode-scalars", action="store_true")
     parser.add_argument("--repository", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--report", type=Path)
     parser.add_argument("--max-failures", type=int, default=10)
     args = parser.parse_args()
-    if args.cases < 0 or args.timestamp_cases < 0 or args.max_failures < 1:
+    if (
+        args.cases < 0
+        or args.timestamp_cases < 0
+        or args.week_timestamp_cases < 0
+        or args.max_failures < 1
+    ):
         parser.error("cases must be nonnegative and max-failures must be positive")
     if any(name.startswith("ZULIP_RUST_") and value == "1" for name, value in os.environ.items()):
         parser.error("unset Rust feature flags to isolate native inline execution")
@@ -788,6 +799,7 @@ def main() -> None:
         "seed": args.seed,
         "generated_cases": args.cases,
         "timestamp_cases": args.timestamp_cases,
+        "week_timestamp_cases": args.week_timestamp_cases,
         "unicode_scalars": args.unicode_scalars,
         "hashes": {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in files},
     }
@@ -797,6 +809,7 @@ def main() -> None:
         chain(
             cases(args.seed, args.cases, unicode_scalars=args.unicode_scalars),
             timestamp_cases(args.seed, args.timestamp_cases),
+            timestamp_cases(args.seed, args.week_timestamp_cases, week=True),
         )
     ):
         if number % 100 == 0:

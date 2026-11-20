@@ -69,10 +69,10 @@ fn timestamps_keep_source_atomic_and_escape_invalid_calendar_values() {
 }
 
 #[test]
-fn timestamps_discard_the_whole_plan_for_other_iso_grammars() {
+fn timestamps_discard_the_whole_plan_for_unsupported_iso_syntax() {
     assert!(
         run(
-            paragraph("**before** <time:2024-01-01T12Z> <time:2024-W01-1>"),
+            paragraph("**before** <time:2024-01-01T12Z> <time:2024-W01-1T12:3456>"),
             &[pattern(3), pattern(19)],
             vec![],
             |_, _| panic!("native handler delegates without invoking the host"),

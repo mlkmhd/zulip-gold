@@ -1,4 +1,4 @@
-//! Calendar timestamps for the CPython 3.12 Markdown renderer.
+//! ISO timestamps for the CPython 3.12 Markdown renderer.
 
 use std::sync::LazyLock;
 
@@ -10,17 +10,55 @@ pub enum Rendered {
     Invalid,
 }
 
-static CALENDAR: LazyLock<Regex> = LazyLock::new(|| {
+static DATE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(concat!(
-        r"(?s)\A([0-9]{4})(?:-([0-9]{2})-([0-9]{2})|([0-9]{2})([0-9]{2}))",
-        r"(?:.([0-9]{2}(?:(?::[0-9]{2}){1,2}|[0-9]{2}(?:[0-9]{2})?)?(?:[.,][0-9]+)?)",
-        r"(Z|[+-][0-9]{2}(?:(?::[0-9]{2}){1,2}|[0-9]{2}(?:[0-9]{2})?)?(?:[.,][0-9]+)?)?)?\z",
+        r"\A([0-9]{4})(?:-([0-9]{2})-([0-9]{2})|([0-9]{2})([0-9]{2})",
+        r"|-W([0-9]{2})(?:-([0-9]))?|W([0-9]{2})([0-9])?)\z",
+    ))
+    .unwrap()
+});
+
+static TIME: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(concat!(
+        r"\A([0-9]{2}(?:(?::[0-9]{2}){1,2}|[0-9]{2}(?:[0-9]{2})?)?(?:[.,][0-9]+)?)",
+        r"(Z|[+-][0-9]{2}(?:(?::[0-9]{2}){1,2}|[0-9]{2}(?:[0-9]{2})?)?(?:[.,][0-9]+)?)?\z",
     ))
     .unwrap()
 });
 
 const SECOND: i64 = 1_000_000;
 const DAY: i64 = 86_400 * SECOND;
+
+fn date_end(value: &str) -> Option<usize> {
+    let bytes = value.as_bytes();
+    if bytes.get(4) == Some(&b'-') {
+        if bytes.get(5) != Some(&b'W') {
+            return Some(10);
+        }
+        if bytes.get(8) != Some(&b'-') {
+            return Some(8);
+        }
+        // CPython prefers the hyphen after a week number as the datetime
+        // separator when two following digits could instead be day and time.
+        return Some(if bytes.get(10).is_some_and(u8::is_ascii_digit) {
+            8
+        } else {
+            10
+        });
+    }
+    if bytes.get(4) != Some(&b'W') {
+        return Some(8);
+    }
+    value.get(..7)?;
+    let end = 7 + bytes[7..].iter().take_while(|b| b.is_ascii_digit()).count();
+    Some(if end < 9 {
+        end
+    } else if end % 2 == 0 {
+        7
+    } else {
+        8
+    })
+}
 
 fn month_days(year: i32, month: i32) -> i32 {
     match month {
@@ -29,6 +67,36 @@ fn month_days(year: i32, month: i32) -> i32 {
         4 | 6 | 9 | 11 => 30,
         _ => 31,
     }
+}
+
+fn week_date(mut year: i32, week: i32, day: i32) -> Option<(i32, i32, i32)> {
+    if year == 0 || !(1..=53).contains(&week) || !(1..=7).contains(&day) {
+        return None;
+    }
+    let previous_year = year - 1;
+    let jan1_weekday =
+        (365 * previous_year + previous_year / 4 - previous_year / 100 + previous_year / 400) % 7;
+    if week == 53 && jan1_weekday != 3 && !(jan1_weekday == 2 && month_days(year, 2) == 29) {
+        return None;
+    }
+    let mut ordinal = 4 - (jan1_weekday + 3) % 7 + (week - 1) * 7 + day - 1;
+    let year_days = 365 + i32::from(month_days(year, 2) == 29);
+    if ordinal < 1 {
+        year -= 1;
+        ordinal += 365 + i32::from(month_days(year, 2) == 29);
+    } else if ordinal > year_days {
+        year += 1;
+        ordinal -= year_days;
+    }
+    if !(1..=9999).contains(&year) {
+        return None;
+    }
+    let mut month = 1;
+    while ordinal > month_days(year, month) {
+        ordinal -= month_days(year, month);
+        month += 1;
+    }
+    Some((year, month, ordinal))
 }
 
 fn clock(value: &str) -> (i64, i64, i64, i64) {
@@ -52,37 +120,65 @@ fn clock(value: &str) -> (i64, i64, i64, i64) {
     (hour, minute, second, microsecond)
 }
 
-/// `None` delegates syntax outside the calendar date/time grammar, including
-/// ISO week dates. Invalid values inside this grammar are rendered
+/// `None` delegates syntax outside the ISO date/time grammar.
+/// Invalid values inside this grammar are rendered
 /// as escaped source by the caller. Fractions are truncated to microseconds.
 pub fn render(value: &str) -> Option<Rendered> {
-    let captures = CALENDAR.captures(value)?;
+    let end = date_end(value)?;
+    let captures = DATE.captures(value.get(..end)?)?;
+    let time = if end == value.len() {
+        None
+    } else {
+        let suffix = value.get(end..)?;
+        let separator = suffix.chars().next()?;
+        Some(TIME.captures(&suffix[separator.len_utf8()..])?)
+    };
     let mut year = captures[1].parse::<i32>().unwrap();
-    let mut month = captures
-        .get(2)
-        .or_else(|| captures.get(4))
-        .unwrap()
-        .as_str()
-        .parse::<i32>()
-        .unwrap();
-    let mut day = captures
-        .get(3)
-        .or_else(|| captures.get(5))
-        .unwrap()
-        .as_str()
-        .parse::<i32>()
-        .unwrap();
+    let (mut month, mut day) = if let Some(week) = captures.get(6).or_else(|| captures.get(8)) {
+        let week = week.as_str().parse::<i32>().unwrap();
+        let day = captures
+            .get(7)
+            .or_else(|| captures.get(9))
+            .map_or(1, |day| day.as_str().parse::<i32>().unwrap());
+        let Some((week_year, month, day)) = week_date(year, week, day) else {
+            return Some(Rendered::Invalid);
+        };
+        year = week_year;
+        (month, day)
+    } else {
+        (
+            captures
+                .get(2)
+                .or_else(|| captures.get(4))
+                .unwrap()
+                .as_str()
+                .parse::<i32>()
+                .unwrap(),
+            captures
+                .get(3)
+                .or_else(|| captures.get(5))
+                .unwrap()
+                .as_str()
+                .parse::<i32>()
+                .unwrap(),
+        )
+    };
     if year == 0 || !(1..=12).contains(&month) || !(1..=month_days(year, month)).contains(&day) {
         return Some(Rendered::Invalid);
     }
-    let (hour, minute, second, microsecond) = captures
-        .get(6)
+    let (hour, minute, second, microsecond) = time
+        .as_ref()
+        .and_then(|time| time.get(1))
         .map_or((0, 0, 0, 0), |time| clock(time.as_str()));
     if hour > 23 || minute > 59 || second > 59 {
         return Some(Rendered::Invalid);
     }
     let mut offset = 0;
-    if let Some(zone) = captures.get(7).filter(|zone| zone.as_str() != "Z") {
+    if let Some(zone) = time
+        .as_ref()
+        .and_then(|time| time.get(2))
+        .filter(|zone| zone.as_str() != "Z")
+    {
         let (hours, minutes, seconds, micros) = clock(&zone.as_str()[1..]);
         let seconds = (hours * 60 + minutes) * 60 + seconds;
         // CPython's ISO parser treats a zero whole-second offset as UTC,
@@ -190,7 +286,6 @@ mod tests {
     fn delegates_other_iso_grammars_and_unrecognized_input() {
         for input in [
             "",
-            "2024-W01-1",
             "2024-01-01T",
             "2024-01-01TT12",
             "2024-01-01T12:",
@@ -229,6 +324,60 @@ mod tests {
             "20240101T1234:56",
             "202401-01",
             "2024-0101",
+        ] {
+            assert_eq!(render(input), None, "{input}");
+        }
+    }
+
+    #[test]
+    fn week_dates_and_separator_ambiguity() {
+        for (input, expected) in [
+            ("0001-W01-1", "0001-01-01T00:00:00Z"),
+            ("9999-W52-5", "9999-12-31T00:00:00Z"),
+            ("2020-W53-7", "2021-01-03T00:00:00Z"),
+            ("2015-W01", "2014-12-29T00:00:00Z"),
+            ("2019-W01-1", "2018-12-31T00:00:00Z"),
+            ("2024W01", "2024-01-01T00:00:00Z"),
+            ("2024W011", "2024-01-01T00:00:00Z"),
+            ("2020W537T235959-000001", "2021-01-04T00:00:00Z"),
+            ("2024-W01-1123", "2024-01-01T11:23:00Z"),
+            ("2024W01123", "2024-01-01T23:00:00Z"),
+            ("2024W0112345", "2024-01-01T23:45:00Z"),
+            ("2024W0112345.5", "2024-01-01T23:45:00.500000Z"),
+            ("2024W0112345+01", "2024-01-01T22:45:00Z"),
+            ("2024-W01-1💡00+000001.5", "2023-12-31T23:59:58.500000Z"),
+            ("2024-W01\n12Z", "2024-01-01T12:00:00Z"),
+        ] {
+            assert_eq!(
+                render(input),
+                Some(Rendered::Valid(expected.into())),
+                "{input}"
+            );
+        }
+        for input in [
+            "0000-W01-1",
+            "2024-W00-1",
+            "2024-W54-1",
+            "2021-W53-1",
+            "2020-W53-0",
+            "2020-W53-8",
+            "9999-W52-6",
+            "0001-W01-1T00+000001",
+            "9999-W52-5T235959-000001",
+            "2024W011234",
+            "2024W01123456",
+        ] {
+            assert_eq!(render(input), Some(Rendered::Invalid), "{input}");
+        }
+        for input in [
+            "2024-W01-",
+            "2024-W01-112",
+            "2024-W01-112:34",
+            "2024W01-1",
+            "2024-W011",
+            "2024-W01T",
+            "2024-W01-💡12",
+            "2024W",
         ] {
             assert_eq!(render(input), None, "{input}");
         }

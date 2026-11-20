@@ -184,7 +184,7 @@ class MarkdownNativeInlineTest(TestCase):
             "",
             "not a date <&>",
             "20240101T123",
-            "2024-W01-1T12:34:56",
+            "2024-W01-1T12:3456",
             "2024-01-01T12:3456",
             "2024-01-01T12:",
             "2024-01-01T12Zx",
@@ -251,7 +251,11 @@ class MarkdownNativeInlineTest(TestCase):
 
     def test_native_timestamp_commits_media_and_mentions_together(self) -> None:
         self.require_native_media()
-        for value, accepted in [("2024-01-01T12Z", True), ("2024-W01-1", False)]:
+        for value, accepted in [
+            ("2024-01-01T12Z", True),
+            ("2020-W53-7T12+03:30", True),
+            ("2024-W01-1T12:3456", False),
+        ]:
             with self.subTest(value=value):
 
                 def build(value: str = value) -> Element:
@@ -261,6 +265,64 @@ class MarkdownNativeInlineTest(TestCase):
                     return root
 
                 self.compare(build, configure=self.media_data, accepted=accepted)
+
+    def test_native_week_timestamps(self) -> None:
+        for value in [
+            "0001-W01-1",
+            "9999-W52-5",
+            "2020-W53-7",
+            "2015-W01",
+            "2019-W01-1",
+            "2024W01",
+            "2024W011",
+            "2020W537T235959-000001",
+            "2024-W01-1123",
+            "2024W01123",
+            "2024W0112345",
+            "2024W0112345.5",
+            "2024W0112345+01",
+            "2024-W01-1💡00+000001.5",
+            "2024-W01\n12Z",
+            "0000-W01-1",
+            "2024-W00-1",
+            "2024-W54-1",
+            "2021-W53-1",
+            "2020-W53-0",
+            "2020-W53-8",
+            "9999-W52-6",
+            "0001-W01-1T00+000001",
+            "9999-W52-5T235959-000001",
+            "2024W011234",
+            "2024W01123456",
+        ]:
+            with self.subTest(value=value):
+
+                def build(value: str = value) -> Element:
+                    root = Element("div")
+                    SubElement(root, "p").text = f"**before** <time:{value}> **after**"
+                    return root
+
+                self.compare(build)
+
+    def test_native_week_timestamp_separator_delegation(self) -> None:
+        for value in [
+            "2024-W01-",
+            "2024-W01-112",
+            "2024-W01-112:34",
+            "2024W01-1",
+            "2024-W011",
+            "2024-W01T",
+            "2024-W01-💡12",
+            "2024W",
+        ]:
+            with self.subTest(value=value):
+
+                def build(value: str = value) -> Element:
+                    root = Element("div")
+                    SubElement(root, "p").text = f"<time:2020-W53-7T12Z> <time:{value}>"
+                    return root
+
+                self.compare(build, accepted=False)
 
     def test_native_timestamp_helper_and_pattern_guards(self) -> None:
         from zerver.lib import markdown
@@ -323,6 +385,7 @@ class MarkdownNativeInlineTest(TestCase):
         processor = InlineProcessor(md)
         root = Element("div")
         SubElement(root, "p").text = "<time:2024-03-01T00+03:30> <time:1900-02-29>"
+        SubElement(root, "p").text = "<time:2020-W53-7T00+03:30>"
         calls = []
 
         def profile(frame: FrameType, event: str, arg: object) -> None:
@@ -347,6 +410,7 @@ class MarkdownNativeInlineTest(TestCase):
         self.assertEqual(root[0][0].attrib, {"datetime": "2024-02-29T20:30:00Z"})
         self.assertIsInstance(root[0][0].text, AtomicString)
         self.assertEqual(root[0][0].tail, " &lt;time:1900-02-29&gt;")
+        self.assertEqual(root[1][0].attrib, {"datetime": "2021-01-02T20:30:00Z"})
 
     def test_native_formatting_and_complete_state(self) -> None:
         samples = [

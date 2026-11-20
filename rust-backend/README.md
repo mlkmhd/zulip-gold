@@ -2962,7 +2962,12 @@ notification delivery, HTTP coverage or a performance improvement.
 
 `ZULIP_RUST_MARKDOWN_NATIVE_INLINE=1` also handles calendar timestamps with
 extended (`2024-01-01T12:34:56Z`) or basic (`20240101T123456Z`) dates and times,
-decimal fractions and UTC offsets. Date, time and offset separators are independent.
+ISO week dates (`2020-W53-7`, `2020W537`), decimal fractions and UTC offsets.
+Date, time and offset separators are independent. An omitted weekday means Monday.
+Week dates can cross Gregorian years; nonexistent week 53 and dates outside years
+1 through 9999 produce escaped source. CPython's separator choice is preserved
+even with digit and hyphen separators. For example, `2024-W01-1123` means
+Monday at 11:23, while `2024W0112345` means Monday at 23:45.
 It preserves the source as atomic display text and normalizes the `datetime`
 attribute to UTC with CPython 3.12 microsecond precision. A naive timestamp
 means UTC. Invalid calendar values and UTC overflow produce the existing
@@ -2970,10 +2975,10 @@ escaped source. Offset minutes and seconds retain CPython's normalization,
 including its treatment of fractional offsets with zero whole seconds.
 
 The adapter guards the timestamp pattern, regex flags, handler methods, datetime
-types and element/text constructors. Other runtimes, ISO week dates, mixed
-separators within one date or clock, and unrecognized syntax retain the Python fallback. A late
-unsupported timestamp
-discards the entire plan, including prior graph, mention and attachment effects.
+types and element/text constructors. Other runtimes, mixed separators within one
+date or clock, and unrecognized syntax retain the Python fallback. A late
+unsupported timestamp discards the entire plan, including prior graph, mention
+and attachment effects.
 Shared nodes can revisit escaped invalid dates and require the existing HTML
 handler; that also delegates the whole plan. No HTML is inserted by this
 parser; the existing serializer still escapes attributes and display text.
@@ -2983,14 +2988,15 @@ host mutation, including when earlier timestamps were already planned.
 Install a fresh offline release wheel before running the full-state comparison:
 
 ```bash
-PYTHONPATH="$PWD/var/timestamp-compact-python:$PWD" \
+PYTHONPATH="$PWD/var/timestamp-week-python:$PWD" \
     python rust-backend/tests/check_native_inline_parity.py \
-    --cases 10000 --timestamp-cases 50000 --seed 962837 \
+    --cases 10000 --timestamp-cases 25000 --week-timestamp-cases 50000 \
+    --seed 962838 \
     --report var/timestamp-inline-parity.json
 ```
 
-The added corpus varies dates, separators, offset normalization, fractions,
-invalid and unsupported inputs, shared nodes and atomic text. The comparison
+The added corpus varies calendar and week dates, separators, offset normalization,
+fractions, invalid and unsupported inputs, shared nodes and atomic text. The comparison
 includes ordered attributes, stash, parent mappings, ancestors, registry,
 HTML stash and all rendering metadata. It is not a benchmark or an exhaustive
 test of CPython's ISO parser.

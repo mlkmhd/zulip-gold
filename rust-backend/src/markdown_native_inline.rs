@@ -72,7 +72,7 @@ pub struct Pattern {
     /// 5: strikethrough; 6: literal emphasis markers; 7: line break; 8: named emoji;
     /// 9: emoticon translation; 10: Unicode emoji; 11: explicit link;
     /// 12: audio; 13: image; 14: channel; 15: topic; 16: message link;
-    /// 17: user mention; 18: group mention; 19: calendar timestamp.
+    /// 17: user mention; 18: group mention; 19: ISO timestamp.
     pub kind: u8,
     pub excludes: Vec<String>,
     pub emoji: Option<NamedEmoji>,
