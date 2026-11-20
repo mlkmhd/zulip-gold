@@ -5,6 +5,7 @@ from collections.abc import Callable
 from types import FrameType
 from typing import cast
 from unittest import TestCase, mock
+from urllib import parse as urlparse
 from xml.etree.ElementTree import Element, SubElement
 
 from markdown import inlinepatterns, util
@@ -18,11 +19,15 @@ from zerver.lib.markdown import (
     ZulipMarkdown,
     do_convert,
     inline_stash,
+    native_channels,
     native_inline,
 )
 from zerver.lib.markdown.inline_stash import InlineProcessor
+from zerver.lib.mention import ChannelInfo, ChannelTopicInfo, MentionBackend, MentionData
 from zerver.lib.thumbnail import AttachmentData
+from zerver.models import Message, Realm
 from zerver.models.realm_emoji import EmojiInfo
+from zerver.models.streams import StreamTopicsPolicyEnum
 
 
 class MarkdownNativeInlineTest(TestCase):
@@ -248,6 +253,270 @@ class MarkdownNativeInlineTest(TestCase):
             translate_emoticons=False,
             user_upload_previews=AttachmentData(audio_path_ids=set(), image_metadata={}),
         )
+
+    def channel_data(self) -> DbData:
+        data = self.emoji_data([])
+        backend = MentionBackend(1)
+        backend.stream_cache = {
+            "dev tools": ChannelInfo(42, 142, True, StreamTopicsPolicyEnum.inherit.value),
+            "empty": ChannelInfo(17, 117, True, StreamTopicsPolicyEnum.empty_topic_only.value),
+        }
+        mentions = MentionData.__new__(MentionData)
+        mentions.mention_backend = backend
+        mentions.full_name_info = {}
+        mentions.user_id_info = {}
+        mentions.user_group_name_info = {}
+        mentions.user_group_members = {}
+        data.mention_data = mentions
+        data.stream_names = {"dev tools": 42, "empty": 17, "dev tools>t@1": 99, "empty>no": 123}
+        data.topic_info = {
+            ChannelTopicInfo("dev tools", "t"): 123,
+            ChannelTopicInfo("empty", ""): 77,
+        }
+        return data
+
+    def test_native_channel_links_and_complete_state(self) -> None:
+        def configure(md: ZulipMarkdown) -> None:
+            md.zulip_db_data = self.channel_data()
+            md.zulip_realm = Realm(topics_policy=StreamTopicsPolicyEnum.allow_empty_topic.value)
+
+        samples = [
+            "#**dev tools** #**hidden**",
+            "#**dev tools>t@0001**",
+            "#**empty>** #**empty>@۱٢3**",
+            "#**dev tools>t** #**dev tools>unknown** #**empty>no**",
+            "[#**dev tools**] <#**dev tools**",
+            "`#**dev tools>t**` #**dev tools>t@1**",
+            "**#**empty>****\n#**dev tools>@۰۰1**",
+            "#**bad #**dev tools>t**",
+        ]
+        pieces = [
+            "#**dev tools**",
+            "#**dev tools>t**",
+            "#**dev tools>t@1**",
+            "#**empty>**",
+            "#**empty>no**",
+            "#**hidden**",
+            "#**empty>@۱٢3**",
+            "#**",
+            "**",
+            "`",
+            "\n",
+            " ",
+            "نام",
+            "[",
+            "]",
+            ">",
+            "@",
+            "1",
+        ]
+        required = len(samples)
+        rng = random.Random(962832)
+        samples.extend("".join(rng.choices(pieces, k=rng.randrange(25))) for _ in range(400))
+        for number, text in enumerate(samples):
+            with self.subTest(text=text):
+
+                def build(text: str = text) -> Element:
+                    root = Element("div")
+                    SubElement(root, "p").text = text
+                    return root
+
+                self.compare(
+                    build, configure=configure, accepted=True if number < required else None
+                )
+                self.compare(build, accepted=True if number < required else None)
+
+    def test_channel_registry_priority_and_inherited_topic_policy(self) -> None:
+        for reverse in [False, True]:
+            for realm_policy in [
+                StreamTopicsPolicyEnum.allow_empty_topic.value,
+                StreamTopicsPolicyEnum.empty_topic_only.value,
+            ]:
+
+                def configure(
+                    md: ZulipMarkdown, realm_policy: int = realm_policy, reverse: bool = reverse
+                ) -> None:
+                    md.zulip_db_data = self.channel_data()
+                    md.zulip_realm = Realm(topics_policy=realm_policy)
+                    if reverse:
+                        md.inlinePatterns.register(md.inlinePatterns["stream"], "stream", 89)
+
+                def build() -> Element:
+                    root = Element("div")
+                    SubElement(
+                        root, "p"
+                    ).text = "#**dev tools>t@1** #**dev tools>t** #**dev tools>**"
+                    return root
+
+                with self.subTest(reverse=reverse, realm_policy=realm_policy):
+                    self.compare(build, configure=configure)
+
+    def test_channel_snapshot_does_not_fetch_deferred_realm_policy(self) -> None:
+        md = self.markdown()
+        md.zulip_db_data = self.channel_data()
+        md.zulip_realm = Realm()
+        del md.zulip_realm.topics_policy
+        with mock.patch.object(Realm, "refresh_from_db") as fetch:
+            self.assertIsNone(native_channels.snapshot(md))
+        fetch.assert_not_called()
+        md.zulip_realm = None
+        self.assertIsNone(native_channels.snapshot(md))
+        md.zulip_db_data.mention_data.mention_backend.stream_cache.clear()
+        snapshot = native_channels.snapshot(md)
+        assert snapshot is not None
+        self.assertEqual(snapshot[0]["dev tools"], (42, False))
+        self.assertEqual(snapshot[1]["empty", ""], 77)
+        self.assertIn("۱", snapshot[3])
+
+    def test_channel_helpers_and_data_delegate_without_mutation(self) -> None:
+        from zerver.lib import markdown, url_encoding
+
+        native = inline_stash._rust_native_inline
+        if native is None:
+            self.skipTest("Native inline engine is disabled")
+        md = self.markdown()
+        md.zulip_db_data = self.channel_data()
+        md.zulip_realm = Realm(topics_policy=StreamTopicsPolicyEnum.allow_empty_topic.value)
+        processor = InlineProcessor(md)
+        root = Element("div")
+        SubElement(root, "p").text = "**earlier** #**dev tools>t**"
+        processor.stashed_nodes = {"existing": AtomicString("sentinel")}
+        processor.parent_map = {root[0]: root}
+        processor.ancestors = ["sentinel"]
+        before = self.snapshot(processor, root)
+
+        def delegates() -> None:
+            self.assertFalse(
+                native_inline.try_run(processor, root, None, native.plan_markdown_native_inline)
+            )
+            self.assertEqual(self.snapshot(processor, root), before)
+
+        for owner, name in [
+            (markdown.StreamTopicMessageProcessor, "find_stream_id"),
+            (markdown.StreamTopicMessageProcessor, "is_empty_topic_only_channel"),
+            (markdown.StreamTopicPattern, "get_with_operand"),
+            (MentionData, "get_channel_info"),
+            (markdown, "encode_channel"),
+            (markdown, "encode_hash_component"),
+            (url_encoding, "encode_hash_component"),
+            (markdown.channel_links, "channel_link"),
+            (urlparse, "quote"),
+            (urlparse, "quote_from_bytes"),
+        ]:
+            with self.subTest(name=name), mock.patch.object(owner, name) as callback:
+                delegates()
+                callback.assert_not_called()
+        with mock.patch.dict(url_encoding.hash_replacements, {".": ".BAD"}):
+            delegates()
+        with mock.patch.object(markdown, "TOPIC_LINK_SYNTAX_FOR_DISPLAY", "custom"):
+            delegates()
+        with mock.patch.object(Message, "EMPTY_TOPIC_FALLBACK_NAME", "\ud800"):
+            delegates()
+        with mock.patch.dict(md.zulip_db_data.stream_names, {"bad": 2**63}):
+            delegates()
+        with mock.patch.dict(
+            md.zulip_db_data.topic_info, {ChannelTopicInfo("dev tools", "t"): 2**63}
+        ):
+            delegates()
+        with mock.patch.object(md.zulip_db_data.mention_data.mention_backend, "stream_cache", []):
+            delegates()
+        with mock.patch.dict(
+            md.zulip_db_data.mention_data.mention_backend.stream_cache, {"dev tools": object()}
+        ):
+            delegates()
+
+    def test_channel_snapshot_rejects_nonstandard_and_excessive_data(self) -> None:
+        md = self.markdown()
+        data = self.channel_data()
+        md.zulip_db_data = data
+        md.zulip_realm = Realm(topics_policy=StreamTopicsPolicyEnum.allow_empty_topic.value)
+        for owner, name, value in [
+            (md, "zulip_db_data", object()),
+            (data, "stream_names", []),
+            (data, "topic_info", []),
+            (data, "mention_data", object()),
+            (data.mention_data, "mention_backend", object()),
+            (data, "stream_names", dict.fromkeys(map(str, range(100_001)), 1)),
+            (data, "stream_names", {"x" * 1_000_001: 1}),
+            (data, "topic_info", {ChannelTopicInfo("dev tools", "x" * 1_000_001): 1}),
+            (Message, "EMPTY_TOPIC_FALLBACK_NAME", "x" * 1_000_001),
+        ]:
+            with self.subTest(name=name), mock.patch.object(owner, name, value):
+                self.assertIsNone(native_channels.snapshot(md))
+        for name, channel_id in [("bad", True), ("\ud800", 1), (AtomicString("subclass"), 1)]:
+            with self.subTest(name=name), mock.patch.dict(data.stream_names, {name: channel_id}):
+                self.assertIsNone(native_channels.snapshot(md))
+        for key, operand in [
+            (object(), 1),
+            (ChannelTopicInfo("x", "\ud800"), 1),
+            (ChannelTopicInfo("x", "t"), True),
+        ]:
+            with self.subTest(key=key), mock.patch.dict(data.topic_info, {key: operand}):
+                self.assertIsNone(native_channels.snapshot(md))
+        info = data.mention_data.mention_backend.stream_cache["dev tools"]
+        with mock.patch.object(info, "topics_policy", "custom"):
+            self.assertIsNone(native_channels.snapshot(md))
+        with mock.patch.object(Realm, "topics_policy", new_callable=mock.PropertyMock) as policy:
+            self.assertIsNone(native_channels.snapshot(md))
+            policy.assert_not_called()
+        with mock.patch.dict(data.topic_info, {ChannelTopicInfo("dev tools", "t"): None}):
+            snapshot = native_channels.snapshot(md)
+            assert snapshot is not None
+            self.assertNotIn(("dev tools", "t"), snapshot[1])
+
+    def test_channel_pattern_identity_and_work_limit_delegate(self) -> None:
+        native = inline_stash._rust_native_inline
+        if native is None:
+            self.skipTest("Native inline engine is disabled")
+        md = self.markdown()
+        processor = InlineProcessor(md)
+        for name in ["stream", "topic", "stream_topic_message"]:
+            pattern = md.inlinePatterns[name]
+            root = Element("div")
+            SubElement(root, "p").text = "**earlier** #**dev tools**"
+            with mock.patch.object(pattern, "compiled_re", re.compile("custom")):
+                self.assertFalse(
+                    native_inline.try_run(processor, root, None, native.plan_markdown_native_inline)
+                )
+            self.assertEqual(root[0].text, "**earlier** #**dev tools**")
+        root = Element("div")
+        SubElement(root, "p").text = "**earlier** " + "#**unknown>t** " * 10_000
+        text = root[0].text
+        self.assertFalse(
+            native_inline.try_run(processor, root, None, native.plan_markdown_native_inline)
+        )
+        self.assertEqual(root[0].text, text)
+        self.assertEqual(list(root[0]), [])
+
+    def test_channel_plan_does_not_call_python_handlers_or_lookups(self) -> None:
+        from zerver.lib.markdown import _native_channel_callbacks
+
+        native = inline_stash._rust_native_inline
+        if native is None:
+            self.skipTest("Native inline engine is disabled")
+        md = self.markdown()
+        md.zulip_db_data = self.channel_data()
+        md.zulip_realm = Realm(topics_policy=StreamTopicsPolicyEnum.allow_empty_topic.value)
+        processor = InlineProcessor(md)
+        root = Element("div")
+        SubElement(root, "p").text = "#**dev tools>t** #**empty>@۱٢01**"
+        forbidden = {callback.__code__ for callback in _native_channel_callbacks}
+        calls: list[str] = []
+
+        def profile(frame: FrameType, event: str, arg: object) -> None:
+            if event == "call" and frame.f_code in forbidden:
+                calls.append(frame.f_code.co_name)
+
+        previous = sys.getprofile()
+        try:
+            sys.setprofile(profile)
+            self.assertTrue(
+                native_inline.try_run(processor, root, None, native.plan_markdown_native_inline)
+            )
+        finally:
+            sys.setprofile(previous)
+        self.assertEqual(calls, [])
+        self.assertEqual([node.get("class") for node in root[0]], ["stream-topic", "message-link"])
 
     def test_realm_emoji_overrides_and_attributes(self) -> None:
         def configure(md: ZulipMarkdown) -> None:

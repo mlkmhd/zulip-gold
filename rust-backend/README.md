@@ -2699,3 +2699,41 @@ restricted registry includes code, explicit links, emphasis and line breaks,
 with normal/reversed channel priority, absent/populated channel data,
 atomic/plain input and excluded ancestors. This is not a complete renderer,
 live permission test or deployment benchmark.
+
+### Render channel links through the guarded native inline bridge
+
+After installing a fresh wheel, `ZULIP_RUST_MARKDOWN_NATIVE_INLINE=1` also
+runs the channel, topic and message handlers in Rust. The existing flag
+remains off by default. Unset it to return the complete inline run to Python.
+There is no new HTTP route or independent rollout flag for these handlers.
+
+`native_channels` snapshots only `DbData.stream_names`, cached channel topic
+policies and `DbData.topic_info`. It reads the loaded realm policy directly
+from the model's fields; a deferred field delegates without fetching it.
+Missing cache entries preserve the reference's permissive topic-policy
+fallback, while missing visible channel names remain unresolved. Native
+rendering does not change channel access or validate message existence.
+
+The adapter guards the original compiled regex objects, channel lookup and
+formatting methods, topic-key class, URL encoders and their mutable settings,
+realm field descriptor, host Unicode digits and localized empty-topic text.
+Custom handlers, nonstandard data, surrogate strings, out-of-range IDs,
+more than 100,000 entries or more than one million combined snapshot
+characters delegate before any tree/registry/processor mutation. The Unicode
+decimal snapshot is cached per interpreter and is created only when needed.
+The additional optional PyO3 argument leaves earlier direct calls compatible.
+
+The channel helper snapshot is built after the input graph is validated and
+only when channel syntax occurs in its text. The existing atomic commit
+applies the planned tree, stash, parents, ancestors and registry together;
+channel rendering leaves notification and attachment metadata unchanged.
+Media and mention preparation APIs still require their own live adapters.
+
+Run `zerver.tests.test_markdown_native_inline` with coverage for the guard and
+state-preservation regressions, then run the Markdown, scheduled-message and
+reminder collections with the native flag off and on. The existing
+`check_native_inline_parity.py` additionally covers authorized channel
+snapshots, inherited topic policy, mixed/shared graphs and prior rendering
+metadata. Run it with Rust flags unset and the fresh wheel on `PYTHONPATH`;
+it invokes the native planner directly and checks every delegated plan for
+unchanged input state before running Python's fallback.

@@ -12,6 +12,7 @@ from functools import lru_cache
 from importlib import import_module
 from re import Match, Pattern
 from typing import Generic, Literal, Optional, TypeAlias, TypedDict, TypeVar, cast
+from urllib import parse as urlparse
 from urllib.parse import parse_qs, parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 from xml.etree.ElementTree import Element, SubElement
 
@@ -32,7 +33,7 @@ from markdown.extensions import codehilite, nl2br, sane_lists
 from tlds import tld_set
 from typing_extensions import Self, override
 
-from zerver.lib import mention
+from zerver.lib import mention, url_encoding
 from zerver.lib.alert_words import AlertWordAutomaton
 from zerver.lib.camo import get_camo_url
 from zerver.lib.emoji import EMOTICON_RE
@@ -3228,6 +3229,36 @@ _native_link_patterns = (
     LinkInlineProcessor.RE_TITLE_CLEAN,
     markdown.inlinepatterns.LINK_RE,
 )
+
+_native_channel_callbacks = (
+    StreamTopicMessageProcessor.find_stream_id,
+    StreamTopicMessageProcessor.is_empty_topic_only_channel,
+    StreamTopicPattern.get_with_operand,
+    MentionData.get_channel_info,
+    encode_channel,
+    encode_hash_component,
+    channel_links.channel_link,
+)
+_native_channel_patterns = (
+    get_compiled_stream_link_regex(),
+    get_compiled_stream_topic_link_regex(),
+    get_compiled_stream_topic_message_link_regex(),
+)
+_native_channel_url_callbacks = (
+    urlparse.quote,
+    urlparse.quote_from_bytes,
+    getattr(url_encoding._rust_url_fragments, "encode_narrow_hash_component", None),
+    getattr(channel_links._rust_channel_spans, "markdown_channel_link_fields", None),
+)
+_native_channel_url_replacements = url_encoding.hash_replacements.copy()
+_native_channel_topic_display = TOPIC_LINK_SYNTAX_FOR_DISPLAY
+_native_channel_topic_type = ChannelTopicInfo
+_native_channel_topic_callbacks = (
+    ChannelTopicInfo.__init__,
+    ChannelTopicInfo.__hash__,
+    ChannelTopicInfo.__eq__,
+)
+_native_channel_realm_topics_policy = vars(Realm)["topics_policy"]
 
 _native_inline_handlers: dict[type[object], tuple[Callable[..., object], ...]] = {
     cls: (cls.handleMatch, cls.getCompiledRegExp, cls.type)

@@ -90,6 +90,12 @@ type NativeEmojiCatalog = (HashMap<String, String>, HashMap<String, String>);
 type NativeEmoticonCatalog = (Vec<(String, String)>, HashMap<String, String>);
 type NativeUnicodeEmojiCatalog = (String, HashMap<String, String>);
 type NativeLinkPolicy = (Vec<String>, Vec<String>, bool, Option<String>);
+type NativeChannelInputs = (
+    HashMap<String, (i64, bool)>,
+    HashMap<(String, String), i64>,
+    String,
+    Vec<char>,
+);
 type NativeInlineStash = (Option<usize>, Option<NativeInlineText>);
 type NativeInlineResult = (
     Vec<NativeInlinePlannedNode>,
@@ -234,7 +240,7 @@ mod _zulip_backend {
     };
 
     #[pyfunction]
-    #[pyo3(signature = (nodes, patterns, ancestors, guards, emoji_catalogs, emoticon_catalog=None, unicode_emoji_catalog=None, link_policy=None))]
+    #[pyo3(signature = (nodes, patterns, ancestors, guards, emoji_catalogs, emoticon_catalog=None, unicode_emoji_catalog=None, link_policy=None, channel_inputs=None))]
     #[allow(clippy::too_many_arguments)]
     fn plan_markdown_native_inline(
         nodes: Vec<NativeInlineNode>,
@@ -245,6 +251,7 @@ mod _zulip_backend {
         emoticon_catalog: Option<NativeEmoticonCatalog>,
         unicode_emoji_catalog: Option<NativeUnicodeEmojiCatalog>,
         link_policy: Option<NativeLinkPolicy>,
+        channel_inputs: Option<NativeChannelInputs>,
     ) -> Option<NativeInlineResult> {
         use markdown_native_inline::{Emoticons, NamedEmoji, Node, Pattern, Stashed, Text};
         if patterns.len() != guards.len() || patterns.len() != emoji_catalogs.len() {
@@ -305,33 +312,62 @@ mod _zulip_backend {
                 },
             })
             .collect::<Vec<_>>();
-        let result = markdown_native_inline::run(nodes, &patterns, ancestors, |index, data| {
-            let (compiled, text_presentation) = &guards[index];
-            if let Some(text_presentation) = text_presentation {
-                for matched in compiled
-                    .call_method1("finditer", (data,))
-                    .ok()?
-                    .try_iter()
-                    .ok()?
-                {
-                    let syntax = matched.ok()?.call_method1("group", ("syntax",)).ok()?;
-                    if text_presentation
-                        .call_method1("fullmatch", (syntax,))
+        let channels =
+            channel_inputs.map(|(names, topic_with, empty_topic_name, unicode_decimal)| {
+                markdown_native_inline::Channels {
+                    names: names
+                        .into_iter()
+                        .map(|(name, (id, empty_topic_only))| {
+                            (
+                                name,
+                                markdown_native_inline::Channel {
+                                    id,
+                                    empty_topic_only,
+                                },
+                            )
+                        })
+                        .collect(),
+                    topic_with,
+                    empty_topic_name,
+                    unicode_decimal: unicode_decimal.into_iter().collect(),
+                }
+            });
+        let result = markdown_native_inline::run_with_inputs(
+            nodes,
+            &patterns,
+            ancestors,
+            markdown_native_inline::Inputs {
+                channels: channels.as_ref(),
+                ..markdown_native_inline::Inputs::default()
+            },
+            |index, data| {
+                let (compiled, text_presentation) = &guards[index];
+                if let Some(text_presentation) = text_presentation {
+                    for matched in compiled
+                        .call_method1("finditer", (data,))
+                        .ok()?
+                        .try_iter()
+                        .ok()?
+                    {
+                        let syntax = matched.ok()?.call_method1("group", ("syntax",)).ok()?;
+                        if text_presentation
+                            .call_method1("fullmatch", (syntax,))
+                            .ok()?
+                            .is_none()
+                        {
+                            return None;
+                        }
+                    }
+                    Some(())
+                } else {
+                    compiled
+                        .call_method1("search", (data,))
                         .ok()?
                         .is_none()
-                    {
-                        return None;
-                    }
+                        .then_some(())
                 }
-                Some(())
-            } else {
-                compiled
-                    .call_method1("search", (data,))
-                    .ok()?
-                    .is_none()
-                    .then_some(())
-            }
-        })?;
+            },
+        )?;
         let text = |text: Text| (text.value, text.atomic);
         Some((
             result

@@ -34,6 +34,8 @@ class Case:
     registry: str = "default"
     accepted: bool | None = None
     translate_emoticons: bool = False
+    channels: bool = False
+    empty_topic_only: bool = False
 
 
 def build(case: Case) -> Element:
@@ -116,6 +118,58 @@ def exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
             translate_emoticons=True,
             user_upload_previews=AttachmentData(audio_path_ids=set(), image_metadata={}),
         )
+    if case.channels:
+        from zerver.lib.markdown import DbData
+        from zerver.lib.mention import ChannelInfo, ChannelTopicInfo, MentionBackend, MentionData
+        from zerver.lib.thumbnail import AttachmentData
+        from zerver.models import Realm
+        from zerver.models.streams import StreamTopicsPolicyEnum
+
+        backend = MentionBackend(1)
+        backend.stream_cache = {
+            "dev tools": ChannelInfo(42, 142, True, StreamTopicsPolicyEnum.inherit.value),
+            "empty": ChannelInfo(17, 117, True, StreamTopicsPolicyEnum.empty_topic_only.value),
+        }
+        mentions = MentionData.__new__(MentionData)
+        mentions.mention_backend = backend
+        mentions.full_name_info = {}
+        mentions.user_id_info = {}
+        mentions.user_group_name_info = {}
+        mentions.user_group_members = {}
+        md.zulip_db_data = DbData(
+            mention_data=mentions,
+            realm_url="https://example.com",
+            realm_alert_words_automaton=None,
+            active_realm_emoji={},
+            sent_by_bot=False,
+            stream_names={"dev tools": 42, "empty": 17, "dev tools>t@1": 99, "empty>no": 123},
+            topic_info={ChannelTopicInfo("dev tools", "t"): 123, ChannelTopicInfo("empty", ""): 77},
+            translate_emoticons=case.translate_emoticons,
+            user_upload_previews=AttachmentData(audio_path_ids=set(), image_metadata={}),
+        )
+        md.zulip_realm = Realm(
+            topics_policy=(
+                StreamTopicsPolicyEnum.empty_topic_only.value
+                if case.empty_topic_only
+                else StreamTopicsPolicyEnum.allow_empty_topic.value
+            )
+        )
+    from zerver.lib.markdown import MessageRenderingResult
+
+    md.zulip_rendering_result = MessageRenderingResult(
+        "sentinel",
+        True,
+        False,
+        {1},
+        {2},
+        {"word"},
+        {"url"},
+        {3},
+        ["a", "a"],
+        {"spinner"},
+        True,
+        True,
+    )
     registry = cast(native_inline.RegistryInternals, md.inlinePatterns)
     if case.registry == "empty":
         md.inlinePatterns = util.Registry()
@@ -183,6 +237,7 @@ def exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
     state = snapshot(processor, root)
     state["error"] = error
     state["input_ancestors"] = ancestors
+    state["rendering"] = asdict(md.zulip_rendering_result)
     return accepted, state
 
 
@@ -254,6 +309,24 @@ def cases(seed: int, count: int, *, unicode_scalars: bool = False) -> Iterator[C
             None,
             accepted=True,
         )
+    for value in (
+        "#**dev tools** #**hidden**",
+        "#**dev tools>t** #**dev tools>unknown**",
+        "#**empty>** #**empty>@۱٢3**",
+        "#**empty>no** #**empty>no@0001**",
+        "#**dev tools>t@1**",
+        "`#**dev tools>t**` #**dev tools>t@1**",
+        "[#**dev tools**] <#**dev tools**",
+        "#**bad #**dev tools>t**",
+    ):
+        for empty_only in (False, True):
+            yield Case(
+                [Node("div", None, None, [1]), Node("p", (value, False), None, [])],
+                ["outer"],
+                accepted=True,
+                channels=True,
+                empty_topic_only=empty_only,
+            )
     if unicode_scalars:
         for first in range(0, 0x110000, 256):
             value = " ".join(
@@ -309,6 +382,13 @@ def cases(seed: int, count: int, *, unicode_scalars: bool = False) -> Iterator[C
         "$$x$$",
         "[x](https://example.com)",
         "\ud800",
+        "#**dev tools**",
+        "#**dev tools>t**",
+        "#**dev tools>t@1**",
+        "#**empty>**",
+        "#**empty>@۱٢3**",
+        "#**empty>no**",
+        "#**hidden>t**",
     ]
     for _ in range(count):
         nodes = []
@@ -334,6 +414,8 @@ def cases(seed: int, count: int, *, unicode_scalars: bool = False) -> Iterator[C
             rng.choice([None, [], ["outer"], ["a", "P"]]),
             rng.choice(["default", "default", "formatting", "excluded", "empty", "unicode"]),
             translate_emoticons=bool(rng.randrange(2)),
+            channels=bool(rng.randrange(2)),
+            empty_topic_only=bool(rng.randrange(2)),
         )
 
 
@@ -382,6 +464,13 @@ def main() -> None:
         args.repository / "rust-backend/tools/generate_markdown_emoji_data.py",
         args.repository / "zerver/lib/markdown/__init__.py",
         args.repository / "zerver/lib/markdown/native_inline.py",
+        args.repository / "zerver/lib/markdown/native_channels.py",
+        args.repository / "zerver/lib/markdown/channel_links.py",
+        args.repository / "zerver/lib/mention.py",
+        args.repository / "zerver/lib/url_encoding.py",
+        args.repository / "rust-backend/src/markdown_channel_syntax.rs",
+        args.repository / "rust-backend/src/markdown_channel_spans.rs",
+        args.repository / "rust-backend/src/url_fragments.rs",
     ]
     report: dict[str, object] = {
         "python": platform.python_version(),

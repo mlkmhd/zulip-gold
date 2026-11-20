@@ -8,8 +8,10 @@ from xml.etree.ElementTree import Element
 import regex
 from markdown import inlinepatterns, util
 
+from zerver.lib.markdown import native_channels
 from zerver.lib.markdown.emphasis import EmphasisPattern
 from zerver.lib.markdown.inline_code import BacktickPattern
+from zerver.lib.markdown.native_channels import ChannelInputs
 
 if TYPE_CHECKING:
     from zerver.lib.markdown.inline_stash import InlineProcessor
@@ -33,6 +35,7 @@ Planner: TypeAlias = Callable[
         EmoticonCatalog | None,
         UnicodeEmojiCatalog | None,
         LinkPolicy | None,
+        ChannelInputs | None,
     ],
     Plan | None,
 ]
@@ -70,8 +73,13 @@ def try_run(
         Emoji,
         EmoticonTranslation,
         LinkInlineProcessor,
+        StreamPattern,
+        StreamTopicMessagePattern,
+        StreamTopicPattern,
         UnicodeEmoji,
         ZulipMarkdown,
+        _native_channel_patterns,
+        _native_channel_topic_display,
         _native_emoji_callbacks,
         _native_inline_handlers,
         _native_link_callbacks,
@@ -143,6 +151,7 @@ def try_run(
     emoticon_catalog = None
     unicode_emoji_catalog = None
     link_policy = None
+    has_channels = False
     for name, _ in ordered:
         pattern = cast(inlinepatterns.Pattern, data[name])
         callbacks = _native_inline_handlers.get(type(pattern))
@@ -290,6 +299,24 @@ def try_run(
                 return False
             unicode_emoji_catalog = (regex.__version__, codepoint_to_name)
             kind = 10
+        elif type(pattern) in (StreamPattern, StreamTopicPattern, StreamTopicMessagePattern):
+            channel_pattern = cast(
+                StreamPattern | StreamTopicPattern | StreamTopicMessagePattern, pattern
+            )
+            kind = 14 + (StreamPattern, StreamTopicPattern, StreamTopicMessagePattern).index(
+                type(channel_pattern)
+            )
+            if (
+                compiled is not _native_channel_patterns[kind - 14]
+                or type(vars(markdown).get("TOPIC_LINK_SYNTAX_FOR_DISPLAY")) is not str
+                or _native_channel_topic_display
+                != vars(markdown).get("TOPIC_LINK_SYNTAX_FOR_DISPLAY")
+                or not native_channels.standard_pattern(
+                    channel_pattern, cast(ZulipMarkdown, processor.md)
+                )
+            ):
+                return False
+            has_channels = True
         elif type(pattern) is LinkInlineProcessor and sys.version_info[:2] == (3, 12):
             from django.conf import settings
 
@@ -341,7 +368,7 @@ def try_run(
                 kind = 11
         if (
             kind
-            and kind != 10
+            and kind not in (10, 14, 15, 16)
             and (type(compiled) is not re.Pattern or expression.flags != re.DOTALL | re.UNICODE)
         ):
             return False
@@ -394,6 +421,15 @@ def try_run(
                 children,
             )
         )
+    channel_inputs = None
+    if has_channels and any(
+        "#**" in (text[0] if text is not None else "")
+        for node in nodes
+        for text in (node[2], node[3])
+    ):
+        channel_inputs = native_channels.snapshot(cast(ZulipMarkdown, processor.md))
+        if channel_inputs is None:
+            return False
     plan = planner(
         nodes,
         patterns,
@@ -403,6 +439,7 @@ def try_run(
         emoticon_catalog,
         unicode_emoji_catalog,
         link_policy,
+        channel_inputs,
     )
     if plan is None:
         return False
