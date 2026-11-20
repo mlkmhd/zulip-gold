@@ -2009,3 +2009,143 @@ class MarkdownNativeInlineTest(TestCase):
                 return root
 
             self.compare(build, configure=configure)
+
+    def test_native_media_cloud_public_root_and_camo(self) -> None:
+        from django.test import override_settings
+
+        from zerver.lib import upload
+        from zerver.lib.upload.s3 import S3UploadBackend
+
+        self.require_native_media()
+        backend = object.__new__(S3UploadBackend)
+        backend.public_upload_url_base = "https://cdn.example/public/"
+        for root in ["https://cdn.example/public/", "https://cdn.example:443/public/"]:
+            backend.public_upload_url_base = root
+            for reverse in [False, True]:
+                with (
+                    override_settings(LOCAL_UPLOADS_DIR=None, CAMO_URI="https://proxy.example/"),
+                    mock.patch.object(upload, "_upload_backend", backend),
+                ):
+
+                    def configure(md: ZulipMarkdown, reverse: bool = reverse) -> None:
+                        self.media_data(md)
+                        if reverse:
+                            md.inlinePatterns.register(md.inlinePatterns["audio"], "audio", 56)
+
+                    def build(root: str = root) -> Element:
+                        tree = Element("div")
+                        SubElement(tree, "p").text = (
+                            f"![public]({root}audio.mp3) "
+                            "![other](https://cdn.example/public-evil/audio.mp3) "
+                            "![picture](/user_uploads/1/picture) "
+                            "![both](/user_uploads/1/both) @**alice**"
+                        )
+                        return tree
+
+                    self.compare(build, configure=configure)
+
+    def test_native_media_cloud_snapshot_guards(self) -> None:
+        from django.test import override_settings
+
+        from zerver.lib import subdomains, upload
+        from zerver.lib.upload.s3 import S3UploadBackend
+
+        self.require_native_media()
+        md = self.markdown()
+        self.media_data(md)
+        backend = object.__new__(S3UploadBackend)
+        backend.public_upload_url_base = "https://cdn.example/public/"
+        callback = mock.Mock(side_effect=AssertionError("custom upload callback ran"))
+        with (
+            override_settings(LOCAL_UPLOADS_DIR=None),
+            mock.patch.object(upload, "_upload_backend", backend),
+        ):
+            for owner, name in [
+                (upload, "get_upload_backend"),
+                (upload, "get_public_upload_root_url"),
+                (subdomains, "get_public_upload_root_url"),
+                (S3UploadBackend, "get_public_upload_root_url"),
+                (backend, "get_public_upload_root_url"),
+            ]:
+                with self.subTest(name=name), mock.patch.object(owner, name, callback):
+                    self.assertIsNone(native_media.snapshot(md))
+            with mock.patch.object(
+                S3UploadBackend,
+                "public_upload_url_base",
+                property(lambda _: "changed"),
+                create=True,
+            ):
+                self.assertIsNone(native_media.snapshot(md))
+            for bad_backend in [None, object()]:
+                with mock.patch.object(upload, "_upload_backend", bad_backend):
+                    self.assertIsNone(native_media.snapshot(md))
+            for bad_root in [
+                None,
+                12,
+                "",
+                "https://cdn.example/public",
+                "\ud800/",
+                "x" * 1_000_001 + "/",
+            ]:
+                with (
+                    self.subTest(root_type=type(bad_root)),
+                    mock.patch.object(backend, "public_upload_url_base", bad_root),
+                ):
+                    self.assertIsNone(native_media.snapshot(md))
+            self.assertIsNotNone(native_media.snapshot(md))
+        callback.assert_not_called()
+
+    def test_native_media_cloud_snapshot_does_not_initialize_backend(self) -> None:
+        from django.test import override_settings
+
+        from zerver.lib import upload
+        from zerver.lib.upload.s3 import S3UploadBackend
+
+        self.require_native_media()
+        native = inline_stash._rust_native_inline
+        assert native is not None
+        md = self.markdown()
+        self.media_data(md)
+        backend = object.__new__(S3UploadBackend)
+        backend.public_upload_url_base = "https://cdn.example/public/"
+        processor = InlineProcessor(md)
+        md.treeprocessors.register(processor, "inline", 25)
+        root = Element("div")
+        SubElement(root, "p").text = "![public](https://cdn.example/public/audio.mp3)"
+        paths = md.zulip_rendering_result.potential_attachment_path_ids[:]
+        forbidden = {callback.__code__ for callback in native_media._UPLOAD_CALLBACKS}
+        calls = []
+
+        def profile(frame: FrameType, event: str, arg: object) -> None:
+            if event == "call" and frame.f_code in forbidden:
+                calls.append(frame.f_code.co_name)
+
+        with (
+            override_settings(LOCAL_UPLOADS_DIR=None),
+            mock.patch.object(upload, "_upload_backend", None),
+            mock.patch.object(
+                S3UploadBackend,
+                "__init__",
+                side_effect=AssertionError("backend initialization attempted"),
+            ) as initialize,
+        ):
+            self.assertIsNone(native_media.snapshot(md))
+            with mock.patch.object(upload, "_upload_backend", backend):
+                previous = sys.getprofile()
+                try:
+                    sys.setprofile(profile)
+                    self.assertTrue(
+                        native_inline.try_run(
+                            processor,
+                            root,
+                            None,
+                            native.plan_markdown_native_inline,
+                            native.plan_markdown_native_inline_media,
+                        )
+                    )
+                finally:
+                    sys.setprofile(previous)
+            self.assertEqual(calls, [])
+            initialize.assert_not_called()
+        self.assertEqual(root[0][0].get("src"), "https://cdn.example/public/audio.mp3")
+        self.assertEqual(md.zulip_rendering_result.potential_attachment_path_ids, paths)

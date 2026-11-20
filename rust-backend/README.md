@@ -2904,7 +2904,7 @@ performance measurement.
 
 The existing default-off `ZULIP_RUST_MARKDOWN_NATIVE_INLINE=1` path now includes
 Markdown audio and uploaded-image handlers on CPython 3.12 POSIX installations
-with local uploads. `native_media` validates the already-loaded `DbData`
+with local uploads or an already-initialized standard S3 backend. `native_media` validates the already-loaded `DbData`
 preview collections and copies the initialized runtime MIME tables. It does
 not initialize the MIME database, query attachments or authorize new previews.
 Absent data and a present empty preview collection retain distinct behavior.
@@ -2914,9 +2914,16 @@ The shared link-policy validation also applies to audio and images, including
 when the link handler is absent from the registry. Static/Camo settings and
 MIME mappings are read for each media plan. Changed supported types and strict
 MIME mappings therefore take effect without restarting the renderer. Custom
-helpers, unsupported runtime versions, uninitialized MIME data and cloud
-upload settings delegate the entire plan to the existing Python engine.
-Public cloud upload-root snapshot construction remains a separate slice.
+helpers, unsupported runtime versions and uninitialized MIME data delegate the
+entire plan to the existing Python engine.
+
+For cloud uploads, the adapter snapshots `public_upload_url_base` from the
+existing standard `S3UploadBackend`, after guarding the public-root helpers,
+method and field descriptors. It never constructs a backend, invokes its
+public-root helper or starts an S3 request. An uninitialized/custom backend,
+changed helper, non-string root or root without a trailing slash delegates the
+whole plan. The cached public root retains the reference's Camo exemption;
+similar URL prefixes outside that root remain proxied.
 
 Snapshot inputs are limited to 100,000 preview entries, 100,000 MIME/policy
 entries and one million combined source/output characters. Image dimensions

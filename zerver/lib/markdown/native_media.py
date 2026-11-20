@@ -10,6 +10,9 @@ from urllib import parse as urlparse
 
 from markdown import inlinepatterns
 
+from zerver.lib import upload
+from zerver.lib.upload.s3 import S3UploadBackend
+
 if TYPE_CHECKING:
     from zerver.lib.markdown import AudioInlineProcessor, ImageInlineProcessor, ZulipMarkdown
 
@@ -28,6 +31,11 @@ class MimeDatabase(Protocol):
     def guess_type(self, url: str, strict: bool = True) -> tuple[str | None, str | None]: ...
 
 
+_UPLOAD_CALLBACKS = (
+    upload.get_upload_backend,
+    upload.get_public_upload_root_url,
+    S3UploadBackend.get_public_upload_root_url,
+)
 _CAMO_CALLBACKS = (hmac.new, hmac.HMAC, hashlib.sha1)
 _SURROGATE_RE = re.compile("[\ud800-\udfff]")
 _MIME_CALLBACKS = (
@@ -105,7 +113,6 @@ def snapshot(renderer: "ZulipMarkdown") -> MediaInputs | None:
         or (hmac.new, hmac.HMAC, hashlib.sha1) != _CAMO_CALLBACKS
         or vars(camo).get("hmac") is not hmac
         or vars(camo).get("hashlib") is not hashlib
-        or settings.LOCAL_UPLOADS_DIR is None
     ):
         return None
     rendering = renderer.zulip_rendering_result
@@ -131,6 +138,24 @@ def snapshot(renderer: "ZulipMarkdown") -> MediaInputs | None:
         return None
     if settings.CAMO_URI and settings.CAMO_KEY is None:
         return None
+    public_root = None
+    if settings.LOCAL_UPLOADS_DIR is None:
+        backend = vars(upload).get("_upload_backend")
+        if (
+            upload.get_upload_backend is not _UPLOAD_CALLBACKS[0]
+            or upload.get_public_upload_root_url is not _UPLOAD_CALLBACKS[1]
+            or vars(subdomains).get("get_public_upload_root_url") is not _UPLOAD_CALLBACKS[1]
+            or type(backend) is not S3UploadBackend
+            or S3UploadBackend.get_public_upload_root_url is not _UPLOAD_CALLBACKS[2]
+            or getattr(backend.get_public_upload_root_url, "__func__", None)
+            is not _UPLOAD_CALLBACKS[2]
+            or any("public_upload_url_base" in vars(cls) for cls in S3UploadBackend.__mro__)
+        ):
+            return None
+        public_root = vars(backend).get("public_upload_url_base")
+        if not valid_text(public_root) or not cast(str, public_root).endswith("/"):
+            return None
+        public_root = cast(str, public_root)
     realm = getattr(renderer, "zulip_realm", None)
     host = None
     if realm is not None:
@@ -219,5 +244,5 @@ def snapshot(renderer: "ZulipMarkdown") -> MediaInputs | None:
         host,
         audio,
         images,
-        (mime, cast(str, values[0]), values[1], None, values[2], settings.CAMO_KEY),
+        (mime, cast(str, values[0]), values[1], public_root, values[2], settings.CAMO_KEY),
     )

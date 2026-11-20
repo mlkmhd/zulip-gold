@@ -40,6 +40,7 @@ class Case:
     mention_active: bool = True
     media: int = 0
     previous_image: bool = True
+    cloud: bool = False
 
 
 def build(case: Case) -> Element:
@@ -79,7 +80,13 @@ def snapshot(processor: "PythonInlineProcessor", root: Element) -> dict[str, obj
     ]
     parents = [(index(node), index(parent)) for node, parent in processor.parent_map.items()]
     tree = [
-        (node.tag, text(node.text), text(node.tail), dict(node.attrib), [index(c) for c in node])
+        (
+            node.tag,
+            text(node.text),
+            text(node.tail),
+            list(node.attrib.items()),
+            [index(c) for c in node],
+        )
         for node in nodes
     ]
     registry = cast(RegistryInternals, processor.inlinePatterns)
@@ -97,6 +104,25 @@ def snapshot(processor: "PythonInlineProcessor", root: Element) -> dict[str, obj
 
 
 def exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
+    if not case.cloud:
+        return _exercise(case, native=native)
+    from unittest.mock import patch
+
+    from django.test import override_settings
+
+    from zerver.lib import upload
+    from zerver.lib.upload.s3 import S3UploadBackend
+
+    backend = object.__new__(S3UploadBackend)
+    backend.public_upload_url_base = "https://cdn.example/public/"
+    with (
+        override_settings(LOCAL_UPLOADS_DIR=None, CAMO_URI="https://proxy.example/"),
+        patch.object(upload, "_upload_backend", backend),
+    ):
+        return _exercise(case, native=native)
+
+
+def _exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
     from markdown import util
     from markdown.treeprocessors import InlineProcessor as PythonInlineProcessor
 
@@ -291,7 +317,7 @@ def exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
         original_rendering = asdict(md.zulip_rendering_result)
         original_nodes = list(dict.fromkeys(root.iter()))
         original_values = [
-            (node.tag, node.text, node.tail, dict(node.attrib), list(node))
+            (node.tag, node.text, node.tail, list(node.attrib.items()), list(node))
             for node in original_nodes
         ]
         original_attributes = [node.attrib for node in original_nodes]
@@ -315,7 +341,7 @@ def exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
                 "Rejected plan mutated metadata"
             )
             assert original_values == [
-                (node.tag, node.text, node.tail, dict(node.attrib), list(node))
+                (node.tag, node.text, node.tail, list(node.attrib.items()), list(node))
                 for node in original_nodes
             ], "Rejected plan mutated the input graph"
             assert (priorities, sorted_before) == (
@@ -468,6 +494,27 @@ def cases(seed: int, count: int, *, unicode_scalars: bool = False) -> Iterator[C
                     channels=True,
                     mentions=True,
                 )
+    for context in (1, 2, 3):
+        for previous in (False, True):
+            for value in (
+                "![public](https://cdn.example/public/a.mp3) ![outside](https://cdn.example/public-evil/a.mp3)",
+                "![picture](/user_uploads/1/picture) ![voice](/user_uploads/1/voice) @**alice** #**dev tools**",
+                "![public](https://cdn.example/public/a.mp3) ![both](/user_uploads/1/both)",
+            ):
+                yield Case(
+                    [
+                        Node("div", None, None, [1, 2]),
+                        Node("p", (value, False), None, []),
+                        Node("code", (value, True), None, []),
+                    ],
+                    ["outer"],
+                    accepted=True,
+                    media=context,
+                    previous_image=previous,
+                    channels=True,
+                    mentions=True,
+                    cloud=True,
+                )
     if unicode_scalars:
         for first in range(0, 0x110000, 256):
             value = " ".join(
@@ -551,6 +598,8 @@ def cases(seed: int, count: int, *, unicode_scalars: bool = False) -> Iterator[C
         "![query](/user_uploads/1/picture?x#y)",
         "![audio](https://other.example/a.mp3)",
         "![static](/static/sound.mp3)",
+        "![public](https://cdn.example/public/audio.mp3)",
+        "![outside](https://cdn.example/public-evil/audio.mp3)",
         "![empty](/user_uploads/)",
         "![malformed](http://[bad]/a)",
         "![unbounded](https://例.example/a)",
@@ -586,6 +635,7 @@ def cases(seed: int, count: int, *, unicode_scalars: bool = False) -> Iterator[C
             mention_active=bool(rng.randrange(2)),
             media=rng.randrange(4),
             previous_image=bool(rng.randrange(2)),
+            cloud=bool(rng.randrange(2)),
         )
 
 
@@ -643,6 +693,8 @@ def main() -> None:
         args.repository / "zerver/lib/camo.py",
         args.repository / "zerver/lib/mime_types.py",
         args.repository / "zerver/lib/subdomains.py",
+        args.repository / "zerver/lib/upload/__init__.py",
+        args.repository / "zerver/lib/upload/s3.py",
         args.repository / "zerver/lib/thumbnail.py",
         args.repository / "rust-backend/src/markdown_mention_syntax.rs",
         args.repository / "rust-backend/src/markdown_inline_mentions.rs",
