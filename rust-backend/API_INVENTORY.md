@@ -1154,3 +1154,19 @@ Unicode scalarها و ۱۴٬۳۹۷ حالت کامل، بدون اختلاف ب�
 ۱۷۱ OpenAPI و ۲۸ از ۱۹۰ وب و شمار فایل‌های Python حذف‌شده صفر است.
 لینک، mention و metadata کامل و اتصال renderer به listener هنوز
 باقی‌اند. [قرارداد و بازتولید](README.md#run-the-native-inline-markdown-planner)
+
+## parser مستقل لینک، تصویر و صوت
+
+ماژول `markdown_link_syntax` با feature موجود `native-markdown`،
+بازهٔ UTF-8 برچسب، مقصد، عنوان و پایان لینک و syntax مشترک تصویر
+و صوت را بدون Python مشخص می‌کند. قواعد nested bracket و quote
+مرجع حفظ می‌شوند؛ پایان منفی parser مرجع خطای صریح نیازمند
+واگذاری است. ده تست عمومی Rust و ۳۵۰٬۰۴۶ مقایسهٔ syntax با
+Python-Markdown 3.10.3 بدون اختلاف گذشتند.
+
+این API آماده‌سازی است؛ dispatch زنده، بازکردن placeholder، بررسی
+امنیت URL، بازنویسی محلی، انتخاب رسانه و metadata هنوز در مسیر
+مرجع‌اند. پرچم تازه، تغییر پیش‌فرض و عملیات HTTP تازه‌ای ندارد.
+شمار مستقل همان ۲۸ از ۱۷۱ OpenAPI و ۲۸ از ۱۹۰ وب و شمار فایل‌های
+Python حذف‌شده صفر است.
+[قرارداد و بازتولید](README.md#parse-inline-link-and-image-syntax-from-rust)
