@@ -81,7 +81,7 @@ import os
 import re
 from collections.abc import Callable, Iterable, Mapping, MutableSequence, Sequence
 from importlib import import_module
-from typing import Any
+from typing import Any, cast
 
 import lxml.html
 from django.utils.html import escape
@@ -98,6 +98,12 @@ from zerver.lib.markdown.priorities import PREPROCESSOR_PRIORITIES
 from zerver.lib.markdown.whitespace import ZulipNormalizeWhitespace
 from zerver.lib.tex import render_tex
 from zerver.models.realm_playgrounds import PLAYGROUND_LANGUAGE_REGEX
+
+_rust_tex_handlers = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_MARKDOWN_TEX_HANDLERS") == "1"
+    else None
+)
 
 _rust_markdown_fences = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_MARKDOWN_FENCES") == "1" else None
@@ -619,6 +625,9 @@ class FencedBlockPreprocessor(Preprocessor):
         return "\n\n".join(output)
 
     def format_tex(self, text: str) -> str:
+        handler = getattr(_rust_tex_handlers, "render_markdown_display_tex", None)
+        if handler is not None:
+            return cast(str, handler(text, globals()))
         paragraphs = text.split("\n\n")
         tex_paragraphs = []
         for paragraph in paragraphs:

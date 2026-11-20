@@ -86,6 +86,12 @@ from zerver.models.streams import StreamTopicsPolicyEnum
 
 ReturnT = TypeVar("ReturnT")
 
+_rust_tex_handlers = (
+    import_module("_zulip_backend")
+    if os.environ.get("ZULIP_RUST_MARKDOWN_TEX_HANDLERS") == "1"
+    else None
+)
+
 _rust_markdown_upload_paths = (
     import_module("_zulip_backend")
     if os.environ.get("ZULIP_RUST_MARKDOWN_UPLOAD_PATHS") == "1"
@@ -1436,6 +1442,9 @@ def content_has_emoji_syntax(content: str) -> bool:
 class Tex(markdown.inlinepatterns.Pattern):
     @override
     def handleMatch(self, match: Match[str]) -> str | Element:
+        handler = getattr(_rust_tex_handlers, "render_markdown_inline_tex", None)
+        if handler is not None:
+            return cast(str | Element, handler(self, match, globals()))
         rendered = render_tex(match.group("body"), is_inline=True)
         if rendered is not None:
             return self.md.htmlStash.store(rendered)

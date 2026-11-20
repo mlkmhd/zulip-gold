@@ -3162,7 +3162,7 @@ file descriptors, signal restoration, GIL release, large bidirectional
 pipes, encoding failures, old-wheel fallback and complete Markdown render
 metadata. This does not retire `zerver/lib/tex.py`: the service client,
 encoding boundary and raw-LaTeX conversion still need migration. Inline
-TeX also still delegates its pattern handler to Python.
+TeX handler orchestration has a separate opt-in bridge described below.
 
 ## Scan inline TeX delimiters through Rust
 
@@ -3211,3 +3211,52 @@ and every Unicode scalar in four contexts. It does not render KaTeX,
 exhaust all strings or measure performance. Dedicated rendering tests
 also check renderer call order, errors, HTML escaping, complete metadata,
 pre-fallback immutability and native acceptance of graphs without TeX.
+
+## Orchestrate TeX handlers through Rust
+
+`ZULIP_RUST_MARKDOWN_TEX_HANDLERS=1` independently opts into Rust for inline
+TeX result handling and fenced math paragraph rendering. It is off by default
+and works with either the service or CLI renderer, regardless of the syntax,
+CLI process or native inline planner flags. Older wheels retain both Python
+handlers through capability checks.
+
+The inline bridge calls the live `render_tex` at the handler's existing
+registry position. Successful output, including an empty string, goes through
+the current HTML stash. Failure creates an atomic `tex-error` span whose body
+is escaped by ElementTree during serialization. The display bridge splits on
+exactly two LF characters, renders paragraphs in order with `is_inline=False`,
+escapes unsuccessful paragraphs with Django's existing helper, and joins with
+the same separator. Empty paragraphs and surrogate strings are preserved.
+Global callbacks and the HTML stash are resolved at the same points as in
+Python, including changes made during rendering. Exceptions propagate without
+retrying rendering or stash writes. Finding unclosed fences still skips TeX.
+
+These are PyO3 orchestration bridges using Python renderer and tree callbacks,
+not a standalone TeX renderer or a performance claim. The native graph planner
+continues to delegate matching TeX before any render callback. This avoids an
+eager KaTeX execution followed by another execution after a later plan rejection.
+Deferred TeX result effects in the standalone planner, the service HTTP client,
+raw-LaTeX conversion and complete Markdown rendering still require migration.
+No Python file can be retired based on this flag alone.
+
+Build and install a cached wheel into a separate target directory:
+
+```sh
+maturin build --manifest-path rust-backend/Cargo.toml --release --locked --offline \
+    --out var/tex-handlers-wheels
+python -m pip install --no-index --no-deps --target var/tex-handlers-python \
+    var/tex-handlers-wheels/*.whl
+PYTHONPATH="$PWD/var/tex-handlers-python:$PWD" ZULIP_RUST_MARKDOWN_TEX_HANDLERS=1 \
+    ./tools/test-backend zerver.tests.test_markdown_tex_handlers \
+    zerver.tests.test_markdown zerver.tests.test_scheduled_messages zerver.tests.test_reminders
+PYTHONPATH="$PWD/var/tex-handlers-python:$PWD" DJANGO_SETTINGS_MODULE=zproject.test_settings \
+    python rust-backend/tests/check_tex_handlers_parity.py \
+    --cases 20000 --seed 962843 --report var/tex-handlers-parity.json
+```
+
+The differential compares both live handlers with their Python fallbacks.
+It checks result types, atomic error strings, ordered HTML stash contents and
+counter values, callback order, renderer exceptions and unchanged list identity.
+The corpus uses controlled renderer results rather than invoking KaTeX for each
+input. Separate full-render tests and real CLI probes cover composition with
+the renderer and all message rendering metadata.
