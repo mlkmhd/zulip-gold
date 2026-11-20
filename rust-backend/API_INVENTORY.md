@@ -1569,3 +1569,18 @@ trigger ربات، در هر حالت ۳۶ تست موفق داشت. Cargo می�
   ساخت آفلاین بود؛ کش و wheelهای قبلی حفظ شدند. HTTP و پیش‌فرض
   تغییر نکردند: ۲۸/۱۷۱ OpenAPI، ۲۸/۱۹۰ وب و صفر فایل بازنشسته.
   [قرارداد](README.md#convert-katex-html-to-raw-latex-through-rust)
+
+## پاسخ سرویس KaTeX در Rust — ۲۰۲۶-۱۱-۲۱
+
+- کامیت `8460d8d74d` با `ZULIP_RUST_KATEX_RESPONSE=1` تصمیم‌های
+  پاسخ، decode و strip و log خطای سرویس را به Rust می‌برد. transport
+  و گرفتن خطای درخواست در Python باقی‌اند. ۲۰٬۰۶۰ مقایسه بدون اختلاف،
+  نه تست تازه و ۴۳۱ تست در هر دو حالت موفق بودند؛ پنج statement
+  تازه یا تغییریافته پوشش دارند. probe واقعی localhost برای wheel
+  تازه و قبلی هر کدام ۱۴ درخواست با فرم، نتیجه و log برابر داشت؛
+  رندر کامل و metadata نیز با CLI برابر بود. Cargo، Clippy، mypy و
+  lint هدفمند موفق بودند. ساخت و نصب آفلاین بود؛ هیچ کش یا wheel
+  قبلی حذف نشد. این کلاینت HTTP بومی یا بازنشستگی فایل Python نیست.
+  پیش‌فرض و HTTP تغییر نکردند: ۲۸/۱۷۱ OpenAPI، ۲۸/۱۹۰ وب و صفر
+  فایل بازنشسته.
+  [قرارداد](README.md#handle-katex-service-responses-through-rust)
