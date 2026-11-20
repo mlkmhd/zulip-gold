@@ -1237,3 +1237,22 @@ Unicode، بخش نقطه و خالی و پارامتر semicolon را حفظ م
 renderer مستقل کامل، پرچم یا مسیر HTTP تازه ایجاد نشد؛ شمار عملیات
 همان ۲۸ از ۱۷۱ OpenAPI و ۲۸ از ۱۹۰ وب و فایل Python حذف‌شده صفر است.
 [قرارداد و بازتولید](README.md#prepare-uploaded-images-and-attachment-effects-natively)
+
+## API مستقل syntax و فیلدهای mention — ۲۰۲۶-۱۱-۲۰
+
+`2f33d44209` scanner مشترک mention را با offset بایتی برای caller
+بومی در دسترس می‌گذارد. `d93e4e0dec` آماده‌سازی `name|id`، span و
+اثر اعلان را بدون وابستگی Python فراهم می‌کند. lookup مجاز، قواعد
+lowercase و نام نمایشی گروه همچنان از snapshot میزبان تأمین می‌شوند.
+سقف تبدیل عدد و رقم‌های decimal از همان runtime گرفته می‌شوند.
+
+مقایسهٔ scanner روی ۴٬۶۶۷٬۳۳۸ حالت بدون اختلاف بود؛ fingerprint مرجع
+Python 3.12 و 3.15 برابر است. مقایسهٔ فیلدها روی ۱۰۱٬۲۱۴ حالت در
+Python 3.12 و ۱۰۱٬۳۰۴ حالت در میزبان نیز بدون اختلاف گذشت. snapshot
+نهایی native شامل ۱۲۴ تست موفق است. این‌ها APIهای آماده‌سازی‌اند؛
+اتصال به planner، guardها و commit اتمی metadata اعلان هنوز باقی‌اند.
+موتور کامل Markdown یا تحویل اعلان مستقل Rust تأیید نشده است.
+
+پرچم، پیش‌فرض یا مسیر HTTP تازه‌ای فعال نشد؛ شمار عملیات مستقل
+همان ۲۸ از ۱۷۱ OpenAPI و ۲۸ از ۱۹۰ وب و فایل Python حذف‌شده صفر است.
+[قرارداد و بازتولید](README.md#prepare-mention-syntax-and-notification-fields-natively)
