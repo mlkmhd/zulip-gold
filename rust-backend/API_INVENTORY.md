@@ -1256,3 +1256,28 @@ Python 3.12 و ۱۰۱٬۳۰۴ حالت در میزبان نیز بدون اخت�
 پرچم، پیش‌فرض یا مسیر HTTP تازه‌ای فعال نشد؛ شمار عملیات مستقل
 همان ۲۸ از ۱۷۱ OpenAPI و ۲۸ از ۱۹۰ وب و فایل Python حذف‌شده صفر است.
 [قرارداد و بازتولید](README.md#prepare-mention-syntax-and-notification-fields-natively)
+
+## صوت بومی و برنامه‌ریزی رسانه با metadata معوق
+
+`markdown_media::prepare_audio` انتخاب MIME و preview مجاز، عنوان
+خام، sanitizer و بازنویسی، استثناهای static و سازمان و URLهای
+Camo را بدون Python آماده می‌کند. snapshot غایب و خالی متفاوت‌اند؛
+رد صوت می‌تواند اثر پیوست داشته باشد و عنوان صریح لینک پیش از
+این اثر رد می‌شود. جدول MIME از تنظیمات زندهٔ CPython 3.12 POSIX
+می‌آید؛ وابستگی تازه‌ای اضافه نشد.
+
+`markdown_native_inline::run_with_media` انتخاب صوت و تصویر را با
+ترتیب registry در arena اجرا می‌کند. اثرهای پیوست و has_image تا
+موفقیت کل plan نگه داشته می‌شوند؛ ترتیب و تکرار ناشی از اسکن مجدد
+حفظ می‌شوند و خطا یا سقف منابع کل plan را واگذار می‌کند.
+
+مقایسهٔ صوت، ۱٬۵۶۷٬۲۲۴ حالت، و مقایسهٔ planner، ۶۰۰٬۲۵۲ حالت،
+بدون اختلاف داشتند؛ پذیرش و واگذاری در گزارش‌ها جدا هستند. Cargo
+نهایی همهٔ featureها ۲۰۱ تست موفق و یک integration قدیمی ignored
+داشت. این APIها هنوز به dispatch زنده و bridge وصل نشده‌اند و
+renderer کامل مستقل نیستند. guard helperها و snapshot مجاز و
+commit اتمی درخت و metadata در adapter قدم بعدی است. مسیر HTTP و
+پیش‌فرض تازه‌ای فعال نشد؛ شمار عملیات همان ۲۸ از ۱۷۱ OpenAPI و
+۲۸ از ۱۹۰ وب است و فایل Python حذف‌شده صفر باقی ماند.
+[قرارداد صوت](README.md#prepare-audio-and-camo-attributes-natively) و
+[planner رسانه](README.md#plan-native-media-with-pending-metadata)
