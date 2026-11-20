@@ -1318,3 +1318,34 @@ caller باید آن‌ها را با حفظ metadata قبلی و همراه د�
 این پیشرفت داخل renderer و پل PyO3 است؛ شمار عملیات مستقل همچنان ۲۸ از
 ۱۷۱ OpenAPI و ۲۸ از ۱۹۰ وب و شمار فایل‌های Python حذف‌شده صفر است.
 [تأیید، محدودیت‌ها و ادامهٔ کار](MIGRATION_HANDOFF.md#لینکهای-کانال-موضوع-و-پیام-در-planner-بومی--۲۰۲۶-۱۱-۲۰)
+
+## رندر زندهٔ mention و commit اعلان — ۲۰۲۶-۱۱-۲۰
+
+`17ca756f56` با همان پرچم پیش‌فرض خاموش
+`ZULIP_RUST_MARKDOWN_NATIVE_INLINE`، mention کاربر، گروه و wildcard
+را از snapshot مجاز به planner و پل PyO3 متصل می‌کند. lookupهای
+خام و ناموفق، lowercase میزبان، ترجمهٔ گروه سیستمی و حد عدد زنده
+حفظ می‌شوند؛ کوئری تازه یا تغییر مجوز وجود ندارد. فیلد deferred،
+نوع غیرمعمول، surrogate، snapshot ناقص و سقف منابع، کل plan را
+پیش از mutation واگذار می‌کنند. `@` عادی به snapshot نیاز ندارد.
+
+اثرهای اعلان تنها پس از موفقیت کل گراف، به setهای قبلی افزوده و
+پرچم‌های wildcard با مقدار قبلی OR می‌شوند. شکست دیرهنگام همهٔ
+درخت، registry، processor و rendering metadata را حفظ می‌کند.
+منبع و خروجی snapshot بودجهٔ مشترک دارند؛ تکرار نام canonical
+در aliasهای خام مختلف نیز پیش از کپی PyO3 حساب می‌شود.
+
+مقایسهٔ نهایی Python 3.12.3 و Markdown 3.10.3 با seed برابر `962833`، تعداد ۳۰٬۰۹۹ گراف را بدون اختلاف گذراند: ۱۳٬۹۷۶ اجرای native و ۱۶٬۱۲۳ واگذاری به Python.
+ده تست coverage، تمام ۸۸ statement helper و همهٔ خط‌های اجرایی
+تازهٔ adapter را اجرا کردند. تست‌های backend در دو حالت ۲۸۶ مورد
+داشتند؛ دو skip شناخته‌شده در حالت روشن و subtestهای مختص native
+در حالت خاموش ثبت شدند. ماتریس پل‌های قدیمی mention و اعلان و
+trigger ربات، در هر حالت ۳۶ تست موفق داشت. Cargo میزبان ۴۰ و ۱۶۲
+تست بدون feature و native و Cargo همهٔ featureهای VM، ۲۲۲ تست
+موفق و یک integration قدیمی ignored داشتند. lint، mypy، rustfmt
+و Clippy موفق بودند. وابستگی‌ها فقط از کش خوانده شدند.
+
+مسیر HTTP و پیش‌فرض استقرار تغییر نکرد؛ شمار عملیات مستقل همان
+۲۸ از ۱۷۱ OpenAPI و ۲۸ از ۱۹۰ وب است. renderer کامل، adapter رسانه
+و listener زمان‌بندی هنوز کامل نیستند و فایل Python حذف نشد.
+[قرارداد و بازتولید](README.md#render-mentions-through-the-guarded-native-inline-bridge)
