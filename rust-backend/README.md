@@ -3113,3 +3113,53 @@ range oracle compares the actual reference expression, including every Unicode
 scalar in four contexts, independently of the sanitizer. TeX, highlighting,
 previews and the rest of the renderer and scheduled delivery orchestration remain
 before Python renderer retirement.
+
+## Run local KaTeX processes through Rust
+
+`ZULIP_RUST_MARKDOWN_TEX=1` moves the local KaTeX subprocess into
+`markdown_tex::run_cli` on Linux. It uses the installed `node` and KaTeX
+script, without a shell or additional packages. Both inline and display
+rendering retain the same command arguments and HTML output. The native
+function accepts encoded bytes and returns `(success, stdout_bytes)`;
+Python retains locale encoding, universal-newline decoding and stripping.
+Output is decoded even after an unsuccessful exit, preserving decode errors.
+
+The writer and output reader run concurrently to avoid pipe deadlocks.
+Broken stdin pipes do not override the child exit status; other process I/O
+errors propagate. The PyO3 call releases the GIL, preserves spawn errno and
+filename, and discards stderr. Before exec, Linux `close_range` marks all
+nonstandard descriptors close-on-exec, and SIGXFSZ is restored along with
+Rust's normal SIGPIPE reset. Unsupported process isolation delegates before
+KaTeX executes. Additional open descriptors remain unchanged in the parent.
+
+The flag is off by default and independent of the native inline planner.
+Other platforms, old wheels, encoding-warning mode and replaced subprocess
+helpers use the Python path. `KATEX_SERVER=True` retains its existing HTTP
+client, timeout and failure handling. Production bundle selection and missing
+script logging also retain their existing behavior. KaTeX itself remains
+JavaScript; this is process orchestration, not a native TeX implementation.
+
+Build one release wheel offline and install it into a separate directory:
+
+```bash
+maturin build --manifest-path rust-backend/Cargo.toml --release --locked --offline \
+    --out var/tex-cli-wheels
+python -m pip install --no-index --no-deps --target var/tex-cli-python \
+    var/tex-cli-wheels/*.whl
+PYTHONPATH="$PWD/var/tex-cli-python:$PWD" \
+    python rust-backend/tests/test_tex_bridge.py
+PYTHONPATH="$PWD/var/tex-cli-python:$PWD" ZULIP_RUST_MARKDOWN_TEX=1 \
+    ./tools/test-backend zerver.tests.test_tex_rust zerver.tests.test_markdown
+PYTHONPATH="$PWD/var/tex-cli-python:$PWD" \
+    python rust-backend/tests/check_tex_cli_parity.py \
+    --katex node_modules/katex/cli.js --cases 200 --seed 962841 \
+    --report var/tex-cli-parity.json
+```
+
+The differential compares raw output and success against the same installed
+KaTeX through Python subprocesses. Dedicated tests also cover inherited
+file descriptors, signal restoration, GIL release, large bidirectional
+pipes, encoding failures, old-wheel fallback and complete Markdown render
+metadata. This does not retire `zerver/lib/tex.py`: the service client,
+encoding boundary and raw-LaTeX conversion still need migration. Inline
+TeX also still delegates its pattern handler to Python.

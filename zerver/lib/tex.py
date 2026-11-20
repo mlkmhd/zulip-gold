@@ -1,6 +1,9 @@
+import locale
 import logging
 import os
 import subprocess
+import sys
+from importlib import import_module
 from typing import Any
 
 import lxml.html
@@ -9,6 +12,12 @@ from django.conf import settings
 
 from zerver.lib.outgoing_http import OutgoingSession
 from zerver.lib.storage import static_path
+
+_rust_markdown_tex = (
+    import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_MARKDOWN_TEX") == "1" else None
+)
+_subprocess_check_output = subprocess.check_output
+_subprocess_popen = subprocess.Popen
 
 
 class KatexSession(OutgoingSession):
@@ -73,6 +82,24 @@ def render_tex(tex: str, is_inline: bool = True) -> str | None:
     if not os.path.isfile(katex_path):
         logging.error("Cannot find KaTeX for latex rendering!")
         return None
+    rust_render = getattr(_rust_markdown_tex, "run_katex_cli", None)
+    if (
+        rust_render is not None
+        and sys.platform == "linux"
+        and not sys.flags.warn_default_encoding
+        and subprocess.check_output is _subprocess_check_output
+        and subprocess.Popen is _subprocess_popen
+    ):
+        encoding = "utf-8" if sys.flags.utf8_mode else locale.getencoding()
+        try:
+            success, stdout = rust_render(katex_path, tex.encode(encoding), is_inline)
+        except NotImplementedError:
+            pass
+        else:
+            # Text-mode subprocesses decode even unsuccessful output and normalize
+            # newlines before the caller checks the exit status.
+            rendered = stdout.decode(encoding).replace("\r\n", "\n").replace("\r", "\n")
+            return rendered.strip() if success else None
     command = ["node", katex_path]
     if not is_inline:
         command.extend(["--display-mode"])

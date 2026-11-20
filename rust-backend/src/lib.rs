@@ -96,6 +96,9 @@ pub mod markdown_native_inline;
 #[cfg(feature = "native-markdown")]
 pub mod markdown_timestamp;
 
+#[cfg(feature = "native-markdown")]
+pub mod markdown_tex;
+
 #[cfg(feature = "python")]
 mod markdown_list_blocks;
 
@@ -155,6 +158,9 @@ mod python;
 
 #[cfg(feature = "python")]
 mod python_media;
+
+#[cfg(feature = "python")]
+mod python_tex;
 
 #[cfg(feature = "python")]
 mod reminder_access;

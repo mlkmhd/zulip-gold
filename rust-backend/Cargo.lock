@@ -2601,6 +2601,7 @@ dependencies = [
  "httpdate",
  "jiter",
  "lapin",
+ "libc",
  "pyo3",
  "rand",
  "redis",
