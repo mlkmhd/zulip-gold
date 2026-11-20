@@ -10,6 +10,7 @@ use crate::draft_text::is_python_whitespace;
 use crate::markdown_code::find_inline_code;
 use crate::markdown_emphasis::find_emphasis;
 use crate::markdown_inline_stash::Scanner;
+use crate::markdown_unicode_emoji::{self, UnicodeEmoji};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Text {
@@ -59,11 +60,12 @@ pub enum Stashed {
 pub struct Pattern {
     /// 0: guarded host handler; 1: code; 2: strong/em; 3: strong; 4: em;
     /// 5: strikethrough; 6: literal emphasis markers; 7: line break; 8: named emoji;
-    /// 9: emoticon translation.
+    /// 9: emoticon translation; 10: Unicode emoji.
     pub kind: u8,
     pub excludes: Vec<String>,
     pub emoji: Option<NamedEmoji>,
     pub emoticons: Option<Emoticons>,
+    pub unicode_emoji: Option<UnicodeEmoji>,
 }
 
 /// Ordered literal replacements and Unicode names from the current renderer.
@@ -274,6 +276,18 @@ impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
                         (
                             data[..start].to_owned(),
                             data[end..].to_owned(),
+                            Stashed::Node(node),
+                        )
+                    }
+                    10 => {
+                        let catalog = self.patterns[index].unicode_emoji.as_ref()?;
+                        let Some(found) = markdown_unicode_emoji::find(&data, catalog) else {
+                            break;
+                        };
+                        let node = self.emoji_node(&found.codepoint, &found.syntax);
+                        (
+                            data[..found.start].to_owned(),
+                            data[found.end..].to_owned(),
                             Stashed::Node(node),
                         )
                     }
@@ -594,7 +608,15 @@ pub fn run(
     ancestors: Vec<String>,
     guard: impl FnMut(usize, &str) -> Option<()>,
 ) -> Option<State> {
-    if nodes.is_empty() || nodes.len() > 20_000 {
+    if nodes.is_empty()
+        || nodes.len() > 20_000
+        || patterns.iter().any(|pattern| {
+            pattern.kind == 10
+                && pattern.unicode_emoji.as_ref().is_none_or(|catalog| {
+                    catalog.regex_version != markdown_unicode_emoji::REGEX_VERSION
+                })
+        })
+    {
         return None;
     }
     let parents = vec![None; nodes.len()];
@@ -639,6 +661,7 @@ mod tests {
                     excludes: vec![],
                     emoji: None,
                     emoticons: None,
+                    unicode_emoji: None,
                 }],
                 vec![],
                 |_, _| Some(())
@@ -659,12 +682,14 @@ mod tests {
                 excludes: vec![],
                 emoji: None,
                 emoticons: None,
+                unicode_emoji: None,
             },
             Pattern {
                 kind: 0,
                 excludes: vec![],
                 emoji: None,
                 emoticons: None,
+                unicode_emoji: None,
             },
         ];
         let mut calls = 0;
@@ -694,6 +719,7 @@ mod tests {
                 excludes: vec![],
                 emoji: None,
                 emoticons: None,
+                unicode_emoji: None,
             }],
             vec![],
             |_, _| panic!("atomic string matched"),

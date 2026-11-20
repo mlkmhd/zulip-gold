@@ -17,6 +17,7 @@ Node: TypeAlias = tuple[str, str, Text | None, Text | None, list[int]]
 PlannedNode: TypeAlias = tuple[str, str, Text | None, Text | None, list[int], list[tuple[str, str]]]
 EmojiCatalog: TypeAlias = tuple[dict[str, str], dict[str, str]]
 EmoticonCatalog: TypeAlias = tuple[list[tuple[str, str]], dict[str, str]]
+UnicodeEmojiCatalog: TypeAlias = tuple[str, dict[str, str]]
 Stashed: TypeAlias = tuple[int | None, Text | None]
 Plan: TypeAlias = tuple[list[PlannedNode], list[tuple[int, int]], list[Stashed], list[str], bool]
 Planner: TypeAlias = Callable[
@@ -27,6 +28,7 @@ Planner: TypeAlias = Callable[
         list[tuple[object, object | None]],
         list[EmojiCatalog | None],
         EmoticonCatalog | None,
+        UnicodeEmojiCatalog | None,
     ],
     Plan | None,
 ]
@@ -67,6 +69,8 @@ def try_run(
         ZulipMarkdown,
         _native_emoji_callbacks,
         _native_inline_handlers,
+        _native_unicode_emoji_patterns,
+        codepoint_to_name,
         make_emoji,
         make_realm_emoji,
         name_to_codepoint,
@@ -130,6 +134,7 @@ def try_run(
     guards: list[tuple[object, object | None]] = []
     emoji_catalogs: list[EmojiCatalog | None] = []
     emoticon_catalog = None
+    unicode_emoji_catalog = None
     for name, _ in ordered:
         pattern = cast(inlinepatterns.Pattern, data[name])
         callbacks = _native_inline_handlers.get(type(pattern))
@@ -244,8 +249,43 @@ def try_run(
                     name_to_codepoint,
                     {name: info["source_url"] for name, info in active.items()},
                 )
-        if kind and (
-            type(compiled) is not re.Pattern or expression.flags != re.DOTALL | re.UNICODE
+        elif type(pattern) is UnicodeEmoji:
+            if (
+                expression is not _native_unicode_emoji_patterns[0]
+                or TEXT_PRESENTATION_RE is not _native_unicode_emoji_patterns[1]
+                or type(pattern.zmd) is not ZulipMarkdown
+                or pattern.zmd is not processor.md
+                or make_emoji is not _native_emoji_callbacks[0]
+                or markdown.emoji_to_hex_codepoint is not _native_emoji_callbacks[3]
+                or markdown.unqualify_emoji is not _native_emoji_callbacks[4]
+                or type(regex.__version__) is not str
+                or _SURROGATE_RE.search(regex.__version__)
+                or type(codepoint_to_name) is not dict
+                or any(
+                    type(key) is not str
+                    or type(value) is not str
+                    or _SURROGATE_RE.search(key)
+                    or _SURROGATE_RE.search(value)
+                    for key, value in codepoint_to_name.items()
+                )
+                or type(regex.__version__) is not str
+                or _SURROGATE_RE.search(regex.__version__)
+                or type(codepoint_to_name) is not dict
+                or any(
+                    type(key) is not str
+                    or type(value) is not str
+                    or _SURROGATE_RE.search(key)
+                    or _SURROGATE_RE.search(value)
+                    for key, value in codepoint_to_name.items()
+                )
+            ):
+                return False
+            unicode_emoji_catalog = (regex.__version__, codepoint_to_name)
+            kind = 10
+        if (
+            kind
+            and kind != 10
+            and (type(compiled) is not re.Pattern or expression.flags != re.DOTALL | re.UNICODE)
         ):
             return False
         if type(wrapped) is BacktickPattern and type(pattern) is not BacktickInlineProcessor:
@@ -297,7 +337,15 @@ def try_run(
                 children,
             )
         )
-    plan = planner(nodes, patterns, ancestors or [], guards, emoji_catalogs, emoticon_catalog)
+    plan = planner(
+        nodes,
+        patterns,
+        ancestors or [],
+        guards,
+        emoji_catalogs,
+        emoticon_catalog,
+        unicode_emoji_catalog,
+    )
     if plan is None:
         return False
     updates, parents, stash, final_ancestors, registry_used = plan

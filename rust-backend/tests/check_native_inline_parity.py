@@ -119,6 +119,10 @@ def exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
     registry = cast(native_inline.RegistryInternals, md.inlinePatterns)
     if case.registry == "empty":
         md.inlinePatterns = util.Registry()
+    elif case.registry == "unicode":
+        for name in list(registry._data):
+            if name != "unicodeemoji":
+                md.inlinePatterns.deregister(name)
     elif case.registry == "formatting":
         for name in list(registry._data):
             if name not in {
@@ -182,7 +186,7 @@ def exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
     return accepted, state
 
 
-def cases(seed: int, count: int) -> Iterator[Case]:
+def cases(seed: int, count: int, *, unicode_scalars: bool = False) -> Iterator[Case]:
     for registry in ("default", "formatting", "excluded", "empty"):
         for initial_text in (
             None,
@@ -199,7 +203,6 @@ def cases(seed: int, count: int) -> Iterator[Case]:
             )
     for unsupported in (
         ":نام:",
-        "😀",
         "$$x$$",
         "&copy;",
         "[link](https://example.com)",
@@ -232,6 +235,23 @@ def cases(seed: int, count: int) -> Iterator[Case]:
                 accepted=True,
                 translate_emoticons=enabled,
             )
+    for value in ("😀", "❤️", "1️⃣", "🇺🇸 👩🏽\u200d💻", "🇺🇸\u200d👩", "😀\u200d😀 😀", "↔ 1\u20e3"):
+        yield Case(
+            [Node("div", None, None, [1]), Node("p", (value, False), None, [])],
+            None,
+            accepted=True,
+        )
+    if unicode_scalars:
+        for first in range(0, 0x110000, 256):
+            value = " ".join(
+                chr(point) for point in range(first, first + 256) if not 0xD800 <= point <= 0xDFFF
+            )
+            yield Case(
+                [Node("div", None, None, [1]), Node("p", (value, False), None, [])],
+                None,
+                "unicode",
+                accepted=True,
+            )
     rng = random.Random(seed)
     pieces = [
         "***",
@@ -262,6 +282,14 @@ def cases(seed: int, count: int) -> Iterator[Case]:
         ":/",
         ":نام:",
         "😀",
+        "🏽",
+        "🇺🇸",
+        "👩",
+        "\u200d",
+        "\ufe0f",
+        "\u20e3",
+        "\U000e0067",
+        "\U000e007f",
         "$$x$$",
         "[x](https://example.com)",
         "\ud800",
@@ -288,7 +316,7 @@ def cases(seed: int, count: int) -> Iterator[Case]:
         yield Case(
             nodes,
             rng.choice([None, [], ["outer"], ["a", "P"]]),
-            rng.choice(["default", "default", "formatting", "excluded", "empty"]),
+            rng.choice(["default", "default", "formatting", "excluded", "empty", "unicode"]),
             translate_emoticons=bool(rng.randrange(2)),
         )
 
@@ -299,6 +327,7 @@ def main() -> None:
     )
     parser.add_argument("--cases", type=int, default=10000)
     parser.add_argument("--seed", type=int, default=962817)
+    parser.add_argument("--unicode-scalars", action="store_true")
     parser.add_argument("--repository", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--report", type=Path)
     parser.add_argument("--max-failures", type=int, default=10)
@@ -328,6 +357,12 @@ def main() -> None:
         Path(extension_path),
         Path(__file__),
         args.repository / "rust-backend/src/markdown_native_inline.rs",
+        args.repository / "rust-backend/src/markdown_unicode_emoji.rs",
+        args.repository / "rust-backend/src/markdown_emoji_data.rs",
+        args.repository / "rust-backend/src/python.rs",
+        args.repository / "rust-backend/src/lib.rs",
+        args.repository / "rust-backend/tools/generate_markdown_emoji_data.py",
+        args.repository / "zerver/lib/markdown/__init__.py",
         args.repository / "zerver/lib/markdown/native_inline.py",
     ]
     report: dict[str, object] = {
@@ -335,11 +370,14 @@ def main() -> None:
         "extension": extension_path,
         "seed": args.seed,
         "generated_cases": args.cases,
+        "unicode_scalars": args.unicode_scalars,
         "hashes": {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in files},
     }
     failures = []
     accepted = delegated = checked = 0
-    for number, case in enumerate(cases(args.seed, args.cases)):
+    for number, case in enumerate(
+        cases(args.seed, args.cases, unicode_scalars=args.unicode_scalars)
+    ):
         if number % 100 == 0:
             print(f"Checking case {number}", flush=True)
         try:

@@ -48,6 +48,12 @@ mod markdown_code_blocks;
 #[cfg(feature = "native-markdown")]
 mod markdown_emphasis;
 
+#[cfg(feature = "native-markdown")]
+mod markdown_emoji_data;
+
+#[cfg(feature = "native-markdown")]
+pub mod markdown_unicode_emoji;
+
 #[cfg(feature = "python")]
 mod markdown_fences;
 

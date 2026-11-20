@@ -432,6 +432,90 @@ class MarkdownNativeInlineTest(TestCase):
         self.assertEqual(root[0].text, ":) :D")
         self.assertEqual(list(root[0]), [])
 
+    def test_unicode_emoji_catalog_and_state(self) -> None:
+        from zerver.lib.emoji import codepoint_to_name
+        from zerver.lib.emoji_utils import hex_codepoint_to_emoji
+
+        if inline_stash._rust_native_inline is None:
+            self.skipTest("Native inline engine is disabled")
+        samples = [hex_codepoint_to_emoji(codepoint) for codepoint in codepoint_to_name]
+        samples += [
+            "سلام 😀 **👍🏽** `😀` :smile:",
+            "↔ ↔️ ❤ ❤️ 1 1\u20e3 1️⃣ #️⃣ *️⃣",
+            "😀\u200d😀 😀\u200d🦄 😀\u200d 😀",
+            "🇦 🇦🇧 🇺🇸🇦 🇺🇸🇦🇧 🇺🇸\u200d👩",
+            "👩\u200d💻 👩🏽\u200d💻 🏴\U000e0067\U000e0062\U000e007f",
+            "😀\ufe0e 😀\ufe0f 😀\ufe0f\ufe0f 🏽",
+        ]
+        for value in samples:
+            with self.subTest(value=value):
+
+                def build(value: str = value) -> Element:
+                    root = Element("div")
+                    paragraph = SubElement(root, "p")
+                    paragraph.text = value
+                    SubElement(paragraph, "span").tail = " 😀"
+                    return root
+
+                self.compare(build)
+
+    def test_unicode_emoji_helpers_patterns_and_version_delegate(self) -> None:
+        from zerver.lib import markdown
+
+        native = inline_stash._rust_native_inline
+        if native is None:
+            self.skipTest("Native inline engine is disabled")
+        processor = InlineProcessor(self.markdown())
+        root = Element("div")
+        SubElement(root, "p").text = "**earlier** 😀"
+        for name in ["emoji_to_hex_codepoint", "unqualify_emoji"]:
+            with mock.patch.object(markdown, name) as callback:
+                self.assertFalse(
+                    native_inline.try_run(processor, root, None, native.plan_markdown_native_inline)
+                )
+                callback.assert_not_called()
+        import regex
+
+        with mock.patch.object(markdown, "TEXT_PRESENTATION_RE", regex.compile("custom")):
+            self.assertFalse(
+                native_inline.try_run(processor, root, None, native.plan_markdown_native_inline)
+            )
+        for version in ["different", "\ud800", 42]:
+            with self.subTest(version=version), mock.patch.object(regex, "__version__", version):
+                self.assertFalse(
+                    native_inline.try_run(processor, root, None, native.plan_markdown_native_inline)
+                )
+        for invalid_name in [42, "\ud800", AtomicString("grinning")]:
+            with (
+                self.subTest(name=invalid_name),
+                mock.patch.dict(markdown.codepoint_to_name, {"1f600": invalid_name}),
+            ):
+                self.assertFalse(
+                    native_inline.try_run(processor, root, None, native.plan_markdown_native_inline)
+                )
+        self.assertEqual(root[0].text, "**earlier** 😀")
+        self.assertEqual(list(root[0]), [])
+        self.assertFalse(hasattr(processor, "stashed_nodes"))
+
+    def test_live_unicode_emoji_catalog(self) -> None:
+        from zerver.lib import markdown
+
+        def build() -> Element:
+            root = Element("div")
+            SubElement(root, "p").text = "😀 😀\u200d😀"
+            return root
+
+        for names in [
+            {"1f600": "grinning"},
+            {"1f600": "changed_name", "1f600-200d-1f600": "custom_sequence"},
+            {},
+        ]:
+            with (
+                self.subTest(names=names),
+                mock.patch.dict(markdown.codepoint_to_name, names, clear=True),
+            ):
+                self.compare(build)
+
     def test_unicode_whitespace_around_emphasis(self) -> None:
         for separator in [
             "\t",
@@ -498,7 +582,6 @@ class MarkdownNativeInlineTest(TestCase):
         for text in [
             "**earlier** [link](https://example.com)",
             "**earlier** :نام:",
-            "**earlier** 😀",
             "**earlier** &copy;",
             "**earlier** $$x$$",
         ]:
@@ -587,7 +670,7 @@ class MarkdownNativeInlineTest(TestCase):
             self.skipTest("Native inline engine is disabled")
         for text, expected in [
             ("**bold**", True),
-            ("**bold** :smile: 😀", False),
+            ("**bold** :smile: [link](https://example.com)", False),
             (AtomicString("**atomic**"), True),
         ]:
             md = self.markdown()
@@ -671,7 +754,7 @@ class MarkdownNativeInlineTest(TestCase):
         if native is None:
             self.skipTest("Native inline engine is disabled")
         root = Element("div")
-        SubElement(root, "p").text = "***bold :smile:*** `:smile:` ~~strike~~\nفارسی :zulip: :)"
+        SubElement(root, "p").text = "***bold :smile:*** `:smile:` ~~strike~~\nفارسی :zulip: :) 😀"
         md = self.markdown()
         md.zulip_db_data = self.emoji_data([])
         md.zulip_db_data.translate_emoticons = True
@@ -710,5 +793,5 @@ class MarkdownNativeInlineTest(TestCase):
             sys.setprofile(previous)
         self.assertEqual(calls, [])
         self.assertEqual(
-            [node.tag for node in root[0]], ["strong", "code", "del", "br", "img", "span"]
+            [node.tag for node in root[0]], ["strong", "code", "del", "br", "img", "span", "span"]
         )

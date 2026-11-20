@@ -88,6 +88,7 @@ type NativeInlinePlannedNode = (
 );
 type NativeEmojiCatalog = (HashMap<String, String>, HashMap<String, String>);
 type NativeEmoticonCatalog = (Vec<(String, String)>, HashMap<String, String>);
+type NativeUnicodeEmojiCatalog = (String, HashMap<String, String>);
 type NativeInlineStash = (Option<usize>, Option<NativeInlineText>);
 type NativeInlineResult = (
     Vec<NativeInlinePlannedNode>,
@@ -232,7 +233,7 @@ mod _zulip_backend {
     };
 
     #[pyfunction]
-    #[pyo3(signature = (nodes, patterns, ancestors, guards, emoji_catalogs, emoticon_catalog=None))]
+    #[pyo3(signature = (nodes, patterns, ancestors, guards, emoji_catalogs, emoticon_catalog=None, unicode_emoji_catalog=None))]
     fn plan_markdown_native_inline(
         nodes: Vec<NativeInlineNode>,
         patterns: Vec<(u8, Vec<String>)>,
@@ -240,6 +241,7 @@ mod _zulip_backend {
         guards: Vec<(Bound<'_, PyAny>, Option<Bound<'_, PyAny>>)>,
         emoji_catalogs: Vec<Option<NativeEmojiCatalog>>,
         emoticon_catalog: Option<NativeEmoticonCatalog>,
+        unicode_emoji_catalog: Option<NativeUnicodeEmojiCatalog>,
     ) -> Option<NativeInlineResult> {
         use markdown_native_inline::{Emoticons, NamedEmoji, Node, Pattern, Stashed, Text};
         if patterns.len() != guards.len() || patterns.len() != emoji_catalogs.len() {
@@ -271,6 +273,18 @@ mod _zulip_backend {
                             conversions: conversions.clone(),
                             unicode: unicode.clone(),
                         })
+                } else {
+                    None
+                },
+                unicode_emoji: if kind == 10 {
+                    unicode_emoji_catalog
+                        .as_ref()
+                        .map(
+                            |(regex_version, names)| crate::markdown_unicode_emoji::UnicodeEmoji {
+                                regex_version: regex_version.clone(),
+                                names: names.clone(),
+                            },
+                        )
                 } else {
                     None
                 },

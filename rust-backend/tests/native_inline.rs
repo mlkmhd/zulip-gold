@@ -33,6 +33,7 @@ fn pattern(kind: u8) -> Pattern {
         excludes: vec![],
         emoji: None,
         emoticons: None,
+        unicode_emoji: None,
     }
 }
 
@@ -126,6 +127,7 @@ fn applies_ancestor_exclusions_before_calling_guards() {
             excludes: vec!["outer".to_owned()],
             emoji: None,
             emoticons: None,
+            unicode_emoji: None,
         }],
         vec!["outer".to_owned()],
         |_, _| panic!("excluded handler ran"),
@@ -158,6 +160,7 @@ fn emoji_pattern() -> Pattern {
         kind: 8,
         excludes: vec![],
         emoticons: None,
+        unicode_emoji: None,
         emoji: Some(NamedEmoji {
             unicode: [("smile".to_owned(), "1f604".to_owned())].into(),
             realm: [("custom_name".to_owned(), "/uploads/<&>\".png".to_owned())].into(),
@@ -262,6 +265,7 @@ fn emoticon_pattern() -> Pattern {
         kind: 9,
         excludes: vec![],
         emoji: None,
+        unicode_emoji: None,
         emoticons: Some(Emoticons {
             conversions: vec![
                 (":)".into(), ":slight_smile:".into()),
@@ -369,4 +373,130 @@ fn honors_disabled_translation_and_protected_emoticons() {
         plan.nodes[children[2]].text.as_ref().unwrap().value,
         ":slight_smile:"
     );
+}
+
+fn unicode_emoji_pattern() -> Pattern {
+    use _zulip_backend::markdown_unicode_emoji::{REGEX_VERSION, UnicodeEmoji};
+    Pattern {
+        kind: 10,
+        excludes: vec![],
+        emoji: None,
+        emoticons: None,
+        unicode_emoji: Some(UnicodeEmoji {
+            regex_version: REGEX_VERSION.to_owned(),
+            names: [
+                ("1f600".into(), "grinning".into()),
+                ("1f469".into(), "woman".into()),
+                ("2764".into(), "heart".into()),
+                ("0031-20e3".into(), "one".into()),
+                ("1f44d-1f3fd".into(), "thumbs_up_medium_skin_tone".into()),
+                ("1f1fa-1f1f8".into(), "flag_us".into()),
+                ("1f469-200d-1f4bb".into(), "woman_technologist".into()),
+            ]
+            .into(),
+        }),
+    }
+}
+
+#[test]
+fn renders_qualified_unicode_sequences_and_preserves_text_presentation() {
+    let source = "↔ 1 1\u{20e3} ❤ ❤️ 😀 👍🏽 🇺🇸 👩\u{200d}💻 1\u{fe0f}\u{20e3}";
+    let plan = run(
+        paragraph(source),
+        &[unicode_emoji_pattern()],
+        vec![],
+        |_, _| panic!("Unicode emoji is native"),
+    )
+    .unwrap();
+    assert_eq!(
+        plan.nodes[1].text.as_ref().unwrap().value,
+        "↔ 1 1\u{20e3} ❤ "
+    );
+    let expected = [
+        ":heart:",
+        ":grinning:",
+        ":thumbs_up_medium_skin_tone:",
+        ":flag_us:",
+        ":woman_technologist:",
+        ":one:",
+    ];
+    assert_eq!(plan.nodes[1].children.len(), expected.len());
+    for (child, display) in plan.nodes[1].children.iter().zip(expected) {
+        let emoji = &plan.nodes[*child];
+        assert_eq!(emoji.tag, "span");
+        assert_eq!(emoji.text.as_ref().unwrap().value, display);
+        assert!(emoji.text.as_ref().unwrap().atomic);
+    }
+}
+
+#[test]
+fn skips_unknown_unicode_clusters_without_rendering_their_prefixes() {
+    for source in ["🙂 😀", "😀\u{200d}😀 😀", "🇦🇧 😀", "🦄 😀"] {
+        let plan = run(
+            paragraph(source),
+            &[unicode_emoji_pattern()],
+            vec![],
+            |_, _| Some(()),
+        )
+        .unwrap();
+        assert_eq!(plan.nodes[1].children.len(), 1, "{source:?}");
+        let prefix = source.strip_suffix('😀').unwrap();
+        assert_eq!(plan.nodes[1].text.as_ref().unwrap().value, prefix);
+        assert_eq!(plan.stash.len(), 1);
+    }
+}
+
+#[test]
+fn regional_pair_stops_before_a_following_zwj() {
+    let plan = run(
+        paragraph("🇺🇸\u{200d}👩"),
+        &[unicode_emoji_pattern()],
+        vec![],
+        |_, _| Some(()),
+    )
+    .unwrap();
+    let children = &plan.nodes[1].children;
+    assert_eq!(children.len(), 2);
+    assert_eq!(
+        plan.nodes[children[0]].text.as_ref().unwrap().value,
+        ":flag_us:"
+    );
+    assert_eq!(
+        plan.nodes[children[0]].tail.as_ref().unwrap().value,
+        "\u{200d}"
+    );
+    assert_eq!(
+        plan.nodes[children[1]].text.as_ref().unwrap().value,
+        ":woman:"
+    );
+}
+
+#[test]
+fn protects_unicode_code_and_rejects_other_property_versions() {
+    let plan = run(
+        paragraph("`😀` **😀**"),
+        &[pattern(1), pattern(3), unicode_emoji_pattern()],
+        vec![],
+        |_, _| Some(()),
+    )
+    .unwrap();
+    let children = &plan.nodes[1].children;
+    assert_eq!(plan.nodes[children[0]].text.as_ref().unwrap().value, "😀");
+    let strong = &plan.nodes[children[1]];
+    assert_eq!(
+        plan.nodes[strong.children[0]].text.as_ref().unwrap().value,
+        ":grinning:"
+    );
+    let mut incompatible = unicode_emoji_pattern();
+    incompatible.unicode_emoji.as_mut().unwrap().regex_version = "different".into();
+    assert!(
+        run(
+            paragraph("**earlier** 😀"),
+            &[pattern(3), incompatible],
+            vec![],
+            |_, _| panic!("version preflight precedes handlers")
+        )
+        .is_none()
+    );
+    assert!(run(paragraph("plain"), &[pattern(10)], vec![], |_, _| Some(())).is_none());
 }

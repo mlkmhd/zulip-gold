@@ -2103,7 +2103,7 @@ ZULIP_RUST_MARKDOWN_INLINE_ENGINE=1 ./tools/test-backend --parallel 1 \
 Set `ZULIP_RUST_MARKDOWN_NATIVE_INLINE=1` after installing a fresh Python
 extension wheel, then restart Django processes. This default-off flag runs a
 native tree, text, and placeholder planner for the built-in backtick, emphasis,
-strike-through, newline, ASCII named-emoji, and emoticon patterns. Named emoji uses the
+strike-through, newline, named-emoji, emoticon, and Unicode emoji patterns. Named emoji uses the
 current catalog and active realm overrides, including overrides of Unicode
 names and `:zulip:`. Unknown names remain text. It preserves the existing Element
 objects and their attributes when applying the completed plan.
@@ -2125,6 +2125,23 @@ Translation inside code remains protected, and emoticons use Unicode emoji
 even when a realm emoji overrides the translated name. Custom conversion
 keys, replacement escapes, helpers, or unsupported target names delegate
 the whole run before mutation.
+
+Unicode emoji uses the reference renderer's emoji grammar, including skin
+tones, regional pairs, tag sequences, variation selectors, and ZWJ sequences.
+Text-presentation characters remain text unless qualified, and unknown
+clusters remain intact. The current codepoint-to-name catalog supplies the
+display text. The property tables are generated from Python `regex` version
+`2026.9.29`; other versions delegate before mutation. Custom matching patterns,
+normalization helpers, or catalog values also delegate. Regenerate or verify
+the tables in the provisioned environment without fetching Unicode data:
+
+```bash
+python rust-backend/tools/generate_markdown_emoji_data.py --check
+```
+
+After updating the reference regex dependency, run the command without
+`--check`, review the generated property changes, and repeat the complete
+state comparison below before enabling this path.
 
 Before changing the tree, the planner checks the processor, pattern registry,
 regular expressions, callbacks, string types, and input depth. Other syntax,
@@ -2152,7 +2169,9 @@ ordered patterns, ancestor names, and a guard for unsupported handlers.
 kind `8` and a `NamedEmoji` catalog with Unicode codepoints and active realm
 source URLs; other patterns use `emoji: None`. Kind `9` uses an `Emoticons`
 catalog of ordered literal conversions and Unicode names; `emoticons: None`
-disables translation. The guard must have no side
+disables translation. Kind `10` uses `unicode_emoji: Some(UnicodeEmoji { ... })`
+with the reference regex version and codepoint-to-name catalog. The type and
+`REGEX_VERSION` constant are in `markdown_unicode_emoji`. The guard must have no side
 effects on the host renderer and accept only handlers
 that would leave both text and renderer state unchanged. A rejected plan
 returns `None`; callers must retain their original tree until the entire plan
@@ -2179,6 +2198,11 @@ and an installed extension wheel, with all `ZULIP_RUST_*` flags unset:
 python rust-backend/tests/check_native_inline_parity.py \
     --cases 20000 --seed 962817 --report var/native-inline-parity.json
 ```
+
+Add `--unicode-scalars` to compare all 1,112,064 Unicode scalar values in
+isolated Unicode-handler batches, each requiring native acceptance. The
+ordinary cases also exercise complete registries, malformed clusters, and
+enabled/disabled emoticon translation.
 
 The report records accepted and delegated cases separately, source and
 extension hashes, and complete failing inputs and states. Fixed cases require
