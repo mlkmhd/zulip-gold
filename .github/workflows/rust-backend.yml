@@ -26,6 +26,7 @@ jobs:
         run: |
           cargo fmt --manifest-path rust-backend/Cargo.toml --check
           cargo test --manifest-path rust-backend/Cargo.toml --locked
+          cargo test --manifest-path rust-backend/Cargo.toml --locked --no-default-features --features native-markdown
           cargo clippy --manifest-path rust-backend/Cargo.toml --all-targets --all-features --locked -- -D warnings
       - name: Compare with Python
         run: |

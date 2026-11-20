@@ -2122,6 +2122,45 @@ ZULIP_RUST_MARKDOWN_NATIVE_INLINE=1 ./tools/test-backend --parallel 1 \
     zerver.tests.test_markdown_inline_engine
 ```
 
+### Use the planner from Rust
+
+The `native-markdown` Cargo feature exposes the same planner as
+`_zulip_backend::markdown_native_inline`, without linking Python. Both the
+`python` and `http` features include it. Callers supply an indexed graph,
+ordered patterns, ancestor names, and a guard for unsupported handlers. The
+guard must have no side effects on the host renderer and accept only handlers
+that would leave both text and renderer state unchanged. A rejected plan
+returns `None`; callers must retain their original tree until the entire plan
+succeeds. The returned
+graph includes temporary and detached stash nodes, so its vector order is
+not an HTML serialization order. This interface does not yet provide a
+standalone Markdown renderer or migrate another HTTP operation.
+
+Run the public interface tests without Python or HTTP dependencies:
+
+```bash
+cargo test --locked --offline --manifest-path rust-backend/Cargo.toml \
+    --no-default-features --features native-markdown
+```
+
+### Compare complete native and Python state
+
+The state comparison tool also checks shared element identity, atomic text,
+stash order, parent mappings, ancestor state, registry sorting, errors, and
+the absence of changes before fallback. Use the provisioned environment
+and an installed extension wheel, with all `ZULIP_RUST_*` flags unset:
+
+```bash
+python rust-backend/tests/check_native_inline_parity.py \
+    --cases 20000 --seed 962817 --report var/native-inline-parity.json
+```
+
+The report records accepted and delegated cases separately, source and
+extension hashes, and complete failing inputs and states. Fixed cases require
+both native acceptance and fallback, so an extension delegating every input
+cannot pass. Generated placeholder inputs use absent or malformed keys;
+arbitrary valid keys can create self-referential state in the Python reference.
+
 ## Measure Markdown rendering bridges
 
 Use the provisioned development environment and a release wheel to measure

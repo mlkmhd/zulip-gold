@@ -39,13 +39,13 @@ mod markdown_channel_links;
 #[cfg(feature = "python")]
 mod markdown_channel_spans;
 
-#[cfg(feature = "python")]
+#[cfg(feature = "native-markdown")]
 mod markdown_code;
 
 #[cfg(feature = "python")]
 mod markdown_code_blocks;
 
-#[cfg(feature = "python")]
+#[cfg(feature = "native-markdown")]
 mod markdown_emphasis;
 
 #[cfg(feature = "python")]
@@ -63,11 +63,11 @@ mod markdown_inline_mentions;
 #[cfg(feature = "python")]
 mod markdown_inline_runtime;
 
-#[cfg(feature = "python")]
+#[cfg(feature = "native-markdown")]
 mod markdown_inline_stash;
 
-#[cfg(feature = "python")]
-mod markdown_native_inline;
+#[cfg(feature = "native-markdown")]
+pub mod markdown_native_inline;
 
 #[cfg(feature = "python")]
 mod markdown_list_blocks;

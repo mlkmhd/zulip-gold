@@ -1,3 +1,9 @@
+//! Plan inline formatting in an indexed graph before committing changes to a host tree.
+//!
+//! This module has no Python dependency. The caller validates its handler registry,
+//! represents shared nodes with shared indices, and supplies a guard for handlers
+//! that still require the host renderer. A rejected guard discards the whole plan.
+
 use std::collections::VecDeque;
 
 use crate::draft_text::is_python_whitespace;
@@ -23,6 +29,7 @@ impl Text {
 #[derive(Debug)]
 pub struct Node {
     pub tag: String,
+    /// The host renderer's lowercase form of the tag.
     pub lower_tag: String,
     pub text: Option<Text>,
     pub tail: Option<Text>,
@@ -48,6 +55,8 @@ pub enum Stashed {
 }
 
 pub struct Pattern {
+    /// 0: guarded host handler; 1: code; 2: strong/em; 3: strong; 4: em;
+    /// 5: strikethrough; 6: literal emphasis markers; 7: line break.
     pub kind: u8,
     pub excludes: Vec<String>,
 }
@@ -440,6 +449,14 @@ fn find_not_strong(data: &str) -> Option<(usize, usize)> {
     None
 }
 
+/// Return a complete plan rooted at node 0, or delegate the entire run.
+///
+/// The guard receives a pattern index and the text remaining at that priority.
+/// It must return `Some(())` only when the host handler would have no effect.
+/// It must not mutate host state, since a later guard or resource limit can
+/// reject the plan. Invalid indices, cycles, and depth or work limits also
+/// return `None`. Returned nodes include detached stash and temporary nodes;
+/// the caller commits graph edges, parent mappings and stash identities together.
 pub fn run(
     nodes: Vec<Node>,
     patterns: &[Pattern],
