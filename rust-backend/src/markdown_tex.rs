@@ -15,6 +15,30 @@ pub struct CliOutput {
     pub stdout: Vec<u8>,
 }
 
+/// Normalize decoded text-mode stdout before interpreting the exit status.
+pub fn finish_output(decoded: &str, success: bool) -> Option<String> {
+    if !success {
+        return None;
+    }
+    let mut output = String::with_capacity(decoded.len());
+    let mut characters = decoded.chars().peekable();
+    while let Some(character) = characters.next() {
+        if character == '\r' {
+            if characters.peek() == Some(&'\n') {
+                characters.next();
+            }
+            output.push('\n');
+        } else {
+            output.push(character);
+        }
+    }
+    Some(
+        output
+            .trim_matches(crate::draft_text::is_python_whitespace)
+            .to_owned(),
+    )
+}
+
 /// Execute the installed KaTeX CLI without a shell. The caller owns text
 /// encoding and decoding, including decoding output from unsuccessful exits.
 pub fn run_cli(script: &Path, input: &[u8], is_inline: bool) -> Result<CliOutput, CliError> {
@@ -176,5 +200,28 @@ mod tests {
         let error = run_command(Command::new("/nonexistent/zulip-katex-node"), b"").unwrap_err();
         assert!(error.spawning);
         assert_eq!(error.error.kind(), io::ErrorKind::NotFound);
+    }
+}
+
+#[cfg(test)]
+mod output_tests {
+    use super::finish_output;
+
+    #[test]
+    fn preserves_interior_newlines_and_python_whitespace() {
+        assert_eq!(
+            finish_output("\u{1c}\u{2003}a\r\nb\rc\n\rd\r\r\ne\u{85}", true),
+            Some("a\nb\nc\n\nd\n\ne".to_owned())
+        );
+    }
+
+    #[test]
+    fn distinguishes_empty_success_from_failure() {
+        assert_eq!(finish_output(" \r\n", true), Some(String::new()));
+        assert_eq!(finish_output("partial", false), None);
+        assert_eq!(
+            finish_output("\u{200b}x\0\u{feff}", true),
+            Some("\u{200b}x\0\u{feff}".to_owned())
+        );
     }
 }

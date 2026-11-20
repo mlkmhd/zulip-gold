@@ -246,7 +246,8 @@ mod _zulip_backend {
 
     #[pymodule_export]
     use crate::python_tex::{
-        change_katex_to_raw_latex, find_markdown_tex, render_katex_response, run_katex_cli,
+        change_katex_to_raw_latex, find_markdown_tex, finish_katex_cli, render_katex_response,
+        run_katex_cli,
     };
 
     #[pymodule_export]

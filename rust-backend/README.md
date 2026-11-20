@@ -3335,3 +3335,36 @@ The offline differential compares complete `render_tex` outcomes with controlled
 HTTP responses, request failures and warning calls, including invalid UTF-8,
 Unicode whitespace, exact POST arguments and error bodies. It does not contact a
 KaTeX server or benchmark the transport.
+
+## Normalize KaTeX CLI output through Rust
+
+The existing `ZULIP_RUST_MARKDOWN_TEX=1` opt-in also uses `finish_katex_cli`
+when the installed wheel provides it. Valid UTF-8 stdout is decoded in Rust,
+CRLF and CR are converted to LF, and successful output is stripped using
+Python's Unicode whitespace rules. Empty successful output remains an empty
+string. Unsuccessful output is decoded before returning `None`, preserving
+encoding errors rather than hiding them behind the process exit status.
+
+Other codecs and malformed UTF-8 use Python's decoding and normalization to
+retain exact codec errors, BOM behavior and surrogate results. Locale selection
+and stdin encoding stay in Python. Older wheels use the existing Python output
+handling after a single native process execution. Service response handling and
+planner fallback are unchanged. No additional flag or dependency is needed.
+
+```sh
+maturin build --manifest-path rust-backend/Cargo.toml --release --locked --offline \
+    --out var/katex-output-wheels
+python -m pip install --no-index --no-deps --target var/katex-output-python \
+    var/katex-output-wheels/*.whl
+PYTHONPATH="$PWD/var/katex-output-python:$PWD" ZULIP_RUST_MARKDOWN_TEX=1 \
+    ./tools/test-backend zerver.tests.test_katex_output_rust zerver.tests.test_tex_rust
+PYTHONPATH="$PWD/var/katex-output-python:$PWD" \
+    python rust-backend/tests/check_katex_output_parity.py \
+    --cases 20000 --seed 962846 --report var/katex-output-parity.json
+```
+
+The offline differential checks every Unicode scalar in a fixed newline context,
+random bytes across six codecs and focused codec cases. It compares complete
+results and exception arguments. This is not an exhaustive test of all byte
+strings or a performance benchmark. The renderer, locale boundary and HTTP
+transport still prevent retiring `zerver/lib/tex.py`.

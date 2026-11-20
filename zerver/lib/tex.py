@@ -107,6 +107,9 @@ def render_tex(tex: str, is_inline: bool = True) -> str | None:
         except NotImplementedError:
             pass
         else:
+            finish = getattr(_rust_markdown_tex, "finish_katex_cli", None)
+            if finish is not None:
+                return cast(str | None, finish(success, stdout, encoding))
             # Text-mode subprocesses decode even unsuccessful output and normalize
             # newlines before the caller checks the exit status.
             rendered = stdout.decode(encoding).replace("\r\n", "\n").replace("\r", "\n")

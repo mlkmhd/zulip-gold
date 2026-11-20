@@ -9,6 +9,33 @@ use crate::{markdown_tex, markdown_tex_syntax};
 type TexMatch = (String, String, Option<String>, String);
 
 #[pyfunction]
+pub(crate) fn finish_katex_cli<'py>(
+    success: bool,
+    stdout: &Bound<'py, PyBytes>,
+    encoding: &str,
+) -> PyResult<Bound<'py, PyAny>> {
+    let py = stdout.py();
+    if matches!(encoding, "utf-8" | "UTF-8" | "utf8" | "UTF8")
+        && let Ok(decoded) = std::str::from_utf8(stdout.as_bytes())
+    {
+        return Ok(match markdown_tex::finish_output(decoded, success) {
+            Some(output) => PyString::new(py, &output).into_any(),
+            None => py.None().into_bound(py),
+        });
+    }
+    // Preserve codec-specific errors even when the process exits unsuccessfully.
+    let decoded = stdout.call_method1("decode", (encoding,))?;
+    let normalized = decoded
+        .call_method1("replace", ("\r\n", "\n"))?
+        .call_method1("replace", ("\r", "\n"))?;
+    if success {
+        normalized.call_method0("strip")
+    } else {
+        Ok(py.None().into_bound(py))
+    }
+}
+
+#[pyfunction]
 pub(crate) fn render_katex_response<'py>(
     response: &Bound<'py, PyAny>,
     context: &Bound<'py, PyDict>,
