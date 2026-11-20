@@ -412,3 +412,30 @@ fn missing_name_snapshots_delegate_but_cached_misses_remain_unresolved() {
     assert_eq!(state.mentions.users, [42].into());
     assert!(state.mentions.groups.is_empty());
 }
+
+#[test]
+fn plain_at_signs_do_not_require_a_mention_snapshot() {
+    let content = "alice@example.com @:) @**unclosed @*";
+    let state = run_with_inputs(
+        nodes(content, false),
+        &patterns(&[17, 18]),
+        vec![],
+        Inputs::default(),
+        |_, _| Some(()),
+    )
+    .unwrap();
+    assert_eq!(state.nodes.len(), 2);
+    assert_eq!(state.nodes[1].text.as_ref().unwrap().value, content);
+    assert!(state.nodes[1].children.is_empty());
+    assert_eq!(state.mentions, MentionEffects::default());
+    assert!(
+        run_with_inputs(
+            nodes("@**all**", false),
+            &patterns(&[17]),
+            vec![],
+            Inputs::default(),
+            |_, _| Some(()),
+        )
+        .is_none()
+    );
+}

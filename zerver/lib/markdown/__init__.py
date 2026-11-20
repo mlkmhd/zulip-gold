@@ -78,6 +78,7 @@ from zerver.lib.types import LinkifierDict
 from zerver.lib.url_encoding import encode_channel, encode_hash_component
 from zerver.lib.url_preview.types import UrlEmbedData, UrlOEmbedData
 from zerver.models import Message, Realm, UserProfile
+from zerver.models.groups import SystemGroups
 from zerver.models.linkifiers import linkifiers_for_realm
 from zerver.models.realm_emoji import EmojiInfo, get_name_keyed_dict_for_active_realm_emoji
 from zerver.models.streams import StreamTopicsPolicyEnum
@@ -3259,6 +3260,24 @@ _native_channel_topic_callbacks = (
     ChannelTopicInfo.__eq__,
 )
 _native_channel_realm_topics_policy = vars(Realm)["topics_policy"]
+
+_native_mention_patterns = (mention.MENTIONS_RE, mention.USER_GROUP_MENTIONS_RE)
+_native_mention_callbacks = (
+    MentionData.get_user_by_name,
+    MentionData.get_user_by_id,
+    MentionData.get_user_group,
+    mention.user_mention_matches_topic_wildcard,
+    mention.user_mention_matches_stream_wildcard,
+    get_user_group_mention_display_name,
+)
+
+_native_mention_field_callbacks = (
+    build_mention_span,
+    getattr(_rust_markdown_inline_mentions, "user_markdown_mention_fields", None),
+    getattr(_rust_markdown_inline_mentions, "group_markdown_mention_fields", None),
+)
+_native_mention_re_match = re.match
+_native_mention_system_names = SystemGroups.GROUP_DISPLAY_NAME_MAP.copy()
 
 _native_inline_handlers: dict[type[object], tuple[Callable[..., object], ...]] = {
     cls: (cls.handleMatch, cls.getCompiledRegExp, cls.type)

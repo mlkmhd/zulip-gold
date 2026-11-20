@@ -684,10 +684,6 @@ impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
                         if !data.contains('@') {
                             break;
                         }
-                        let mentions = self.mentions?;
-                        let Some(snapshot) = mentions.data.as_ref() else {
-                            break;
-                        };
                         let kind = if kind == 17 {
                             MentionKind::User
                         } else {
@@ -702,6 +698,10 @@ impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
                             let Some(candidate) =
                                 markdown_mention_syntax::find(&data, start, kind).ok()?
                             else {
+                                break;
+                            };
+                            let mentions = self.mentions?;
+                            let Some(snapshot) = mentions.data.as_ref() else {
                                 break;
                             };
                             start = candidate.range.end;

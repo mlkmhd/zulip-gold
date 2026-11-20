@@ -36,6 +36,8 @@ class Case:
     translate_emoticons: bool = False
     channels: bool = False
     empty_topic_only: bool = False
+    mentions: bool = False
+    mention_active: bool = True
 
 
 def build(case: Case) -> Element:
@@ -102,13 +104,18 @@ def exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
     md = ZulipMarkdown(linkifiers=[], linkifiers_key=0, email_gateway=False)
     md.zulip_db_data = None
     if case.translate_emoticons:
-        from unittest.mock import Mock
-
         from zerver.lib.markdown import DbData
+        from zerver.lib.mention import MentionBackend, MentionData
         from zerver.lib.thumbnail import AttachmentData
 
+        empty_mentions = MentionData.__new__(MentionData)
+        empty_mentions.mention_backend = MentionBackend(1)
+        empty_mentions.full_name_info = {}
+        empty_mentions.user_id_info = {}
+        empty_mentions.user_group_name_info = {}
+        empty_mentions.user_group_members = {}
         md.zulip_db_data = DbData(
-            mention_data=Mock(),
+            mention_data=empty_mentions,
             realm_url="https://example.com",
             realm_alert_words_automaton=None,
             active_realm_emoji={},
@@ -154,6 +161,41 @@ def exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
                 else StreamTopicsPolicyEnum.allow_empty_topic.value
             )
         )
+    if case.mentions:
+        from zerver.lib.markdown import DbData
+        from zerver.lib.mention import FullNameInfo, MentionData
+        from zerver.lib.thumbnail import AttachmentData
+        from zerver.models import NamedUserGroup
+
+        mentions = MentionData.__new__(MentionData)
+        alice = FullNameInfo(42, "Alice <&> فارسی", case.mention_active)
+        inactive = FullNameInfo(43, "Inactive", False)
+        mentions.full_name_info = {"alice": alice, "inactive": inactive, "k": alice}
+        mentions.user_id_info = {42: alice, 43: inactive}
+        mentions.user_group_name_info = {
+            "devs": NamedUserGroup(
+                id=52, name="Devs <&>", is_system_group=False, deactivated=not case.mention_active
+            ),
+            "old": NamedUserGroup(id=53, name="Old", is_system_group=False, deactivated=True),
+            "role:everyone": NamedUserGroup(
+                id=54, name="role:everyone", is_system_group=True, deactivated=False
+            ),
+        }
+        if md.zulip_db_data is None:
+            md.zulip_db_data = DbData(
+                mention_data=mentions,
+                realm_url="https://example.com",
+                realm_alert_words_automaton=None,
+                active_realm_emoji={},
+                sent_by_bot=False,
+                stream_names={},
+                topic_info={},
+                translate_emoticons=case.translate_emoticons,
+                user_upload_previews=AttachmentData(audio_path_ids=set(), image_metadata={}),
+            )
+        else:
+            mentions.mention_backend = md.zulip_db_data.mention_data.mention_backend
+            md.zulip_db_data.mention_data = mentions
     from zerver.lib.markdown import MessageRenderingResult
 
     md.zulip_rendering_result = MessageRenderingResult(
@@ -198,6 +240,7 @@ def exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
     ancestors = None if case.ancestors is None else case.ancestors[:]
     accepted = False
     if native:
+        original_rendering = asdict(md.zulip_rendering_result)
         original_nodes = list(dict.fromkeys(root.iter()))
         original_values = [
             (node.tag, node.text, node.tail, dict(node.attrib), list(node))
@@ -219,6 +262,9 @@ def exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
             for node, attrs in zip(original_nodes, original_attributes, strict=True)
         )
         if not accepted:
+            assert asdict(md.zulip_rendering_result) == original_rendering, (
+                "Rejected plan mutated metadata"
+            )
             assert original_values == [
                 (node.tag, node.text, node.tail, dict(node.attrib), list(node))
                 for node in original_nodes
@@ -327,6 +373,29 @@ def cases(seed: int, count: int, *, unicode_scalars: bool = False) -> Iterator[C
                 channels=True,
                 empty_topic_only=empty_only,
             )
+    for value in (
+        "@**alice** @_**ALICE** @**inactive** @*devs* @_*devs* @*old*",
+        "@**all** @_**everyone** @**topic** @**Everyone** @*missing*",
+        "@**Alice <&> فارسی|42** @**|۴٢** @**|00042** @**|42\n**",
+        "@**wrong|42** @**|999999999999999999999** @**K** @*role:everyone*",
+        "`@**all** @*devs*` **@**alice****\n@**alice**",
+        "@**alice** @**topic** @*devs* &copy;",
+        "@**alice** @*devs* $$x$$",
+        "@**alice** [x](https://[::1])",
+    ):
+        for active in (False, True):
+            for channels in (False, True):
+                yield Case(
+                    [
+                        Node("div", None, None, [1, 2]),
+                        Node("p", (value, False), None, []),
+                        Node("p", ("@**all** @*devs*", True), None, []),
+                    ],
+                    ["outer"],
+                    mentions=True,
+                    mention_active=active,
+                    channels=channels,
+                )
     if unicode_scalars:
         for first in range(0, 0x110000, 256):
             value = " ".join(
@@ -389,6 +458,20 @@ def cases(seed: int, count: int, *, unicode_scalars: bool = False) -> Iterator[C
         "#**empty>@۱٢3**",
         "#**empty>no**",
         "#**hidden>t**",
+        "@**alice**",
+        "@_**alice**",
+        "@**inactive**",
+        "@*devs*",
+        "@_*old*",
+        "@**all**",
+        "@**topic**",
+        "@**Everyone**",
+        "@**missing**",
+        "@*role:everyone*",
+        "@**|۴٢**",
+        "@**wrong|42**",
+        "@**Alice <&> فارسی|42**",
+        "@**|42\n**",
     ]
     for _ in range(count):
         nodes = []
@@ -416,6 +499,8 @@ def cases(seed: int, count: int, *, unicode_scalars: bool = False) -> Iterator[C
             translate_emoticons=bool(rng.randrange(2)),
             channels=bool(rng.randrange(2)),
             empty_topic_only=bool(rng.randrange(2)),
+            mentions=bool(rng.randrange(2)),
+            mention_active=bool(rng.randrange(2)),
         )
 
 
@@ -465,6 +550,10 @@ def main() -> None:
         args.repository / "zerver/lib/markdown/__init__.py",
         args.repository / "zerver/lib/markdown/native_inline.py",
         args.repository / "zerver/lib/markdown/native_channels.py",
+        args.repository / "zerver/lib/markdown/native_mentions.py",
+        args.repository / "rust-backend/src/markdown_mention_syntax.rs",
+        args.repository / "rust-backend/src/markdown_inline_mentions.rs",
+        args.repository / "rust-backend/src/markdown_mentions.rs",
         args.repository / "zerver/lib/markdown/channel_links.py",
         args.repository / "zerver/lib/mention.py",
         args.repository / "zerver/lib/url_encoding.py",
@@ -523,7 +612,9 @@ def main() -> None:
                 break
     report.update(checked=checked, accepted=accepted, delegated=delegated, failures=failures)
     if args.report:
-        args.report.write_text(json.dumps(report, indent=2, ensure_ascii=True) + "\n")
+        args.report.write_text(
+            json.dumps(report, indent=2, ensure_ascii=True, default=sorted) + "\n"
+        )
     print(
         f"{checked} checked; {accepted} native; {delegated} delegated; {len(failures)} mismatches",
         flush=True,

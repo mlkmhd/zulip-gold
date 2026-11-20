@@ -8,10 +8,11 @@ from xml.etree.ElementTree import Element
 import regex
 from markdown import inlinepatterns, util
 
-from zerver.lib.markdown import native_channels
+from zerver.lib.markdown import native_channels, native_mentions
 from zerver.lib.markdown.emphasis import EmphasisPattern
 from zerver.lib.markdown.inline_code import BacktickPattern
 from zerver.lib.markdown.native_channels import ChannelInputs
+from zerver.lib.markdown.native_mentions import MentionInputs
 
 if TYPE_CHECKING:
     from zerver.lib.markdown.inline_stash import InlineProcessor
@@ -24,7 +25,14 @@ EmoticonCatalog: TypeAlias = tuple[list[tuple[str, str]], dict[str, str]]
 UnicodeEmojiCatalog: TypeAlias = tuple[str, dict[str, str]]
 LinkPolicy: TypeAlias = tuple[list[str], list[str], bool, str | None]
 Stashed: TypeAlias = tuple[int | None, Text | None]
-Plan: TypeAlias = tuple[list[PlannedNode], list[tuple[int, int]], list[Stashed], list[str], bool]
+Plan: TypeAlias = tuple[
+    list[PlannedNode],
+    list[tuple[int, int]],
+    list[Stashed],
+    list[str],
+    bool,
+    tuple[list[int], list[int], bool, bool],
+]
 Planner: TypeAlias = Callable[
     [
         list[Node],
@@ -36,6 +44,7 @@ Planner: TypeAlias = Callable[
         UnicodeEmojiCatalog | None,
         LinkPolicy | None,
         ChannelInputs | None,
+        MentionInputs | None,
     ],
     Plan | None,
 ]
@@ -77,6 +86,8 @@ def try_run(
         StreamTopicMessagePattern,
         StreamTopicPattern,
         UnicodeEmoji,
+        UserGroupMentionPattern,
+        UserMentionPattern,
         ZulipMarkdown,
         _native_channel_patterns,
         _native_channel_topic_display,
@@ -84,6 +95,7 @@ def try_run(
         _native_inline_handlers,
         _native_link_callbacks,
         _native_link_patterns,
+        _native_mention_patterns,
         _native_unicode_emoji_patterns,
         codepoint_to_name,
         make_emoji,
@@ -152,6 +164,7 @@ def try_run(
     unicode_emoji_catalog = None
     link_policy = None
     has_channels = False
+    has_mentions = False
     for name, _ in ordered:
         pattern = cast(inlinepatterns.Pattern, data[name])
         callbacks = _native_inline_handlers.get(type(pattern))
@@ -299,6 +312,15 @@ def try_run(
                 return False
             unicode_emoji_catalog = (regex.__version__, codepoint_to_name)
             kind = 10
+        elif type(pattern) in (UserMentionPattern, UserGroupMentionPattern):
+            if not native_mentions.standard_pattern(
+                cast(UserMentionPattern | UserGroupMentionPattern, pattern),
+                processor.md,
+                expression,
+            ):
+                return False
+            kind = 17 if type(pattern) is UserMentionPattern else 18
+            has_mentions = True
         elif type(pattern) in (StreamPattern, StreamTopicPattern, StreamTopicMessagePattern):
             channel_pattern = cast(
                 StreamPattern | StreamTopicPattern | StreamTopicMessagePattern, pattern
@@ -368,7 +390,7 @@ def try_run(
                 kind = 11
         if (
             kind
-            and kind not in (10, 14, 15, 16)
+            and kind not in (10, 14, 15, 16, 17, 18)
             and (type(compiled) is not re.Pattern or expression.flags != re.DOTALL | re.UNICODE)
         ):
             return False
@@ -430,6 +452,20 @@ def try_run(
         channel_inputs = native_channels.snapshot(cast(ZulipMarkdown, processor.md))
         if channel_inputs is None:
             return False
+    mention_inputs = None
+    if has_mentions and any(
+        expression.search(text[0])
+        for node in nodes
+        for text in (node[2], node[3])
+        if text is not None
+        for expression in _native_mention_patterns
+    ):
+        mention_inputs = native_mentions.snapshot(
+            cast(ZulipMarkdown, processor.md),
+            [text[0] for node in nodes for text in (node[2], node[3]) if text is not None],
+        )
+        if mention_inputs is None:
+            return False
     plan = planner(
         nodes,
         patterns,
@@ -440,10 +476,11 @@ def try_run(
         unicode_emoji_catalog,
         link_policy,
         channel_inputs,
+        mention_inputs,
     )
     if plan is None:
         return False
-    updates, parents, stash, final_ancestors, registry_used = plan
+    updates, parents, stash, final_ancestors, registry_used, mentions = plan
     elements = originals + [Element(node[0], dict(node[5])) for node in updates[len(originals) :]]
 
     def restore(text: Text | None) -> str | None:
@@ -465,4 +502,11 @@ def try_run(
     }
     processor.parent_map = {elements[node]: elements[parent] for node, parent in parents}
     processor.ancestors = final_ancestors
+    if any(mentions):
+        rendering = cast(ZulipMarkdown, processor.md).zulip_rendering_result
+        users, groups, channel, topic = mentions
+        rendering.mentions_user_ids.update(users)
+        rendering.mentions_user_group_ids.update(groups)
+        rendering.mentions_stream_wildcard |= channel
+        rendering.mentions_topic_wildcard |= topic
     return True

@@ -2727,7 +2727,7 @@ The channel helper snapshot is built after the input graph is validated and
 only when channel syntax occurs in its text. The existing atomic commit
 applies the planned tree, stash, parents, ancestors and registry together;
 channel rendering leaves notification and attachment metadata unchanged.
-Media and mention preparation APIs still require their own live adapters.
+Media preparation APIs still require their own live adapter.
 
 Run `zerver.tests.test_markdown_native_inline` with coverage for the guard and
 state-preservation regressions, then run the Markdown, scheduled-message and
@@ -2742,7 +2742,7 @@ unchanged input state before running Python's fallback.
 
 `markdown_native_inline::run_with_inputs` accepts user and group mention
 handlers as kinds 17 and 18 through `Inputs.mentions`. This is an independent
-arena API; the live Python adapter and PyO3 bridge do not dispatch these kinds.
+arena API also used by the guarded live adapter described below.
 The existing native renderer remains off by default.
 
 `Mentions.data = None` represents a renderer without database context, where
@@ -2792,3 +2792,58 @@ all rendering metadata after merging pending notifications with existing state.
 Normal/reversed registry order, missing/empty/populated context, active/inactive
 users and groups, excluded ancestors and live digit limits are varied. This is
 not full-renderer, live lookup, notification delivery or benchmark coverage.
+
+### Render mentions through the guarded native inline bridge
+
+Rebuild and install the extension before using
+`ZULIP_RUST_MARKDOWN_NATIVE_INLINE=1`. The existing default-off flag now
+includes user, group and wildcard mentions. Unset it to return the whole
+inline run to Python. No new HTTP route, independent flag or default is added.
+
+`native_mentions` takes a read-only snapshot of the renderer's existing
+`MentionData`: user IDs, raw-name lookup results including explicit misses,
+and localized group display names. Names use the host's lowercase and existing
+duplicate-name ordering. It never queries Django, expands visibility or grants
+permission to mention a group. Deferred group fields delegate without fetching.
+The current interpreter's decimal digits and live integer conversion limit
+preserve mixed Unicode IDs and Python's conversion errors.
+
+The adapter guards regex objects, handlers, name/ID/group lookup methods,
+wildcard helpers and sets, span/field helpers, system-group translations,
+renderer/data types and the integer-limit getter before planning. Snapshots
+are needed only for actual syntax, so an ordinary `@` requires no mention
+context. Syntax introduced by an earlier handler without a cached raw-name
+lookup delegates the complete run. Missing database context leaves even
+wildcards unresolved.
+
+Nonstandard data, surrogate strings, IDs outside PostgreSQL's integer range,
+more than 100,000 entries or more than one million combined source/output
+snapshot characters delegate. Output accounting includes repeated canonical
+names under distinct raw aliases, before PyO3 copies those strings. Pending
+Rust notification sets are unioned into the existing Python set objects and
+wildcard flags are ORed into prior flags only after the complete plan succeeds.
+A late failure preserves the graph, registry, processor state and all previous
+rendering metadata. HTML escaping remains in the existing serializer.
+
+The optional final PyO3 input carries the authorized mention snapshot and
+policy. The plan's final result field carries pending user IDs, group IDs and
+two wildcard flags. Reinstall the wheel when updating the Python adapter.
+
+```bash
+ZULIP_RUST_MARKDOWN_NATIVE_INLINE=1 ./tools/test-backend \
+  zerver.tests.test_markdown_native_inline
+python rust-backend/tests/check_native_inline_parity.py --cases 30000 \
+  --seed 962833 --report /tmp/mention-live-parity.json
+```
+
+Run the differential with Rust flags unset and the fresh wheel on `PYTHONPATH`.
+It executes the actual Django handlers and Python-Markdown engine with
+snapshot-backed user/group/channel data and compares the complete graph,
+ordered attributes, atomic text, stash, parent maps, ancestors, registry and
+all rendering metadata. Every delegated plan is checked for unchanged state
+before fallback. It varies active/inactive data, absent context, shared graphs,
+code/atomic input, channel combinations and unknown syntax. Unit tests also
+cover translation, conversion limits, resource guards, existing set identity
+and accepted execution without Python mention handlers or lookup callbacks.
+This is not a complete standalone renderer, notification-delivery benchmark or
+proof of a general speedup; the default remains off.

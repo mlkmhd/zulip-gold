@@ -1,3 +1,4 @@
+import copy
 import random
 import re
 import sys
@@ -21,11 +22,18 @@ from zerver.lib.markdown import (
     inline_stash,
     native_channels,
     native_inline,
+    native_mentions,
 )
 from zerver.lib.markdown.inline_stash import InlineProcessor
-from zerver.lib.mention import ChannelInfo, ChannelTopicInfo, MentionBackend, MentionData
+from zerver.lib.mention import (
+    ChannelInfo,
+    ChannelTopicInfo,
+    FullNameInfo,
+    MentionBackend,
+    MentionData,
+)
 from zerver.lib.thumbnail import AttachmentData
-from zerver.models import Message, Realm
+from zerver.models import Message, NamedUserGroup, Realm
 from zerver.models.realm_emoji import EmojiInfo
 from zerver.models.streams import StreamTopicsPolicyEnum
 
@@ -34,6 +42,20 @@ class MarkdownNativeInlineTest(TestCase):
     def markdown(self) -> ZulipMarkdown:
         md = ZulipMarkdown(linkifiers=[], linkifiers_key=0, email_gateway=False)
         md.zulip_db_data = None
+        md.zulip_rendering_result = MessageRenderingResult(
+            "sentinel",
+            False,
+            False,
+            {901},
+            {902},
+            {"word"},
+            {"url"},
+            {903},
+            ["previous", "previous"],
+            {"spinner"},
+            True,
+            True,
+        )
         return md
 
     def snapshot(self, processor: PythonInlineProcessor, root: Element) -> tuple[object, ...]:
@@ -90,17 +112,20 @@ class MarkdownNativeInlineTest(TestCase):
         processor.md.treeprocessors.register(processor, "inline", 25)
         root = build()
         before = [(node, node.text, node.tail, list(node)) for node in root.iter()]
+        metadata = copy.deepcopy(native_md.zulip_rendering_result)
         result = native_inline.try_run(
             processor, root, ["outer"], native.plan_markdown_native_inline
         )
         if accepted is not None:
             self.assertEqual(result, accepted)
         if not result:
+            self.assertEqual(native_md.zulip_rendering_result, metadata)
             self.assertEqual(
                 before, [(node, node.text, node.tail, list(node)) for node in root.iter()]
             )
             PythonInlineProcessor.run(processor, root, ["outer"])
         self.assertEqual(reference, self.snapshot(processor, root))
+        self.assertEqual(reference_md.zulip_rendering_result, native_md.zulip_rendering_result)
 
     def test_native_formatting_and_complete_state(self) -> None:
         samples = [
@@ -1256,3 +1281,318 @@ class MarkdownNativeInlineTest(TestCase):
         self.assertEqual(
             [node.tag for node in root[0]], ["strong", "code", "del", "br", "img", "span", "span"]
         )
+
+    def mention_data(self, md: ZulipMarkdown) -> None:
+        mentions = MentionData.__new__(MentionData)
+        alice = FullNameInfo(42, "Alice <&> فارسی", True)
+        inactive = FullNameInfo(43, "Inactive", False)
+        mentions.full_name_info = {"alice": alice, "inactive": inactive}
+        mentions.user_id_info = {42: alice, 43: inactive}
+        mentions.user_group_name_info = {
+            "devs": NamedUserGroup(
+                id=52, name="Devs <&>", deactivated=False, is_system_group=False
+            ),
+            "old": NamedUserGroup(id=53, name="Old", deactivated=True, is_system_group=False),
+            "role:everyone": NamedUserGroup(
+                id=54, name="role:everyone", deactivated=False, is_system_group=True
+            ),
+        }
+        md.zulip_db_data = self.emoji_data([])
+        md.zulip_db_data.mention_data = mentions
+
+    def test_native_mentions_and_notification_union(self) -> None:
+        for content in [
+            "@**ALICE** @**Alice <&> فارسی|42** @**|۴۲** @**|٤٢\n**",
+            "@**alice** @_**alice** @**inactive** @*devs* @_*devs* @*old*",
+            "@**all** @**topic** @_**channel** @**Everyone** @**missing** @*missing*",
+            "@**wrong|42** @**alice|42** @**|999999999999999999999999999** @**|00042**",
+            "**@**alice**** `@**all** @*devs*` @**alice**\n@*devs*",
+            "@*role:everyone* @_**topic** @**everyone**",
+        ]:
+            with self.subTest(content=content):
+
+                def build(content: str = content) -> Element:
+                    root = Element("div")
+                    SubElement(root, "p").text = content
+                    SubElement(root, "p").text = AtomicString("@**all** @*devs*")
+                    return root
+
+                self.compare(build, configure=self.mention_data)
+
+    def test_native_mentions_preserve_no_database_context(self) -> None:
+        def build() -> Element:
+            root = Element("div")
+            SubElement(root, "p").text = "@**all** @**topic** @**|42** @*devs*"
+            return root
+
+        self.compare(build)
+
+    def test_native_mentions_late_failure_discards_notifications(self) -> None:
+        for suffix in ["&copy;", "$$x$$", "[x](https://[::1])"]:
+            with self.subTest(suffix=suffix):
+
+                def build(suffix: str = suffix) -> Element:
+                    root = Element("div")
+                    SubElement(root, "p").text = "@**alice** @**all** @*devs*"
+                    SubElement(root, "p").text = suffix
+                    return root
+
+                self.compare(build, accepted=False, configure=self.mention_data)
+
+    def test_native_mention_helpers_delegate_without_execution(self) -> None:
+        from zerver.lib import markdown, mention
+
+        native = inline_stash._rust_native_inline
+        if native is None:
+            self.skipTest("Native inline engine is disabled")
+        md = self.markdown()
+        self.mention_data(md)
+        assert md.zulip_db_data is not None
+        processor = InlineProcessor(md)
+        root = Element("div")
+        SubElement(root, "p").text = "@**alice** @*devs*"
+        callback = mock.Mock(side_effect=AssertionError("custom mention helper ran"))
+        for target, names in [
+            (
+                md.zulip_db_data.mention_data,
+                ["get_user_by_name", "get_user_by_id", "get_user_group"],
+            ),
+            (
+                mention,
+                ["user_mention_matches_topic_wildcard", "user_mention_matches_stream_wildcard"],
+            ),
+            (markdown, ["get_user_group_mention_display_name", "build_mention_span"]),
+            (sys, ["get_int_max_str_digits"]),
+        ]:
+            for name in names:
+                with self.subTest(name=name), mock.patch.object(target, name, callback):
+                    self.assertFalse(
+                        native_inline.try_run(
+                            processor, root, None, native.plan_markdown_native_inline
+                        )
+                    )
+                    callback.assert_not_called()
+                    self.assertEqual(root[0].text, "@**alice** @*devs*")
+                    self.assertFalse(hasattr(processor, "stashed_nodes"))
+
+    def test_native_mention_snapshot_guards(self) -> None:
+        native = inline_stash._rust_native_inline
+        if native is None:
+            self.skipTest("Native inline engine is disabled")
+        md = self.markdown()
+        self.mention_data(md)
+        assert md.zulip_db_data is not None
+        mentions = md.zulip_db_data.mention_data
+        root = Element("div")
+        SubElement(root, "p").text = "@**alice** @*devs*"
+        processor = InlineProcessor(md)
+        deferred = NamedUserGroup(id=52, name="Devs")
+        del vars(deferred)["deactivated"]
+        for target, name, value in [
+            (md, "zulip_db_data", object()),
+            (md.zulip_db_data, "mention_data", object()),
+            (md, "zulip_rendering_result", object()),
+            (md.zulip_rendering_result, "mentions_user_ids", [901]),
+            (md.zulip_rendering_result, "mentions_user_group_ids", {"902"}),
+            (md.zulip_rendering_result, "mentions_topic_wildcard", 1),
+            (mentions, "full_name_info", []),
+            (mentions, "full_name_info", {"alice": FullNameInfo(42, "\ud800", True)}),
+            (mentions, "user_id_info", {2**40: FullNameInfo(42, "Alice", True)}),
+            (mentions, "full_name_info", {"alice": FullNameInfo(42, "Alice", cast(bool, 1))}),
+            (mentions, "user_group_name_info", {"devs": object()}),
+            (mentions, "user_group_name_info", {"devs": deferred}),
+            (
+                mentions,
+                "user_group_name_info",
+                {
+                    "devs": NamedUserGroup(
+                        id=52, name="\ud800", deactivated=False, is_system_group=False
+                    )
+                },
+            ),
+        ]:
+            with self.subTest(name=name, value=value), mock.patch.object(target, name, value):
+                self.assertFalse(
+                    native_inline.try_run(processor, root, None, native.plan_markdown_native_inline)
+                )
+                self.assertEqual(root[0].text, "@**alice** @*devs*")
+                self.assertFalse(hasattr(processor, "stashed_nodes"))
+
+    def test_native_mention_conversion_limit_preserves_python_error(self) -> None:
+        native = inline_stash._rust_native_inline
+        if native is None:
+            self.skipTest("Native inline engine is disabled")
+        md = self.markdown()
+        self.mention_data(md)
+        root = Element("div")
+        SubElement(root, "p").text = "@**alice** @**|" + "0" * 641 + "**"
+        processor = InlineProcessor(md)
+        before = copy.deepcopy(md.zulip_rendering_result)
+        previous = sys.get_int_max_str_digits()
+        try:
+            sys.set_int_max_str_digits(640)
+            self.assertFalse(
+                native_inline.try_run(processor, root, None, native.plan_markdown_native_inline)
+            )
+            self.assertEqual(md.zulip_rendering_result, before)
+            with self.assertRaises(ValueError):
+                PythonInlineProcessor.run(processor, root)
+        finally:
+            sys.set_int_max_str_digits(previous)
+
+    def test_native_mentions_commit_existing_set_objects(self) -> None:
+        native = inline_stash._rust_native_inline
+        if native is None:
+            self.skipTest("Native inline engine is disabled")
+        md = self.markdown()
+        self.mention_data(md)
+        root = Element("div")
+        SubElement(root, "p").text = "@**alice** @*devs* @**topic**"
+        rendering = md.zulip_rendering_result
+        users, groups = rendering.mentions_user_ids, rendering.mentions_user_group_ids
+        self.assertTrue(
+            native_inline.try_run(
+                InlineProcessor(md), root, None, native.plan_markdown_native_inline
+            )
+        )
+        self.assertIs(rendering.mentions_user_ids, users)
+        self.assertIs(rendering.mentions_user_group_ids, groups)
+        self.assertEqual(users, {901, 42})
+        self.assertEqual(groups, {902, 52})
+        self.assertTrue(rendering.mentions_topic_wildcard)
+        self.assertFalse(rendering.mentions_stream_wildcard)
+
+    def test_native_mention_snapshot_resource_limits(self) -> None:
+        md = self.markdown()
+        self.mention_data(md)
+        assert md.zulip_db_data is not None
+        mentions = md.zulip_db_data.mention_data
+        for target, name, value in [
+            (
+                mentions,
+                "full_name_info",
+                dict.fromkeys((str(n) for n in range(100_001)), FullNameInfo(42, "Alice", True)),
+            ),
+            (mentions, "full_name_info", {"alice": FullNameInfo(42, "x" * 1_000_001, True)}),
+            (
+                mentions,
+                "user_group_name_info",
+                {
+                    "devs": NamedUserGroup(
+                        id=52, name="role:unknown", is_system_group=True, deactivated=False
+                    )
+                },
+            ),
+        ]:
+            with self.subTest(name=name), mock.patch.object(target, name, value):
+                self.assertIsNone(native_mentions.snapshot(md, ["@**alice** @*devs*"]))
+        self.assertIsNotNone(native_mentions.snapshot(md, ["@**alice** @*devs*"]))
+        with mock.patch.object(
+            mentions,
+            "user_group_name_info",
+            {
+                "devs": NamedUserGroup(
+                    id=52, name="x" * 600_000, is_system_group=False, deactivated=False
+                )
+            },
+        ):
+            self.assertIsNone(native_mentions.snapshot(md, ["@*devs*"]))
+        self.assertIsNone(
+            native_mentions.snapshot(md, [f"@*{number}*" for number in range(100_001)])
+        )
+        with mock.patch.object(
+            mentions,
+            "user_group_name_info",
+            {
+                "devs": NamedUserGroup(
+                    id=52, name="x" * 100_000, is_system_group=False, deactivated=False
+                )
+            },
+        ):
+            group_aliases = [
+                "devs",
+                "Devs",
+                "dEvs",
+                "deVs",
+                "devS",
+                "DEvs",
+                "DeVs",
+                "DevS",
+                "dEVs",
+                "dEvS",
+            ]
+            self.assertIsNone(
+                native_mentions.snapshot(md, [" ".join(f"@*{name}*" for name in group_aliases)])
+            )
+        large = FullNameInfo(42, "x" * 100_000, True)
+        aliases = [
+            "alice",
+            "Alice",
+            "aLice",
+            "alIce",
+            "aliCe",
+            "alicE",
+            "ALice",
+            "AlIce",
+            "AliCe",
+            "AlicE",
+        ]
+        with (
+            mock.patch.object(mentions, "full_name_info", {"alice": large}),
+            mock.patch.object(mentions, "user_id_info", {42: large}),
+        ):
+            self.assertIsNone(
+                native_mentions.snapshot(md, [" ".join(f"@**{name}**" for name in aliases)])
+            )
+
+    def test_native_system_group_mentions_use_current_language(self) -> None:
+        from django.utils.translation import override
+
+        def build() -> Element:
+            root = Element("div")
+            SubElement(root, "p").text = "@*role:everyone* @_*role:everyone*"
+            return root
+
+        for language in ["en", "fa", "de", "ar"]:
+            with self.subTest(language=language), override(language):
+                self.compare(build, configure=self.mention_data)
+
+    def test_native_mentions_do_not_call_python_handlers_or_lookups(self) -> None:
+        from zerver.lib.markdown import (
+            UserGroupMentionPattern,
+            UserMentionPattern,
+            _native_inline_handlers,
+            _native_mention_callbacks,
+        )
+
+        native = inline_stash._rust_native_inline
+        if native is None:
+            self.skipTest("Native inline engine is disabled")
+        md = self.markdown()
+        self.mention_data(md)
+        root = Element("div")
+        SubElement(root, "p").text = "@**alice** @*devs* @**topic**"
+        forbidden = {
+            _native_inline_handlers[cls][0].__code__
+            for cls in (UserMentionPattern, UserGroupMentionPattern)
+        }
+        forbidden.update(callback.__code__ for callback in _native_mention_callbacks[:3])
+        calls = []
+
+        def profile(frame: FrameType, event: str, arg: object) -> None:
+            if event == "call" and frame.f_code in forbidden:
+                calls.append(frame.f_code.co_name)
+
+        previous = sys.getprofile()
+        try:
+            sys.setprofile(profile)
+            self.assertTrue(
+                native_inline.try_run(
+                    InlineProcessor(md), root, None, native.plan_markdown_native_inline
+                )
+            )
+        finally:
+            sys.setprofile(previous)
+        self.assertEqual(calls, [])
+        self.assertEqual(md.zulip_rendering_result.mentions_user_ids, {42, 901})
+        self.assertEqual(md.zulip_rendering_result.mentions_user_group_ids, {52, 902})

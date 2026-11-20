@@ -96,6 +96,15 @@ type NativeChannelInputs = (
     String,
     Vec<char>,
 );
+type NativeMentionUser = (i32, String, bool);
+type NativeMentionGroup = (i32, String, bool);
+type NativeMentionData = (
+    HashMap<String, Option<NativeMentionUser>>,
+    HashMap<i32, NativeMentionUser>,
+    HashMap<String, Option<NativeMentionGroup>>,
+);
+type NativeMentionInputs = (Option<NativeMentionData>, HashMap<char, u8>, usize);
+type NativeMentionEffects = (Vec<i32>, Vec<i32>, bool, bool);
 type NativeInlineStash = (Option<usize>, Option<NativeInlineText>);
 type NativeInlineResult = (
     Vec<NativeInlinePlannedNode>,
@@ -103,6 +112,7 @@ type NativeInlineResult = (
     Vec<NativeInlineStash>,
     Vec<String>,
     bool,
+    NativeMentionEffects,
 );
 
 type PrettifyNode = (String, Option<String>, Option<String>, bool, usize);
@@ -240,7 +250,7 @@ mod _zulip_backend {
     };
 
     #[pyfunction]
-    #[pyo3(signature = (nodes, patterns, ancestors, guards, emoji_catalogs, emoticon_catalog=None, unicode_emoji_catalog=None, link_policy=None, channel_inputs=None))]
+    #[pyo3(signature = (nodes, patterns, ancestors, guards, emoji_catalogs, emoticon_catalog=None, unicode_emoji_catalog=None, link_policy=None, channel_inputs=None, mention_inputs=None))]
     #[allow(clippy::too_many_arguments)]
     fn plan_markdown_native_inline(
         nodes: Vec<NativeInlineNode>,
@@ -252,6 +262,7 @@ mod _zulip_backend {
         unicode_emoji_catalog: Option<NativeUnicodeEmojiCatalog>,
         link_policy: Option<NativeLinkPolicy>,
         channel_inputs: Option<NativeChannelInputs>,
+        mention_inputs: Option<NativeMentionInputs>,
     ) -> Option<NativeInlineResult> {
         use markdown_native_inline::{Emoticons, NamedEmoji, Node, Pattern, Stashed, Text};
         if patterns.len() != guards.len() || patterns.len() != emoji_catalogs.len() {
@@ -332,12 +343,51 @@ mod _zulip_backend {
                     unicode_decimal: unicode_decimal.into_iter().collect(),
                 }
             });
+        let mentions = mention_inputs.map(|(data, unicode_decimal, max_id_digits)| {
+            let user = |(id, full_name, is_active)| markdown_native_inline::MentionUserSnapshot {
+                id,
+                full_name,
+                is_active,
+            };
+            markdown_native_inline::Mentions {
+                data: data.map(|(names, ids, groups)| markdown_native_inline::MentionData {
+                    users_by_name: names
+                        .into_iter()
+                        .map(|(name, value)| (name, value.map(user)))
+                        .collect(),
+                    users_by_id: ids
+                        .into_iter()
+                        .map(|(id, value)| (id, user(value)))
+                        .collect(),
+                    groups_by_name: groups
+                        .into_iter()
+                        .map(|(name, value)| {
+                            (
+                                name,
+                                value.map(|(id, display_name, deactivated)| {
+                                    markdown_native_inline::MentionGroupSnapshot {
+                                        id,
+                                        display_name,
+                                        deactivated,
+                                    }
+                                }),
+                            )
+                        })
+                        .collect(),
+                }),
+                user_policy: markdown_inline_mentions::UserPolicy {
+                    unicode_decimal,
+                    max_id_digits,
+                },
+            }
+        });
         let result = markdown_native_inline::run_with_inputs(
             nodes,
             &patterns,
             ancestors,
             markdown_native_inline::Inputs {
                 channels: channels.as_ref(),
+                mentions: mentions.as_ref(),
                 ..markdown_native_inline::Inputs::default()
             },
             |index, data| {
@@ -399,6 +449,12 @@ mod _zulip_backend {
                 .collect(),
             result.ancestors,
             result.registry_used,
+            (
+                result.mentions.users.into_iter().collect(),
+                result.mentions.groups.into_iter().collect(),
+                result.mentions.channel,
+                result.mentions.topic,
+            ),
         ))
     }
 
