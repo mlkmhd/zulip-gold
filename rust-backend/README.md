@@ -2358,6 +2358,57 @@ both native acceptance and fallback, so an extension delegating every input
 cannot pass. Generated placeholder inputs use absent or malformed keys;
 arbitrary valid keys can create self-referential state in the Python reference.
 
+## Prepare uploaded images and attachment effects natively
+
+With `native-markdown`, `markdown_media::prepare_image` combines the shared
+image parser, stash restoration, URL sanitizer, local rewriting, authorized
+preview lookup and ordered placeholder-image attributes without Python.
+`ImageOutcome` keeps a rejected image distinct from an unsupported plan, and
+returns the attachment path to append even when media policy rejects display.
+Commit this pending effect in candidate order, preserving duplicates. Set
+`has_image` only when an image is returned; preserve existing rendering metadata.
+Values are unescaped ElementTree attributes, never ready-to-insert HTML.
+
+Preview keys use the entire raw `/user_uploads/` suffix, including query and
+fragment. Attachment paths instead follow `urlsplit(urljoin("/", src))`, including
+relative dot-segment resolution, semicolon parameters, Unicode and empty paths.
+Absolute local links rewritten to `user_uploads/…` can record an attachment while
+failing the image rule's leading-slash requirement. Missing and empty preview
+snapshots are separate inputs. Dimensions use decimal strings to preserve
+Python's unbounded integers, and empty content types do not add an attribute.
+
+`markdown_media::attachment_path` exposes the same path extraction separately.
+It and image preparation require CPython 3.12's standard `urljoin` scheme lists;
+future host adapters must guard those lists and all live helpers. Unicode or
+bracketed authorities and invalid parser ends return `Err(Unsupported)`, requiring
+whole-plan delegation before host mutation. Image rejection is `Ok` with no image
+and can still carry an attachment effect. Preview snapshots must contain only
+authorized metadata; this API does not establish attachment permissions.
+
+This is a standalone preparatory API, not live handler dispatch. Django still
+handles image/audio matching and metadata updates. Native integration must
+preserve audio-before-image priority and commit tree and metadata together.
+There is no new flag, default change or standalone HTTP operation.
+
+Compare with the actual Python image handler and attachment helper in the
+provisioned environment, without Rust feature flags:
+
+```bash
+cargo build --locked --offline --manifest-path rust-backend/Cargo.toml \
+    --no-default-features --features native-markdown --example media
+python rust-backend/tests/check_media_parity.py \
+    --probe "${CARGO_TARGET_DIR:-rust-backend/target}/debug/examples/media" \
+    --cases 50000 --seed 962826 --report var/media-parity.json
+```
+
+The report records actual Cargo probe, source and reference hashes, native
+acceptance/delegation, ordered attributes, UTF-8 end offsets and pending
+attachment/image state. Cases vary file policy, absent/empty/nested stashes,
+preview availability, non-ASCII paths and pre-existing rendering metadata.
+This does not establish complete-renderer, media authorization or performance
+parity. Audio MIME selection, camo, live-helper guards and atomic planner
+integration remain separate work.
+
 ## Measure Markdown rendering bridges
 
 Use the provisioned development environment and a release wheel to measure

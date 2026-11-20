@@ -752,7 +752,7 @@ Comment: https://pypi.python.org/pypi/Markdown
 Files: rust-backend/src/markdown_links.rs
 Copyright: 2001-2023 Python Software Foundation; All Rights Reserved
 License: PSF-2.0
-Comment: URL decomposition and recomposition adapted from CPython 3.12
+Comment: URL decomposition, recomposition and joining adapted from CPython 3.12
  urllib.parse to Rust. Unicode and bracketed authority validation are
  delegated, and Zulip's sanitizer and local link policy are applied.
 

@@ -130,6 +130,85 @@ pub fn sanitize(url: &str, policy: &Policy) -> Result<Option<String>, Unsupporte
     Ok(Some(unsplit(&parts, policy)))
 }
 
+/// Match `urlsplit(urljoin("/", url))` with CPython 3.12's standard scheme lists.
+pub(crate) fn attachment_path(
+    url: &str,
+    realm_host: Option<&str>,
+) -> Result<Option<String>, Unsupported> {
+    let cleaned = url
+        .trim_start_matches(|c| c <= '\u{20}')
+        .replace(['\t', '\r', '\n'], "");
+    let mut parts = split(&cleaned)?;
+    let mut joined;
+    if parts.scheme.is_empty() {
+        // urlparse splits parameters only from the final path segment.
+        let segment_start = parts.path.rfind('/').map_or(0, |at| at + 1);
+        let (path, params) = parts.path[segment_start..]
+            .find(';')
+            .map(|at| parts.path.split_at(segment_start + at))
+            .map_or((parts.path, ""), |(path, params)| (path, &params[1..]));
+        joined = String::new();
+        if !parts.netloc.is_empty() {
+            joined.push_str("//");
+            joined.push_str(parts.netloc);
+            joined.push_str(path);
+        } else {
+            let mut segments: Vec<_> = path.split('/').collect();
+            if !path.starts_with('/') {
+                // The base directory is '/'; relative paths discard empty
+                // intermediate segments, but absolute paths preserve them.
+                let last = segments.pop().unwrap();
+                segments.retain(|segment| !segment.is_empty());
+                segments.insert(0, "");
+                segments.push(last);
+            }
+            let trailing_directory = matches!(segments.last(), Some(&"." | &".."));
+            let mut resolved = Vec::new();
+            for segment in segments {
+                match segment {
+                    ".." => {
+                        resolved.pop();
+                    }
+                    "." => {}
+                    _ => resolved.push(segment),
+                }
+            }
+            if trailing_directory {
+                resolved.push("");
+            }
+            joined.push_str(&resolved.join("/"));
+            if joined.is_empty() {
+                joined.push('/');
+            }
+        }
+        if !params.is_empty() {
+            joined.push(';');
+            joined.push_str(params);
+        }
+        // Re-parsing can interpret a normalized leading '//' as an authority.
+        joined = joined
+            .trim_start_matches(|c| c <= '\u{20}')
+            .replace(['\t', '\r', '\n'], "");
+        parts = split(&joined)?;
+    }
+    if !parts.netloc.is_empty() && Some(parts.netloc) != realm_host {
+        return Ok(None);
+    }
+    Ok(parts.path.strip_prefix("/user_uploads/").map(str::to_owned))
+}
+
+pub(crate) fn rewrite_local(mut url: String, policy: &Policy) -> String {
+    if let Some(realm_url) = &policy.realm_url {
+        let prefix = format!("{realm_url}/");
+        if let Some(relative) = url.strip_prefix(&prefix)
+            && (relative.starts_with('#') || relative.starts_with("user_uploads/"))
+        {
+            url = relative.to_owned();
+        }
+    }
+    url
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct Link {
     pub end: usize,
@@ -155,17 +234,10 @@ pub fn prepare(
     };
     let prepared = prepare_text(data, &parsed, stash).ok_or(Unsupported)?;
     let restored = unescape(prepared.href.trim_matches(is_python_whitespace), stash);
-    let Some(mut href) = sanitize(&restored, policy)? else {
+    let Some(href) = sanitize(&restored, policy)? else {
         return Ok(None);
     };
-    if let Some(realm_url) = &policy.realm_url {
-        let prefix = format!("{realm_url}/");
-        if let Some(relative) = href.strip_prefix(&prefix)
-            && (relative.starts_with('#') || relative.starts_with("user_uploads/"))
-        {
-            href = relative.to_owned();
-        }
-    }
+    let href = rewrite_local(href, policy);
     let mut title = prepared.title;
     let mut text = data[parsed.text].to_owned();
     let reply = title.as_deref() == Some("zulip-message-reply")
