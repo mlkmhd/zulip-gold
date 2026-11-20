@@ -12,9 +12,9 @@ pub enum Rendered {
 
 static CALENDAR: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(concat!(
-        r"(?s)\A([0-9]{4})-([0-9]{2})-([0-9]{2})",
-        r"(?:.([0-9]{2}(?::[0-9]{2}){0,2}(?:[.,][0-9]+)?)",
-        r"(Z|[+-][0-9]{2}(?::[0-9]{2}){0,2}(?:[.,][0-9]+)?)?)?\z",
+        r"(?s)\A([0-9]{4})(?:-([0-9]{2})-([0-9]{2})|([0-9]{2})([0-9]{2}))",
+        r"(?:.([0-9]{2}(?:(?::[0-9]{2}){1,2}|[0-9]{2}(?:[0-9]{2})?)?(?:[.,][0-9]+)?)",
+        r"(Z|[+-][0-9]{2}(?:(?::[0-9]{2}){1,2}|[0-9]{2}(?:[0-9]{2})?)?(?:[.,][0-9]+)?)?)?\z",
     ))
     .unwrap()
 });
@@ -33,7 +33,15 @@ fn month_days(year: i32, month: i32) -> i32 {
 
 fn clock(value: &str) -> (i64, i64, i64, i64) {
     let (whole, fraction) = value.split_once(['.', ',']).unwrap_or((value, ""));
-    let mut fields = whole.split(':').map(|part| part.parse::<i64>().unwrap());
+    let parts: Vec<_> = if whole.contains(':') {
+        whole.split(':').collect()
+    } else {
+        (0..whole.len())
+            .step_by(2)
+            .map(|i| &whole[i..i + 2])
+            .collect()
+    };
+    let mut fields = parts.iter().map(|part| part.parse::<i64>().unwrap());
     let hour = fields.next().unwrap();
     let minute = fields.next().unwrap_or(0);
     let second = fields.next().unwrap_or(0);
@@ -44,25 +52,37 @@ fn clock(value: &str) -> (i64, i64, i64, i64) {
     (hour, minute, second, microsecond)
 }
 
-/// `None` delegates syntax outside the calendar/colon-time grammar, including
-/// basic and ISO week dates. Invalid values inside this grammar are rendered
+/// `None` delegates syntax outside the calendar date/time grammar, including
+/// ISO week dates. Invalid values inside this grammar are rendered
 /// as escaped source by the caller. Fractions are truncated to microseconds.
 pub fn render(value: &str) -> Option<Rendered> {
     let captures = CALENDAR.captures(value)?;
     let mut year = captures[1].parse::<i32>().unwrap();
-    let mut month = captures[2].parse::<i32>().unwrap();
-    let mut day = captures[3].parse::<i32>().unwrap();
+    let mut month = captures
+        .get(2)
+        .or_else(|| captures.get(4))
+        .unwrap()
+        .as_str()
+        .parse::<i32>()
+        .unwrap();
+    let mut day = captures
+        .get(3)
+        .or_else(|| captures.get(5))
+        .unwrap()
+        .as_str()
+        .parse::<i32>()
+        .unwrap();
     if year == 0 || !(1..=12).contains(&month) || !(1..=month_days(year, month)).contains(&day) {
         return Some(Rendered::Invalid);
     }
     let (hour, minute, second, microsecond) = captures
-        .get(4)
+        .get(6)
         .map_or((0, 0, 0, 0), |time| clock(time.as_str()));
     if hour > 23 || minute > 59 || second > 59 {
         return Some(Rendered::Invalid);
     }
     let mut offset = 0;
-    if let Some(zone) = captures.get(5).filter(|zone| zone.as_str() != "Z") {
+    if let Some(zone) = captures.get(7).filter(|zone| zone.as_str() != "Z") {
         let (hours, minutes, seconds, micros) = clock(&zone.as_str()[1..]);
         let seconds = (hours * 60 + minutes) * 60 + seconds;
         // CPython's ISO parser treats a zero whole-second offset as UTC,
@@ -170,9 +190,7 @@ mod tests {
     fn delegates_other_iso_grammars_and_unrecognized_input() {
         for input in [
             "",
-            "20240101",
             "2024-W01-1",
-            "2024-01-01T123456",
             "2024-01-01T",
             "2024-01-01TT12",
             "2024-01-01T12:",
@@ -181,6 +199,36 @@ mod tests {
             "2024-01-01T12.1a",
             "2024-01-01T12+01:",
             "2024-01-01T12+01:02:03.",
+        ] {
+            assert_eq!(render(input), None, "{input}");
+        }
+    }
+
+    #[test]
+    fn compact_dates_times_and_offsets() {
+        for (input, expected) in [
+            ("20240101", "2024-01-01T00:00:00Z"),
+            ("20240101T123456Z", "2024-01-01T12:34:56Z"),
+            ("20240101T1234.5+0330", "2024-01-01T09:04:00.500000Z"),
+            ("2024-01-01T123456+000001.5", "2024-01-01T12:34:54.500000Z"),
+            ("20240101💡12:34:56-000099", "2024-01-01T12:36:35Z"),
+            ("202401010123456+000000.5", "2024-01-01T12:34:56Z"),
+        ] {
+            assert_eq!(
+                render(input),
+                Some(Rendered::Valid(expected.into())),
+                "{input}"
+            );
+        }
+        for input in ["20230229", "20240101T240000", "20240101T12-2360"] {
+            assert_eq!(render(input), Some(Rendered::Invalid), "{input}");
+        }
+        for input in [
+            "20240101T123",
+            "20240101T12:3456",
+            "20240101T1234:56",
+            "202401-01",
+            "2024-0101",
         ] {
             assert_eq!(render(input), None, "{input}");
         }

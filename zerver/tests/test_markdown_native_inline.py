@@ -183,9 +183,9 @@ class MarkdownNativeInlineTest(TestCase):
         for value in [
             "",
             "not a date <&>",
-            "20240101T123456",
+            "20240101T123",
             "2024-W01-1T12:34:56",
-            "2024-01-01T123456",
+            "2024-01-01T12:3456",
             "2024-01-01T12:",
             "2024-01-01T12Zx",
             "۲۰۲۴-01-01",
@@ -223,6 +223,31 @@ class MarkdownNativeInlineTest(TestCase):
         self.assertEqual(list(root[0]), [])
         self.assertEqual(md.zulip_rendering_result, rendering)
         self.assertFalse(hasattr(processor, "stashed_nodes"))
+
+    def test_native_compact_timestamps(self) -> None:
+        for value in [
+            "20240101",
+            "20240101T123456Z",
+            "20240101T1234.5+0330",
+            "2024-01-01T123456+000001.5",
+            "20240101💡12:34:56-000099",
+            "202401010123456+000000.5",
+            "20230229",
+            "20240101T240000",
+            "20240101T12-2360",
+            "00010101T00+000001",
+            "99991231T235959-000001",
+        ]:
+            with self.subTest(value=value):
+
+                def build(value: str = value) -> Element:
+                    root = Element("div")
+                    SubElement(
+                        root, "p"
+                    ).text = f"**before** <time:{value}> <time:{value}> **after**"
+                    return root
+
+                self.compare(build)
 
     def test_native_timestamp_commits_media_and_mentions_together(self) -> None:
         self.require_native_media()

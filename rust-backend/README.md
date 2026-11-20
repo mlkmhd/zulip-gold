@@ -2960,8 +2960,9 @@ notification delivery, HTTP coverage or a performance improvement.
 
 ## Render calendar timestamps without Python
 
-`ZULIP_RUST_MARKDOWN_NATIVE_INLINE=1` also handles `<time:YYYY-MM-DD...>` with optional
-colon-separated hours, minutes and seconds, decimal fractions and UTC offsets.
+`ZULIP_RUST_MARKDOWN_NATIVE_INLINE=1` also handles calendar timestamps with
+extended (`2024-01-01T12:34:56Z`) or basic (`20240101T123456Z`) dates and times,
+decimal fractions and UTC offsets. Date, time and offset separators are independent.
 It preserves the source as atomic display text and normalizes the `datetime`
 attribute to UTC with CPython 3.12 microsecond precision. A naive timestamp
 means UTC. Invalid calendar values and UTC overflow produce the existing
@@ -2969,8 +2970,8 @@ escaped source. Offset minutes and seconds retain CPython's normalization,
 including its treatment of fractional offsets with zero whole seconds.
 
 The adapter guards the timestamp pattern, regex flags, handler methods, datetime
-types and element/text constructors. Other runtimes, basic dates, ISO week
-dates, compact times and unrecognized syntax retain the Python fallback. A late
+types and element/text constructors. Other runtimes, ISO week dates, mixed
+separators within one date or clock, and unrecognized syntax retain the Python fallback. A late
 unsupported timestamp
 discards the entire plan, including prior graph, mention and attachment effects.
 Shared nodes can revisit escaped invalid dates and require the existing HTML
@@ -2982,9 +2983,9 @@ host mutation, including when earlier timestamps were already planned.
 Install a fresh offline release wheel before running the full-state comparison:
 
 ```bash
-PYTHONPATH="$PWD/var/timestamp-python:$PWD" \
+PYTHONPATH="$PWD/var/timestamp-compact-python:$PWD" \
     python rust-backend/tests/check_native_inline_parity.py \
-    --cases 10000 --timestamp-cases 50000 --seed 962836 \
+    --cases 10000 --timestamp-cases 50000 --seed 962837 \
     --report var/timestamp-inline-parity.json
 ```
 

@@ -373,12 +373,14 @@ def timestamp_cases(seed: int, count: int) -> Iterator[Case]:
         year = rng.choice([1, 4, 100, 400, 1900, 2000, 2024, 9999, rng.randrange(10000)])
         month = rng.randrange(14)
         day = rng.randrange(33)
-        value = f"{year:04}-{month:02}-{day:02}"
+        date_separator = rng.choice(["", "-"])
+        value = f"{year:04}{date_separator}{month:02}{date_separator}{day:02}"
         if rng.randrange(8):
             value += rng.choice(["T", "t", " ", "💡", "0", "\n", "\x00", "-", "+", "Z"])
             value += f"{rng.randrange(100):02}"
+            time_separator = rng.choice(["", ":"])
             for _ in range(rng.randrange(3)):
-                value += f":{rng.randrange(100):02}"
+                value += f"{time_separator}{rng.randrange(100):02}"
             if rng.randrange(2):
                 value += rng.choice([".", ","]) + "".join(
                     rng.choices("0123456789", k=rng.randrange(1, 12))
@@ -387,8 +389,9 @@ def timestamp_cases(seed: int, count: int) -> Iterator[Case]:
             value += zone
             if zone in ("+", "-"):
                 value += f"{rng.randrange(25):02}"
+                zone_separator = rng.choice(["", ":"])
                 for _ in range(rng.randrange(3)):
-                    value += f":{rng.randrange(100):02}"
+                    value += f"{zone_separator}{rng.randrange(100):02}"
                 if rng.randrange(2):
                     value += rng.choice([".", ","]) + "".join(
                         rng.choices("0123456789", k=rng.randrange(1, 12))
@@ -669,6 +672,10 @@ def cases(seed: int, count: int, *, unicode_scalars: bool = False) -> Iterator[C
         "<time:1900-02-29>",
         "<time:2024-01-01T12+00:00:00.5>",
         "<time:2024-W01-1>",
+        "<time:20240101T123456Z>",
+        "<time:20240101T1234.5+0330>",
+        "<time:20230229>",
+        "<time:20240101T12:3456>",
         "<time:bad **date**>",
         "<time:",
     ]
