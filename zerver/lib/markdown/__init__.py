@@ -302,9 +302,16 @@ def get_web_link_regex() -> Pattern[str]:
     # extra costs.  It's roughly 75ms to run this code, so
     # caching the value is super important here.
 
-    tlds = r"|".join(list_of_tlds())
-    schemes_regex = r"|".join(auto_linked_schemes)
+    return verbose_compile(
+        web_link_regex(
+            r"|".join(list_of_tlds()),
+            r"|".join(auto_linked_schemes),
+            settings.ENABLE_FILE_LINKS,
+        )
+    )
 
+
+def web_link_regex(tlds: str, schemes_regex: str, enable_file_links: bool) -> str:
     # A link starts at a word boundary, and ends at space, punctuation, or end-of-input.
     #
     # We detect a URL either by the `https?://` or by building around the TLD.
@@ -326,9 +333,9 @@ def get_web_link_regex() -> Pattern[str]:
         nested_paren_chunk %= (paren_group,)
     nested_paren_chunk %= (inner_paren_contents,)
 
-    file_links = r"| (?:file://(/[^/ ]*)+/?)" if settings.ENABLE_FILE_LINKS else r""
+    file_links = r"| (?:file://(/[^/ ]*)+/?)" if enable_file_links else r""
 
-    REGEX = rf"""
+    return rf"""
         (?<![^\s'"\(,:<\u0080-\U0010FFFF])    # Start after whitespace, specified chars, or multibyte chars
                              # (Double-negative lookbehind to allow start-of-string)
         (?P<url>             # Main group
@@ -353,7 +360,6 @@ def get_web_link_regex() -> Pattern[str]:
             (?:\Z|\s)                  # followed by whitespace or end of string
         )
         """
-    return verbose_compile(REGEX)
 
 
 def clear_web_link_regex_for_testing() -> None:
