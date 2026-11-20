@@ -36,8 +36,11 @@ mod markdown_blockquotes;
 #[cfg(any(feature = "python", test))]
 mod markdown_channel_links;
 
-#[cfg(feature = "python")]
-mod markdown_channel_spans;
+#[cfg(feature = "native-markdown")]
+pub mod markdown_channel_spans;
+
+#[cfg(feature = "native-markdown")]
+pub mod markdown_channel_syntax;
 
 #[cfg(feature = "native-markdown")]
 mod markdown_code;
@@ -168,5 +171,5 @@ mod scheduled_validation;
 #[cfg(feature = "python")]
 mod send_permissions;
 
-#[cfg(any(feature = "python", test))]
+#[cfg(any(feature = "native-markdown", test))]
 mod url_fragments;

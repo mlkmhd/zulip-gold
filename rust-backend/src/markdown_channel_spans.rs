@@ -1,14 +1,25 @@
+//! Prepare channel link fields from already-authorized channel and topic data.
+//!
+//! Text and attributes require escaping by the serializer. `empty_topic` means
+//! the caller must append an `em` child containing its localized fallback name;
+//! `tail` belongs to that child. Other text and tails are atomic Markdown text.
+
 use crate::url_fragments::encode_hash_component;
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct ChannelLink {
+pub struct ChannelLink {
     pub attributes: Vec<(&'static str, String)>,
     pub text: String,
     pub empty_topic: bool,
     pub tail: Option<&'static str>,
 }
 
-pub(crate) fn channel_link(
+/// Build display fields without resolving names or deciding channel visibility.
+///
+/// Callers must reject nonempty topics in empty-topic-only channels first.
+/// A message ID is unmodified syntax text, including Unicode decimal digits.
+/// It takes precedence over the optional topic-history `with` operand.
+pub fn channel_link(
     channel_id: i64,
     channel_name: &str,
     topic_name: Option<&str>,

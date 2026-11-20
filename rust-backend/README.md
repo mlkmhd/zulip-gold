@@ -2614,3 +2614,47 @@ a particular `libpython` and is not a substitute for an ABI-compatible wheel.
 Keep Cargo registry and Python package caches when reclaiming build space;
 compiled outputs can be rebuilt offline, while deleted package caches may
 require another download.
+
+### Prepare channel, topic and message links without Python
+
+With `native-markdown`, `markdown_channel_syntax::find` locates channel,
+topic and message syntax independently using UTF-8 byte offsets. Supply the
+current host Unicode database's complete non-ASCII decimal-digit set for
+message IDs. Channel/topic names remain untrimmed; message IDs retain their
+original Unicode digits and leading zeroes. Invalid offsets return
+`Err(InvalidStart)` and require delegation. An absent match is `Ok(None)`.
+The caller controls resumption after rejecting an unresolved candidate and
+must preserve registry priority and code/quote handling. Unlike user
+mentions, channel links do not allow `[` immediately before the hash.
+
+`markdown_channel_spans::channel_link` now exposes the existing shared field
+builder without a Python dependency. Resolve names and topic-history anchors
+from an already-authorized snapshot, and reject nonempty topics in
+empty-topic-only channels before calling it. The API neither grants access
+nor checks that a message ID exists. Message links take precedence over the
+optional topic-history `with` operand.
+
+Escape attribute values and text during serialization. Root text and the
+optional child tail are atomic Markdown text. For `empty_topic`, append an
+`em` child with the host's localized empty-topic fallback as plain text; the
+returned tail belongs to that child. Preserve attribute order. These APIs do
+not modify the native planner, live handler dispatch, rollout flags or
+HTTP routing.
+
+Build and compare the actual Cargo probe using cached dependencies:
+
+```sh
+cargo build --manifest-path rust-backend/Cargo.toml --locked --offline \
+  --features native-markdown --example channel_links
+python3 rust-backend/tests/check_channel_links_parity.py \
+  --probe rust-backend/target/debug/examples/channel_links --cases 100000 \
+  --all-boundaries --report /tmp/channel-links-parity.json
+```
+
+The standard-library-only oracle extracts the actual channel regexes,
+handler bodies, display template and URL encoders from the reference
+checkout. It uses snapshot lookup protocols, checks ordered fields and
+atomic text, and includes all Unicode scalar boundary characters. It does
+not run the complete renderer, live database lookups or channel visibility
+checks. `--reference-only` emits a reproducible reference corpus digest
+without invoking Cargo.

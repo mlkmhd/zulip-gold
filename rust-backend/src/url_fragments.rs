@@ -14,6 +14,7 @@ pub(crate) fn encode_hash_component(value: &str) -> String {
     encoded
 }
 
+#[cfg(any(feature = "python", test))]
 pub(crate) fn encode_user_ids(mut user_ids: Vec<i64>, with_operator: bool) -> String {
     user_ids.sort_unstable();
     let mut slug = user_ids
