@@ -89,6 +89,7 @@ type NativeInlinePlannedNode = (
 type NativeEmojiCatalog = (HashMap<String, String>, HashMap<String, String>);
 type NativeEmoticonCatalog = (Vec<(String, String)>, HashMap<String, String>);
 type NativeUnicodeEmojiCatalog = (String, HashMap<String, String>);
+type NativeLinkPolicy = (Vec<String>, Vec<String>, bool, Option<String>);
 type NativeInlineStash = (Option<usize>, Option<NativeInlineText>);
 type NativeInlineResult = (
     Vec<NativeInlinePlannedNode>,
@@ -233,7 +234,8 @@ mod _zulip_backend {
     };
 
     #[pyfunction]
-    #[pyo3(signature = (nodes, patterns, ancestors, guards, emoji_catalogs, emoticon_catalog=None, unicode_emoji_catalog=None))]
+    #[pyo3(signature = (nodes, patterns, ancestors, guards, emoji_catalogs, emoticon_catalog=None, unicode_emoji_catalog=None, link_policy=None))]
+    #[allow(clippy::too_many_arguments)]
     fn plan_markdown_native_inline(
         nodes: Vec<NativeInlineNode>,
         patterns: Vec<(u8, Vec<String>)>,
@@ -242,6 +244,7 @@ mod _zulip_backend {
         emoji_catalogs: Vec<Option<NativeEmojiCatalog>>,
         emoticon_catalog: Option<NativeEmoticonCatalog>,
         unicode_emoji_catalog: Option<NativeUnicodeEmojiCatalog>,
+        link_policy: Option<NativeLinkPolicy>,
     ) -> Option<NativeInlineResult> {
         use markdown_native_inline::{Emoticons, NamedEmoji, Node, Pattern, Stashed, Text};
         if patterns.len() != guards.len() || patterns.len() != emoji_catalogs.len() {
@@ -285,6 +288,18 @@ mod _zulip_backend {
                                 names: names.clone(),
                             },
                         )
+                } else {
+                    None
+                },
+                links: if kind == 11 {
+                    link_policy.as_ref().map(|(allowed, netloc, files, realm)| {
+                        crate::markdown_links::Policy {
+                            allowed_schemes: allowed.clone(),
+                            netloc_schemes: netloc.clone(),
+                            enable_file_links: *files,
+                            realm_url: realm.clone(),
+                        }
+                    })
                 } else {
                     None
                 },

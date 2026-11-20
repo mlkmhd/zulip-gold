@@ -2103,7 +2103,8 @@ ZULIP_RUST_MARKDOWN_INLINE_ENGINE=1 ./tools/test-backend --parallel 1 \
 Set `ZULIP_RUST_MARKDOWN_NATIVE_INLINE=1` after installing a fresh Python
 extension wheel, then restart Django processes. This default-off flag runs a
 native tree, text, and placeholder planner for the built-in backtick, emphasis,
-strike-through, newline, named-emoji, emoticon, and Unicode emoji patterns. Named emoji uses the
+strike-through, newline, named-emoji, emoticon, Unicode emoji, and supported
+explicit link patterns. Named emoji uses the
 current catalog and active realm overrides, including overrides of Unicode
 names and `:zulip:`. Unknown names remain text. It preserves the existing Element
 objects and their attributes when applying the completed plan.
@@ -2180,6 +2181,11 @@ graph includes temporary and detached stash nodes, so its vector order is
 not an HTML serialization order. This interface does not yet provide a
 standalone Markdown renderer or migrate another HTTP operation.
 
+Kind `11` uses `links: Some(markdown_links::Policy { ... })` with the live
+allowed schemes, urllib authority schemes, file-link setting and optional
+realm URL. Other patterns use `links: None`. URL policy rejection leaves the
+candidate unconsumed so a later or nested valid link can still be found.
+
 Run the public interface tests without Python or HTTP dependencies:
 
 ```bash
@@ -2218,8 +2224,8 @@ The resulting destination is still untrusted. The caller must sanitize
 the URL and apply realm-local rewriting before constructing an element.
 Image and audio
 callers also retain media selection and attachment checks. This is a
-preparatory API for native rendering; the Django link and media handlers
-continue to run through their existing paths.
+preparatory API for native rendering. The native link handler below uses it;
+media handlers continue through their existing paths.
 
 The differential compares the raw strings passed to the installed
 Python-Markdown parser's unescape callback, along with labels and end
@@ -2266,8 +2272,8 @@ The snapshot borrows its input and returns `None` for invalid indices,
 cycles, more than 100,000 traversal/stash visits, or more than 8 MiB of
 combined output text. The pending traversal is bounded by the same work
 budget, and deep trees do not use recursion. A caller must delegate its
-whole plan on rejection. This helper is preparation for the native link
-handler; it does not enable that handler or sanitize destinations.
+whole plan on rejection. The native link handler uses this helper before
+unescaping destinations; the snapshot itself does not sanitize them.
 
 The differential requires native acceptance for every generated acyclic
 arena, including shared children, and compares every stash value with
@@ -2281,6 +2287,53 @@ python rust-backend/tests/check_stash_text_parity.py \
     --probe "${CARGO_TARGET_DIR:-rust-backend/target}/debug/examples/stash_text" \
     --cases 100000 --seed 962823 --report var/stash-text-parity.json
 ```
+
+### Render supported explicit links natively
+
+On CPython 3.12, the existing `ZULIP_RUST_MARKDOWN_NATIVE_INLINE` flag also
+runs explicit Markdown links inside the native arena. The handler joins the
+raw parser, current stash snapshot, destination/title preparation, Zulip's
+second unescape, URL policy and local rewriting. It preserves empty titles,
+atomic labels, whitespace-only label replacement, attribute order and
+message-reply sender/excerpt children. ElementTree still escapes and
+serializes the completed tree.
+
+`markdown_links::sanitize` and `prepare` are also available without Python
+under `native-markdown`. `Ok(None)` rejects a candidate without consuming
+it. `Err(Unsupported)` requires delegation of the entire plan before any
+host mutation. Authorities with non-ASCII characters or square brackets
+always delegate, retaining Python's Unicode normalization and bracketed IP
+validation, including malformed-URL empty results. Unicode paths, queries,
+fragments, labels and mail addresses remain supported. Invalid parser ends
+and stash resource limits also delegate.
+Candidate parsing shares an 8 MiB suffix-scan budget for the entire plan,
+including failed openers; exhausting it delegates without changing the host
+tree. This bounds repeated scans of inputs containing many unmatched `[`.
+
+The adapter reads allowed schemes, urllib's `uses_netloc`, file policy and
+realm URL on every run. Changed helpers, regexes or unsupported configuration
+delegate before mutation. The registered inline processor must own the
+stash; otherwise links remain guarded host handlers. Other Python versions
+keep guarded host links while supported native formatting remains available.
+No new flag or default activation is involved. Images, audio, automatic
+links, attachment policy and preview metadata remain separate work.
+
+Compare sanitizer and link preparation with the actual checked-in Python
+helpers and installed Python-Markdown in the provisioned environment:
+
+```bash
+cargo build --locked --offline --manifest-path rust-backend/Cargo.toml \
+    --no-default-features --features native-markdown --example links
+python rust-backend/tests/check_links_parity.py \
+    --probe "${CARGO_TARGET_DIR:-rust-backend/target}/debug/examples/links" \
+    --cases 50000 --seed 962824 --report var/links-prepared-parity.json
+```
+
+This comparison varies file policy, allowed schemes and stash presence. It
+checks URL text, label, title, reply children and byte end offsets, and
+requires both native acceptance and delegation for fixed cases. Reports
+record source, reference and real Cargo probe hashes. It does not replace
+the complete-state comparison below or full rendering-result tests.
 
 ### Compare complete native and Python state
 

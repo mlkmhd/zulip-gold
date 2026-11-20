@@ -222,7 +222,9 @@ class MarkdownNativeInlineTest(TestCase):
 
                 self.compare(build, configure=configure)
                 if separator in ".[":
-                    self.compare(build, accepted=False)
+                    self.compare(
+                        build, accepted=separator == "[" and sys.version_info[:2] == (3, 12)
+                    )
 
     def emoji_data(self, names: list[str]) -> DbData:
         return DbData(
@@ -580,7 +582,9 @@ class MarkdownNativeInlineTest(TestCase):
 
     def test_unsupported_syntax_delegates_before_mutation(self) -> None:
         for text in [
-            "**earlier** [link](https://example.com)",
+            "**earlier** [link](https://[::1])",
+            "**earlier** [link](https://例.example)",
+            '**earlier** [link](url"(tail',
             "**earlier** :نام:",
             "**earlier** &copy;",
             "**earlier** $$x$$",
@@ -593,6 +597,194 @@ class MarkdownNativeInlineTest(TestCase):
                     return root
 
                 self.compare(build, accepted=False)
+
+    def test_native_explicit_links_and_reply_state(self) -> None:
+        for content in [
+            "**before** [**atomic**](https://example.com/سلام 'title') **after**",
+            "[x](javascript:alert(1)) [yes](example.com)",
+            "[x `code`](https://example.com/`path` 'title')",
+            "[ ](#fragment '') [](/path) [x](file:///etc/passwd)",
+            "[[nested]](https://example.com/(a(b)c)) [unclosed](x",
+            "[Alice | hello](#narrow/dm/1/near/123 'zulip-message-reply')",
+            "[Alice &#183; hello](#narrow/channel/1/near/12 'zulip-message-reply')",
+            "[ | hello](#narrow/dm/1/near/123 'zulip-message-reply')",
+        ]:
+            with self.subTest(content=content):
+
+                def build(content: str = content) -> Element:
+                    root = Element("div")
+                    SubElement(root, "p").text = content
+                    return root
+
+                self.compare(build, accepted=sys.version_info[:2] == (3, 12))
+
+    def test_native_links_live_settings_and_local_rewriting(self) -> None:
+        for files in [False, True]:
+            for allowed in [("http", "file"), ("custom",)]:
+                with (
+                    self.subTest(files=files, allowed=allowed),
+                    mock.patch("zerver.lib.markdown.allowed_schemes", allowed),
+                    mock.patch("zerver.lib.markdown.settings.ENABLE_FILE_LINKS", files),
+                ):
+
+                    def build() -> Element:
+                        root = Element("div")
+                        SubElement(root, "p").text = (
+                            "[x](file:///a) [x](custom:path) [x](example.com) "
+                            "[ ](http://chat.example/#fragment) "
+                            "[x](http://chat.example/user_uploads/a)"
+                        )
+                        return root
+
+                    def configure(md: ZulipMarkdown) -> None:
+                        md.zulip_db_data = self.emoji_data([])
+                        md.zulip_db_data.realm_url = "http://chat.example"
+
+                    self.compare(
+                        build,
+                        accepted=allowed != ("custom",) and sys.version_info[:2] == (3, 12),
+                        configure=configure,
+                    )
+
+    def test_native_link_helpers_delegate_without_execution(self) -> None:
+        from zerver.lib import markdown
+
+        native = inline_stash._rust_native_inline
+        if native is None:
+            self.skipTest("Native inline engine is disabled")
+        md = self.markdown()
+        processor = InlineProcessor(md)
+        md.treeprocessors.register(processor, "inline", 25)
+        root = Element("div")
+        SubElement(root, "p").text = "**before** [x](example.com)"
+        link = processor.inlinePatterns["link"]
+        callback = mock.Mock(side_effect=AssertionError("custom link helper ran"))
+        for target, names in [
+            (
+                markdown,
+                ["sanitize_url", "rewrite_local_links_to_relative", "urlsplit", "urlunsplit"],
+            ),
+            (link, ["getText", "getLink", "unescape", "zulip_specific_link_changes"]),
+            (inlinepatterns, ["dequote"]),
+        ]:
+            for name in names:
+                with self.subTest(name=name), mock.patch.object(target, name, callback):
+                    self.assertFalse(
+                        native_inline.try_run(
+                            processor, root, None, native.plan_markdown_native_inline
+                        )
+                    )
+                    callback.assert_not_called()
+        self.assertEqual(root[0].text, "**before** [x](example.com)")
+
+    def test_native_link_configuration_delegates_before_mutation(self) -> None:
+        from django.conf import settings
+
+        from zerver.lib import markdown
+
+        native = inline_stash._rust_native_inline
+        if native is None:
+            self.skipTest("Native inline engine is disabled")
+        md = self.markdown()
+        link = md.inlinePatterns["link"]
+        md.inlinePatterns = util.Registry()
+        md.inlinePatterns.register(link, "link", 1)
+        processor = InlineProcessor(md)
+        md.treeprocessors.register(processor, "inline", 25)
+        root = Element("div")
+        SubElement(root, "p").text = "[x](example.com)"
+        invalid_data = self.emoji_data([])
+        invalid_data.realm_url = "\ud800"
+        for target, name, value in [
+            (link, "RE_LINK", re.compile("custom")),
+            (link, "RE_TITLE_CLEAN", re.compile("custom")),
+            (link, "md", object()),
+            (link, "zmd", object()),
+            (markdown, "allowed_schemes", None),
+            (markdown, "allowed_schemes", ["http", "\ud800"]),
+            (settings, "ENABLE_FILE_LINKS", 1),
+            (md, "zulip_db_data", object()),
+            (md, "zulip_db_data", invalid_data),
+            (md, "treeprocessors", object()),
+        ]:
+            with self.subTest(name=name, value=value), mock.patch.object(target, name, value):
+                self.assertFalse(
+                    native_inline.try_run(processor, root, None, native.plan_markdown_native_inline)
+                )
+                self.assertEqual(root[0].text, "[x](example.com)")
+
+    def test_native_link_custom_opener_delegates_before_mutation(self) -> None:
+        native = inline_stash._rust_native_inline
+        if native is None or sys.version_info[:2] != (3, 12):
+            self.skipTest("Native links require the CPython 3.12 reference contract")
+        md = self.markdown()
+        processor = InlineProcessor(md)
+        md.treeprocessors.register(processor, "inline", 25)
+        link = processor.inlinePatterns["link"]
+        root = Element("div")
+        SubElement(root, "p").text = "[x](example.com)"
+        with (
+            mock.patch.object(inlinepatterns, "LINK_RE", "custom"),
+            mock.patch.object(link, "compiled_re", re.compile("custom", re.DOTALL | re.UNICODE)),
+        ):
+            self.assertFalse(
+                native_inline.try_run(processor, root, None, native.plan_markdown_native_inline)
+            )
+        self.assertEqual(root[0].text, "[x](example.com)")
+
+    def test_native_link_work_limit_preserves_existing_state(self) -> None:
+        native = inline_stash._rust_native_inline
+        if native is None or sys.version_info[:2] != (3, 12):
+            self.skipTest("Native links require the CPython 3.12 reference contract")
+        md = self.markdown()
+        processor = InlineProcessor(md)
+        md.treeprocessors.register(processor, "inline", 25)
+        root = Element("div")
+        SubElement(root, "p").text = "**earlier** " + "[" * 20_000
+        processor.stashed_nodes = {"0000": AtomicString("existing")}
+        processor.parent_map = {root[0]: root}
+        processor.ancestors = ["outer"]
+        before = self.snapshot(processor, root)
+        self.assertFalse(
+            native_inline.try_run(processor, root, None, native.plan_markdown_native_inline)
+        )
+        self.assertEqual(self.snapshot(processor, root), before)
+
+    def test_native_links_do_not_call_python_helpers(self) -> None:
+        from zerver.lib.markdown import _native_link_callbacks
+
+        native = inline_stash._rust_native_inline
+        if native is None or sys.version_info[:2] != (3, 12):
+            self.skipTest("Native links require the CPython 3.12 reference contract")
+        md = self.markdown()
+        processor = InlineProcessor(md)
+        md.treeprocessors.register(processor, "inline", 25)
+        root = Element("div")
+        SubElement(root, "p").text = (
+            "[**atomic**](https://example.com/`path` '') "
+            "[Alice | hi](#narrow/dm/1/near/1 'zulip-message-reply')"
+        )
+        forbidden = {
+            callback.__code__
+            for callback in _native_link_callbacks
+            if hasattr(callback, "__code__")
+        }
+        calls = []
+
+        def profile(frame: FrameType, event: str, arg: object) -> None:
+            if event == "call" and frame.f_code in forbidden:
+                calls.append(frame.f_code.co_name)
+
+        previous = sys.getprofile()
+        try:
+            sys.setprofile(profile)
+            self.assertTrue(
+                native_inline.try_run(processor, root, None, native.plan_markdown_native_inline)
+            )
+        finally:
+            sys.setprofile(previous)
+        self.assertEqual(calls, [])
+        self.assertEqual([node.tag for node in root[0]], ["a", "a"])
 
     def test_custom_callbacks_and_registry_delegate(self) -> None:
         native = inline_stash._rust_native_inline
@@ -670,7 +862,7 @@ class MarkdownNativeInlineTest(TestCase):
             self.skipTest("Native inline engine is disabled")
         for text, expected in [
             ("**bold**", True),
-            ("**bold** :smile: [link](https://example.com)", False),
+            ("**bold** :smile: [link](https://[::1])", False),
             (AtomicString("**atomic**"), True),
         ]:
             md = self.markdown()

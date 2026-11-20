@@ -205,7 +205,7 @@ def cases(seed: int, count: int, *, unicode_scalars: bool = False) -> Iterator[C
         ":نام:",
         "$$x$$",
         "&copy;",
-        "[link](https://example.com)",
+        "[link](https://[::1])",
         "\ud800",
     ):
         yield Case(
@@ -215,6 +215,19 @@ def cases(seed: int, count: int, *, unicode_scalars: bool = False) -> Iterator[C
             ],
             None,
             accepted=False,
+        )
+    for value in (
+        "**before** [**atomic**](https://example.com/سلام 'title') **after**",
+        "[x](javascript:alert(1)) [yes](example.com)",
+        "[Alice | hello](#narrow/dm/1/near/123 'zulip-message-reply')",
+        "[x `code`](https://example.com/`path` 'title')",
+        "[ ](#fragment '') [](/path) [x](file:///etc/passwd)",
+        "[[nested]](https://example.com/(a(b)c)) [unclosed](x",
+    ):
+        yield Case(
+            [Node("div", None, None, [1]), Node("p", (value, False), None, [])],
+            None,
+            accepted=True,
         )
     for value in (":smile:", ":zulip:", ":unknown:", ":+1:", "***:smile:*** `:zulip:`"):
         yield Case(
@@ -262,6 +275,9 @@ def cases(seed: int, count: int, *, unicode_scalars: bool = False) -> Iterator[C
         "\\",
         "فارسی",
         "abc",
+        "[**label**](https://example.com/path 'title')",
+        "[x](javascript:x)",
+        "[Alice | hi](#narrow/dm/1/near/123 'zulip-message-reply')",
         "123",
         "\n",
         " ",
@@ -357,6 +373,8 @@ def main() -> None:
         Path(extension_path),
         Path(__file__),
         args.repository / "rust-backend/src/markdown_native_inline.rs",
+        args.repository / "rust-backend/src/markdown_links.rs",
+        args.repository / "rust-backend/src/markdown_link_syntax.rs",
         args.repository / "rust-backend/src/markdown_unicode_emoji.rs",
         args.repository / "rust-backend/src/markdown_emoji_data.rs",
         args.repository / "rust-backend/src/python.rs",

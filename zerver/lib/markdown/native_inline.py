@@ -1,6 +1,8 @@
 import re
+import sys
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Protocol, TypeAlias, cast
+from urllib import parse as urlparse
 from xml.etree.ElementTree import Element
 
 import regex
@@ -18,6 +20,7 @@ PlannedNode: TypeAlias = tuple[str, str, Text | None, Text | None, list[int], li
 EmojiCatalog: TypeAlias = tuple[dict[str, str], dict[str, str]]
 EmoticonCatalog: TypeAlias = tuple[list[tuple[str, str]], dict[str, str]]
 UnicodeEmojiCatalog: TypeAlias = tuple[str, dict[str, str]]
+LinkPolicy: TypeAlias = tuple[list[str], list[str], bool, str | None]
 Stashed: TypeAlias = tuple[int | None, Text | None]
 Plan: TypeAlias = tuple[list[PlannedNode], list[tuple[int, int]], list[Stashed], list[str], bool]
 Planner: TypeAlias = Callable[
@@ -29,6 +32,7 @@ Planner: TypeAlias = Callable[
         list[EmojiCatalog | None],
         EmoticonCatalog | None,
         UnicodeEmojiCatalog | None,
+        LinkPolicy | None,
     ],
     Plan | None,
 ]
@@ -65,10 +69,13 @@ def try_run(
         DbData,
         Emoji,
         EmoticonTranslation,
+        LinkInlineProcessor,
         UnicodeEmoji,
         ZulipMarkdown,
         _native_emoji_callbacks,
         _native_inline_handlers,
+        _native_link_callbacks,
+        _native_link_patterns,
         _native_unicode_emoji_patterns,
         codepoint_to_name,
         make_emoji,
@@ -135,6 +142,7 @@ def try_run(
     emoji_catalogs: list[EmojiCatalog | None] = []
     emoticon_catalog = None
     unicode_emoji_catalog = None
+    link_policy = None
     for name, _ in ordered:
         pattern = cast(inlinepatterns.Pattern, data[name])
         callbacks = _native_inline_handlers.get(type(pattern))
@@ -282,6 +290,55 @@ def try_run(
                 return False
             unicode_emoji_catalog = (regex.__version__, codepoint_to_name)
             kind = 10
+        elif type(pattern) is LinkInlineProcessor and sys.version_info[:2] == (3, 12):
+            from django.conf import settings
+
+            renderer = pattern.zmd
+            if (
+                expression.pattern != _native_link_patterns[2]
+                or type(renderer) is not ZulipMarkdown
+                or renderer is not processor.md
+                or pattern.md is not renderer
+                or tuple(
+                    getattr(getattr(pattern, name), "__func__", None)
+                    for name in ("getText", "getLink", "unescape", "zulip_specific_link_changes")
+                )
+                != _native_link_callbacks[:4]
+                or inlinepatterns.dequote is not _native_link_callbacks[4]
+                or inlinepatterns.LinkInlineProcessor.handleMatch is not _native_link_callbacks[5]
+                or markdown.sanitize_url is not _native_link_callbacks[6]
+                or markdown.rewrite_local_links_to_relative is not _native_link_callbacks[7]
+                or vars(markdown).get("urlsplit") is not _native_link_callbacks[8]
+                or vars(markdown).get("urlunsplit") is not _native_link_callbacks[9]
+                or pattern.RE_LINK is not _native_link_patterns[0]
+                or pattern.RE_TITLE_CLEAN is not _native_link_patterns[1]
+                or type(markdown.allowed_schemes) not in (tuple, list)
+                or type(urlparse.uses_netloc) is not list
+                or any(
+                    type(value) is not str or _SURROGATE_RE.search(value)
+                    for value in (*markdown.allowed_schemes, *urlparse.uses_netloc)
+                )
+                or type(settings.ENABLE_FILE_LINKS) is not bool
+            ):
+                return False
+            db_data = renderer.zulip_db_data
+            if db_data is not None and (
+                type(db_data) is not DbData
+                or type(db_data.realm_url) is not str
+                or _SURROGATE_RE.search(db_data.realm_url)
+            ):
+                return False
+            trees = cast(RegistryInternals, renderer.treeprocessors)
+            if type(renderer.treeprocessors) is not util.Registry or type(trees._data) is not dict:
+                return False
+            link_policy = (
+                list(markdown.allowed_schemes),
+                urlparse.uses_netloc[:],
+                settings.ENABLE_FILE_LINKS,
+                None if db_data is None else db_data.realm_url,
+            )
+            if trees._data.get("inline") is processor:
+                kind = 11
         if (
             kind
             and kind != 10
@@ -345,6 +402,7 @@ def try_run(
         emoji_catalogs,
         emoticon_catalog,
         unicode_emoji_catalog,
+        link_policy,
     )
     if plan is None:
         return False

@@ -3211,6 +3211,23 @@ _native_emoji_callbacks = (
     unqualify_emoji,
 )
 _native_unicode_emoji_patterns = (POSSIBLE_EMOJI_RE, TEXT_PRESENTATION_RE)
+_native_link_callbacks = (
+    LinkInlineProcessor.getText,
+    LinkInlineProcessor.getLink,
+    LinkInlineProcessor.unescape,
+    LinkInlineProcessor.zulip_specific_link_changes,
+    markdown.inlinepatterns.dequote,
+    markdown.inlinepatterns.LinkInlineProcessor.handleMatch,
+    sanitize_url,
+    rewrite_local_links_to_relative,
+    urlsplit,
+    urlunsplit,
+)
+_native_link_patterns = (
+    LinkInlineProcessor.RE_LINK,
+    LinkInlineProcessor.RE_TITLE_CLEAN,
+    markdown.inlinepatterns.LINK_RE,
+)
 
 _native_inline_handlers: dict[type[object], tuple[Callable[..., object], ...]] = {
     cls: (cls.handleMatch, cls.getCompiledRegExp, cls.type)

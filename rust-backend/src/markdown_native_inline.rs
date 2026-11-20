@@ -11,6 +11,7 @@ use crate::markdown_code::find_inline_code;
 use crate::markdown_emphasis::find_emphasis;
 use crate::markdown_inline_stash::Scanner;
 use crate::markdown_link_syntax::TextStash;
+use crate::markdown_links;
 use crate::markdown_unicode_emoji::{self, UnicodeEmoji};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -61,12 +62,13 @@ pub enum Stashed {
 pub struct Pattern {
     /// 0: guarded host handler; 1: code; 2: strong/em; 3: strong; 4: em;
     /// 5: strikethrough; 6: literal emphasis markers; 7: line break; 8: named emoji;
-    /// 9: emoticon translation; 10: Unicode emoji.
+    /// 9: emoticon translation; 10: Unicode emoji; 11: explicit link.
     pub kind: u8,
     pub excludes: Vec<String>,
     pub emoji: Option<NamedEmoji>,
     pub emoticons: Option<Emoticons>,
     pub unicode_emoji: Option<UnicodeEmoji>,
+    pub links: Option<markdown_links::Policy>,
 }
 
 /// Ordered literal replacements and Unicode names from the current renderer.
@@ -165,6 +167,7 @@ struct Engine<'a, G> {
     patterns: &'a [Pattern],
     guard: G,
     remaining: usize,
+    remaining_link_bytes: usize,
 }
 
 impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
@@ -359,6 +362,69 @@ impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
                         (
                             data[..found.start].to_owned(),
                             data[found.end..].to_owned(),
+                            Stashed::Node(node),
+                        )
+                    }
+                    11 => {
+                        if !data.contains('[') {
+                            break;
+                        }
+                        let stash = snapshot_text_stash(&self.state.nodes, &self.state.stash)?;
+                        let policy = self.patterns[index].links.as_ref()?.clone();
+                        let mut found = None;
+                        for (start, _) in data.match_indices('[') {
+                            self.step(depth)?;
+                            // Failed openers can each scan the entire remaining suffix.
+                            self.remaining_link_bytes =
+                                self.remaining_link_bytes.checked_sub(data.len() - start)?;
+                            if let Some(link) =
+                                markdown_links::prepare(&data, start, Some(&stash), &policy).ok()?
+                            {
+                                found = Some((start, link));
+                                break;
+                            }
+                        }
+                        let Some((start, link)) = found else {
+                            break;
+                        };
+                        let node = self.add_node("a");
+                        self.state.nodes[node]
+                            .attributes
+                            .push(("href".to_owned(), link.href));
+                        if let Some(title) = link.title {
+                            self.state.nodes[node]
+                                .attributes
+                                .push(("title".to_owned(), title));
+                        }
+                        if link.reply {
+                            self.state.nodes[node]
+                                .attributes
+                                .push(("class".to_owned(), "message-reply-link".to_owned()));
+                        }
+                        self.state.nodes[node].text = Some(Text {
+                            value: link.text,
+                            atomic: link.reply_parts.is_none(),
+                        });
+                        if let Some((sender, excerpt)) = link.reply_parts {
+                            for (tag, class, value) in [
+                                ("strong", "message-reply-sender", sender),
+                                ("span", "message-reply-excerpt", excerpt),
+                            ] {
+                                let child = self.add_node(tag);
+                                self.state.nodes[child].attributes = vec![
+                                    ("class".to_owned(), class.to_owned()),
+                                    ("dir".to_owned(), "auto".to_owned()),
+                                ];
+                                self.state.nodes[child].text = Some(Text {
+                                    value,
+                                    atomic: true,
+                                });
+                                self.state.nodes[node].children.push(child);
+                            }
+                        }
+                        (
+                            data[..start].to_owned(),
+                            data[link.end..].to_owned(),
                             Stashed::Node(node),
                         )
                     }
@@ -703,6 +769,7 @@ pub fn run(
         patterns,
         guard,
         remaining: 100_000,
+        remaining_link_bytes: 8 * 1024 * 1024,
     }
     .run(ancestors)
 }
@@ -733,6 +800,7 @@ mod tests {
                     emoji: None,
                     emoticons: None,
                     unicode_emoji: None,
+                    links: None,
                 }],
                 vec![],
                 |_, _| Some(())
@@ -754,6 +822,7 @@ mod tests {
                 emoji: None,
                 emoticons: None,
                 unicode_emoji: None,
+                links: None,
             },
             Pattern {
                 kind: 0,
@@ -761,6 +830,7 @@ mod tests {
                 emoji: None,
                 emoticons: None,
                 unicode_emoji: None,
+                links: None,
             },
         ];
         let mut calls = 0;
@@ -791,6 +861,7 @@ mod tests {
                 emoji: None,
                 emoticons: None,
                 unicode_emoji: None,
+                links: None,
             }],
             vec![],
             |_, _| panic!("atomic string matched"),

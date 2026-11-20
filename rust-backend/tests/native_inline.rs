@@ -34,7 +34,90 @@ fn pattern(kind: u8) -> Pattern {
         emoji: None,
         emoticons: None,
         unicode_emoji: None,
+        links: None,
     }
+}
+
+fn link_pattern() -> Pattern {
+    let mut pattern = pattern(11);
+    pattern.links = Some(_zulip_backend::markdown_links::Policy {
+        allowed_schemes: vec!["http".to_owned(), "https".to_owned()],
+        netloc_schemes: vec!["http".to_owned(), "https".to_owned()],
+        enable_file_links: false,
+        realm_url: None,
+    });
+    pattern
+}
+
+#[test]
+fn links_keep_labels_atomic_and_restore_code_stash_in_destinations() {
+    let plan = run(
+        paragraph("[**label**](https://example.com/`path`) **after**"),
+        &[pattern(1), link_pattern(), pattern(3)],
+        vec![],
+        |_, _| panic!("all handlers are native"),
+    )
+    .unwrap();
+    let [link, strong] = plan.nodes[1].children.as_slice() else {
+        panic!("expected link and strong");
+    };
+    assert_eq!(
+        plan.nodes[*link].attributes,
+        [("href".to_owned(), "https://example.com/path".to_owned())]
+    );
+    assert_eq!(
+        plan.nodes[*link].text,
+        Some(Text {
+            value: "**label**".to_owned(),
+            atomic: true
+        })
+    );
+    assert_eq!(plan.nodes[*strong].text.as_ref().unwrap().value, "after");
+}
+
+#[test]
+fn link_search_continues_after_a_rejected_or_incomplete_candidate() {
+    let plan = run(
+        paragraph("[bad](javascript:x) [incomplete [good](example.com)"),
+        &[link_pattern()],
+        vec![],
+        |_, _| panic!("all handlers are native"),
+    )
+    .unwrap();
+    assert_eq!(
+        plan.nodes[1].text.as_ref().unwrap().value,
+        "[bad](javascript:x) [incomplete "
+    );
+    let [link] = plan.nodes[1].children.as_slice() else {
+        panic!("expected link")
+    };
+    assert_eq!(plan.nodes[*link].text.as_ref().unwrap().value, "good");
+}
+
+#[test]
+fn unsupported_link_validation_discards_earlier_native_nodes() {
+    assert!(
+        run(
+            paragraph("**earlier** [x](https://[::1])"),
+            &[pattern(3), link_pattern()],
+            vec![],
+            |_, _| Some(()),
+        )
+        .is_none()
+    );
+}
+
+#[test]
+fn incomplete_link_candidates_share_the_native_work_budget() {
+    assert!(
+        run(
+            paragraph(&"[".repeat(20_000)),
+            &[link_pattern()],
+            vec![],
+            |_, _| panic!("all handlers are native"),
+        )
+        .is_none()
+    );
 }
 
 #[test]
@@ -128,6 +211,7 @@ fn applies_ancestor_exclusions_before_calling_guards() {
             emoji: None,
             emoticons: None,
             unicode_emoji: None,
+            links: None,
         }],
         vec!["outer".to_owned()],
         |_, _| panic!("excluded handler ran"),
@@ -161,6 +245,7 @@ fn emoji_pattern() -> Pattern {
         excludes: vec![],
         emoticons: None,
         unicode_emoji: None,
+        links: None,
         emoji: Some(NamedEmoji {
             unicode: [("smile".to_owned(), "1f604".to_owned())].into(),
             realm: [("custom_name".to_owned(), "/uploads/<&>\".png".to_owned())].into(),
@@ -266,6 +351,7 @@ fn emoticon_pattern() -> Pattern {
         excludes: vec![],
         emoji: None,
         unicode_emoji: None,
+        links: None,
         emoticons: Some(Emoticons {
             conversions: vec![
                 (":)".into(), ":slight_smile:".into()),
@@ -382,6 +468,7 @@ fn unicode_emoji_pattern() -> Pattern {
         excludes: vec![],
         emoji: None,
         emoticons: None,
+        links: None,
         unicode_emoji: Some(UnicodeEmoji {
             regex_version: REGEX_VERSION.to_owned(),
             names: [
