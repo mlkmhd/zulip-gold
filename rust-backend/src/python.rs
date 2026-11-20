@@ -87,6 +87,7 @@ type NativeInlinePlannedNode = (
     Vec<(String, String)>,
 );
 type NativeEmojiCatalog = (HashMap<String, String>, HashMap<String, String>);
+type NativeEmoticonCatalog = (Vec<(String, String)>, HashMap<String, String>);
 type NativeInlineStash = (Option<usize>, Option<NativeInlineText>);
 type NativeInlineResult = (
     Vec<NativeInlinePlannedNode>,
@@ -231,14 +232,16 @@ mod _zulip_backend {
     };
 
     #[pyfunction]
+    #[pyo3(signature = (nodes, patterns, ancestors, guards, emoji_catalogs, emoticon_catalog=None))]
     fn plan_markdown_native_inline(
         nodes: Vec<NativeInlineNode>,
         patterns: Vec<(u8, Vec<String>)>,
         ancestors: Vec<String>,
         guards: Vec<(Bound<'_, PyAny>, Option<Bound<'_, PyAny>>)>,
         emoji_catalogs: Vec<Option<NativeEmojiCatalog>>,
+        emoticon_catalog: Option<NativeEmoticonCatalog>,
     ) -> Option<NativeInlineResult> {
-        use markdown_native_inline::{NamedEmoji, Node, Pattern, Stashed, Text};
+        use markdown_native_inline::{Emoticons, NamedEmoji, Node, Pattern, Stashed, Text};
         if patterns.len() != guards.len() || patterns.len() != emoji_catalogs.len() {
             return None;
         }
@@ -261,6 +264,16 @@ mod _zulip_backend {
                 kind,
                 excludes,
                 emoji: catalog.map(|(unicode, realm)| NamedEmoji { unicode, realm }),
+                emoticons: if kind == 9 {
+                    emoticon_catalog
+                        .as_ref()
+                        .map(|(conversions, unicode)| Emoticons {
+                            conversions: conversions.clone(),
+                            unicode: unicode.clone(),
+                        })
+                } else {
+                    None
+                },
             })
             .collect::<Vec<_>>();
         let result = markdown_native_inline::run(nodes, &patterns, ancestors, |index, data| {

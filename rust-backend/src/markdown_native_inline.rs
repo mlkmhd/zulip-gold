@@ -58,10 +58,18 @@ pub enum Stashed {
 
 pub struct Pattern {
     /// 0: guarded host handler; 1: code; 2: strong/em; 3: strong; 4: em;
-    /// 5: strikethrough; 6: literal emphasis markers; 7: line break; 8: named emoji.
+    /// 5: strikethrough; 6: literal emphasis markers; 7: line break; 8: named emoji;
+    /// 9: emoticon translation.
     pub kind: u8,
     pub excludes: Vec<String>,
     pub emoji: Option<NamedEmoji>,
+    pub emoticons: Option<Emoticons>,
+}
+
+/// Ordered literal replacements and Unicode names from the current renderer.
+pub struct Emoticons {
+    pub conversions: Vec<(String, String)>,
+    pub unicode: HashMap<String, String>,
 }
 
 /// The current renderer's emoji catalog, including active realm overrides.
@@ -109,6 +117,22 @@ impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
         self.state.nodes.push(Node::new(tag));
         self.state.parents.push(None);
         index
+    }
+
+    fn emoji_node(&mut self, codepoint: &str, syntax: &str) -> usize {
+        let title = syntax[1..syntax.len() - 1].replace('_', " ");
+        let node = self.add_node("span");
+        self.state.nodes[node].attributes = vec![
+            ("class".to_owned(), format!("emoji emoji-{codepoint}")),
+            ("title".to_owned(), title.clone()),
+            ("role".to_owned(), "img".to_owned()),
+            ("aria-label".to_owned(), title),
+        ];
+        self.state.nodes[node].text = Some(Text {
+            value: syntax.to_owned(),
+            atomic: true,
+        });
+        node
     }
 
     fn handle(&mut self, data: Text, first: usize, depth: usize) -> Option<Text> {
@@ -224,23 +248,34 @@ impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
                             self.state.nodes[node].attributes = attributes;
                             Stashed::Node(node)
                         } else if let Some(codepoint) = catalog.unicode.get(name) {
-                            let attributes = vec![
-                                ("class".to_owned(), format!("emoji emoji-{codepoint}")),
-                                ("title".to_owned(), title.clone()),
-                                ("role".to_owned(), "img".to_owned()),
-                                ("aria-label".to_owned(), title),
-                            ];
-                            let node = self.add_node("span");
-                            self.state.nodes[node].attributes = attributes;
-                            self.state.nodes[node].text = Some(Text {
-                                value: syntax.to_owned(),
-                                atomic: true,
-                            });
-                            Stashed::Node(node)
+                            let codepoint = codepoint.clone();
+                            Stashed::Node(self.emoji_node(&codepoint, syntax))
                         } else {
                             Stashed::Text(Text::plain(syntax))
                         };
                         (data[..start].to_owned(), data[end..].to_owned(), stashed)
+                    }
+                    9 => {
+                        let Some(catalog) = &self.patterns[index].emoticons else {
+                            break;
+                        };
+                        let Some((start, end)) = find_emoticon(&data, &catalog.conversions) else {
+                            break;
+                        };
+                        let mut syntax = data[start..end].to_owned();
+                        for (literal, replacement) in &catalog.conversions {
+                            syntax = syntax.replace(literal, replacement);
+                        }
+                        if !syntax.starts_with(':') || !syntax.ends_with(':') || syntax.len() < 2 {
+                            return None;
+                        }
+                        let codepoint = catalog.unicode.get(&syntax[1..syntax.len() - 1])?.clone();
+                        let node = self.emoji_node(&codepoint, &syntax);
+                        (
+                            data[..start].to_owned(),
+                            data[end..].to_owned(),
+                            Stashed::Node(node),
+                        )
                     }
                     _ => return None,
                 };
@@ -499,6 +534,31 @@ fn find_not_strong(data: &str) -> Option<(usize, usize)> {
     None
 }
 
+fn find_emoticon(data: &str, conversions: &[(String, String)]) -> Option<(usize, usize)> {
+    fn terminal(c: char) -> bool {
+        ",.;?!()[] \"'\n\t".contains(c)
+    }
+    for (start, _) in data.char_indices() {
+        if data[..start]
+            .chars()
+            .next_back()
+            .is_some_and(|c| !terminal(c))
+        {
+            continue;
+        }
+        for (literal, _) in conversions {
+            if literal.is_empty() || !data[start..].starts_with(literal) {
+                continue;
+            }
+            let end = start + literal.len();
+            if data[end..].chars().next().is_none_or(terminal) {
+                return Some((start, end));
+            }
+        }
+    }
+    None
+}
+
 fn find_named_emoji(data: &str) -> Option<Option<(usize, usize)>> {
     for (start, _) in data.match_indices(':') {
         for (offset, c) in data[start + 1..].char_indices() {
@@ -578,6 +638,7 @@ mod tests {
                     kind: 255,
                     excludes: vec![],
                     emoji: None,
+                    emoticons: None,
                 }],
                 vec![],
                 |_, _| Some(())
@@ -597,11 +658,13 @@ mod tests {
                 kind: 3,
                 excludes: vec![],
                 emoji: None,
+                emoticons: None,
             },
             Pattern {
                 kind: 0,
                 excludes: vec![],
                 emoji: None,
+                emoticons: None,
             },
         ];
         let mut calls = 0;
@@ -630,6 +693,7 @@ mod tests {
                 kind: 0,
                 excludes: vec![],
                 emoji: None,
+                emoticons: None,
             }],
             vec![],
             |_, _| panic!("atomic string matched"),

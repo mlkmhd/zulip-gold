@@ -32,6 +32,7 @@ fn pattern(kind: u8) -> Pattern {
         kind,
         excludes: vec![],
         emoji: None,
+        emoticons: None,
     }
 }
 
@@ -124,6 +125,7 @@ fn applies_ancestor_exclusions_before_calling_guards() {
             kind: 0,
             excludes: vec!["outer".to_owned()],
             emoji: None,
+            emoticons: None,
         }],
         vec!["outer".to_owned()],
         |_, _| panic!("excluded handler ran"),
@@ -155,6 +157,7 @@ fn emoji_pattern() -> Pattern {
     Pattern {
         kind: 8,
         excludes: vec![],
+        emoticons: None,
         emoji: Some(NamedEmoji {
             unicode: [("smile".to_owned(), "1f604".to_owned())].into(),
             realm: [("custom_name".to_owned(), "/uploads/<&>\".png".to_owned())].into(),
@@ -251,4 +254,119 @@ fn protects_code_and_delegates_unicode_names_after_native_matches() {
         );
     }
     assert!(run(paragraph(":smile:"), &[pattern(8)], vec![], |_, _| Some(())).is_none());
+}
+
+fn emoticon_pattern() -> Pattern {
+    use _zulip_backend::markdown_native_inline::Emoticons;
+    Pattern {
+        kind: 9,
+        excludes: vec![],
+        emoji: None,
+        emoticons: Some(Emoticons {
+            conversions: vec![
+                (":)".into(), ":slight_smile:".into()),
+                (":D".into(), ":smile:".into()),
+            ],
+            unicode: [
+                ("slight_smile".into(), "1f642".into()),
+                ("smile".into(), "1f604".into()),
+            ]
+            .into(),
+        }),
+    }
+}
+
+#[test]
+fn translates_emoticons_with_ascii_terminal_boundaries() {
+    for boundary in [
+        "", " ", ",", ".", ";", "?", "!", "(", ")", "[", "]", "\"", "'", "\n", "\t",
+    ] {
+        let source = format!("{boundary}:){boundary}");
+        let plan = run(paragraph(&source), &[emoticon_pattern()], vec![], |_, _| {
+            Some(())
+        })
+        .unwrap();
+        let children = &plan.nodes[1].children;
+        assert_eq!(children.len(), 1, "{source:?}");
+        let emoji = &plan.nodes[children[0]];
+        assert_eq!(emoji.text.as_ref().unwrap().value, ":slight_smile:");
+        assert!(emoji.text.as_ref().unwrap().atomic);
+        assert_eq!(emoji.attributes[0].1, "emoji emoji-1f642");
+        assert_eq!(emoji.attributes[1].1, "slight smile");
+    }
+    for boundary in [
+        "a",
+        "فارسی",
+        "\r",
+        "\u{a0}",
+        "\u{2028}",
+        "_",
+        "\\",
+        "/",
+        ":",
+    ] {
+        for source in [format!("{boundary}:)"), format!(":){boundary}")] {
+            let plan = run(paragraph(&source), &[emoticon_pattern()], vec![], |_, _| {
+                Some(())
+            })
+            .unwrap();
+            assert!(plan.stash.is_empty(), "{source:?}");
+            assert_eq!(plan.nodes[1].text.as_ref().unwrap().value, source);
+        }
+    }
+}
+
+#[test]
+fn preserves_emoticon_replacement_order_and_missing_name_delegation() {
+    let mut configured = emoticon_pattern();
+    let catalog = configured.emoticons.as_mut().unwrap();
+    catalog
+        .conversions
+        .push(("slight_smile".into(), "smile".into()));
+    let plan = run(paragraph(":)"), &[configured], vec![], |_, _| Some(())).unwrap();
+    assert_eq!(
+        plan.nodes[plan.nodes[1].children[0]]
+            .text
+            .as_ref()
+            .unwrap()
+            .value,
+        ":smile:"
+    );
+    let mut invalid = emoticon_pattern();
+    invalid.emoticons.as_mut().unwrap().unicode.clear();
+    assert!(
+        run(
+            paragraph("**earlier** :)"),
+            &[pattern(3), invalid],
+            vec![],
+            |_, _| Some(())
+        )
+        .is_none()
+    );
+}
+
+#[test]
+fn honors_disabled_translation_and_protected_emoticons() {
+    let plan = run(paragraph(":)"), &[pattern(9)], vec![], |_, _| Some(())).unwrap();
+    assert_eq!(plan.nodes[1].text.as_ref().unwrap().value, ":)");
+    assert!(plan.stash.is_empty());
+    let plan = run(
+        paragraph("`:)` **:D** :)"),
+        &[pattern(1), pattern(3), emoticon_pattern()],
+        vec![],
+        |_, _| Some(()),
+    )
+    .unwrap();
+    let children = &plan.nodes[1].children;
+    assert_eq!(children.len(), 3);
+    assert_eq!(plan.nodes[children[0]].text.as_ref().unwrap().value, ":)");
+    let strong = &plan.nodes[children[1]];
+    assert_eq!(
+        plan.nodes[strong.children[0]].text.as_ref().unwrap().value,
+        ":smile:"
+    );
+    assert_eq!(
+        plan.nodes[children[2]].text.as_ref().unwrap().value,
+        ":slight_smile:"
+    );
 }

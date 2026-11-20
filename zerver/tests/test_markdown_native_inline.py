@@ -64,7 +64,7 @@ class MarkdownNativeInlineTest(TestCase):
         self,
         build: Callable[[], Element],
         *,
-        accepted: bool = True,
+        accepted: bool | None = True,
         configure: Callable[[ZulipMarkdown], None] | None = None,
     ) -> None:
         native = inline_stash._rust_native_inline
@@ -88,7 +88,8 @@ class MarkdownNativeInlineTest(TestCase):
         result = native_inline.try_run(
             processor, root, ["outer"], native.plan_markdown_native_inline
         )
-        self.assertEqual(result, accepted)
+        if accepted is not None:
+            self.assertEqual(result, accepted)
         if not result:
             self.assertEqual(
                 before, [(node, node.text, node.tail, list(node)) for node in root.iter()]
@@ -294,6 +295,143 @@ class MarkdownNativeInlineTest(TestCase):
         )
         self.assertEqual(root[0][0].tag, "span")
 
+    def test_emoticons_enabled_disabled_and_boundaries(self) -> None:
+        from zerver.lib.emoji import EMOTICON_CONVERSIONS
+
+        def configure(md: ZulipMarkdown) -> None:
+            md.zulip_db_data = self.emoji_data(["slight_smile", "smile"])
+            md.zulip_db_data.translate_emoticons = enabled
+            # Other handlers have separate contracts for punctuation and links.
+            for name in ["autolink", "link", "image", "audio", "emoji"]:
+                md.inlinePatterns.deregister(name, strict=False)
+
+        for enabled in [False, True]:
+            for emoticon in EMOTICON_CONVERSIONS:
+                for boundary in [*(chr(i) for i in range(128)), "فارسی", "\u00a0", "\u2028"]:
+                    for value in [f"{boundary}{emoticon}", f"{emoticon}{boundary}"]:
+                        with self.subTest(enabled=enabled, value=value):
+
+                            def build(value: str = value) -> Element:
+                                root = Element("div")
+                                SubElement(root, "p").text = value
+                                return root
+
+                            self.compare(build, configure=configure)
+
+    def test_emoticons_inline_state_and_live_setting(self) -> None:
+        def configure(md: ZulipMarkdown) -> None:
+            md.zulip_db_data = self.emoji_data(["slight_smile"])
+            md.zulip_db_data.translate_emoticons = enabled
+
+        samples = [
+            ":) (: :( <3 :| :/ ;) :D :o :O :p :P",
+            "**:)** `:)` ~~:D~~\n:) :smile:",
+            "سلام :) و (: پایان",
+            ":) :):) (:) :)! :)\r :)\u00a0",
+        ]
+        rng = random.Random(962819)
+        pieces = [":)", "(:", ":D", ":(", "<3", ":/", "*", "`", " ", "\n", "فارسی"]
+        samples.extend("".join(rng.choices(pieces, k=12)) for _ in range(100))
+        for enabled in [False, True]:
+            for value in samples:
+                with self.subTest(enabled=enabled, value=value):
+
+                    def build(value: str = value) -> Element:
+                        root = Element("div")
+                        paragraph = SubElement(root, "p")
+                        paragraph.text = value
+                        SubElement(paragraph, "span").tail = " :)"
+                        return root
+
+                    self.compare(
+                        build, accepted=True if value in samples[:4] else None, configure=configure
+                    )
+
+    def test_emoticon_custom_configuration_delegates_before_mutation(self) -> None:
+        from zerver.lib import emoji, markdown
+
+        native = inline_stash._rust_native_inline
+        if native is None:
+            self.skipTest("Native inline engine is disabled")
+        md = self.markdown()
+        md.zulip_db_data = self.emoji_data([])
+        md.zulip_db_data.translate_emoticons = True
+        processor = InlineProcessor(md)
+        root = Element("div")
+        SubElement(root, "p").text = "**earlier** :)"
+        with mock.patch.object(markdown, "translate_emoticons") as callback:
+            self.assertFalse(
+                native_inline.try_run(processor, root, None, native.plan_markdown_native_inline)
+            )
+            callback.assert_not_called()
+        for replacement in [42, "\ud800", "\\1", AtomicString(":smile:")]:
+            with (
+                self.subTest(replacement=replacement),
+                mock.patch.dict(emoji.EMOTICON_CONVERSIONS, {":)": replacement}),
+            ):
+                self.assertFalse(
+                    native_inline.try_run(processor, root, None, native.plan_markdown_native_inline)
+                )
+        with mock.patch.dict(emoji.EMOTICON_CONVERSIONS, {"": ":smile:"}):
+            self.assertFalse(
+                native_inline.try_run(processor, root, None, native.plan_markdown_native_inline)
+            )
+        self.assertEqual(root[0].text, "**earlier** :)")
+        self.assertEqual(list(root[0]), [])
+        self.assertFalse(hasattr(processor, "stashed_nodes"))
+
+    def test_live_emoticon_setting(self) -> None:
+        native = inline_stash._rust_native_inline
+        if native is None:
+            self.skipTest("Native inline engine is disabled")
+        md = self.markdown()
+        data = self.emoji_data([])
+        processor = InlineProcessor(md)
+        for enabled in [True, False, True, None]:
+            md.zulip_db_data = None if enabled is None else data
+            data.translate_emoticons = bool(enabled)
+            root = Element("div")
+            SubElement(root, "p").text = ":)"
+            self.assertTrue(
+                native_inline.try_run(processor, root, None, native.plan_markdown_native_inline)
+            )
+            if enabled:
+                self.assertEqual(root[0][0].text, ":slight_smile:")
+                self.assertEqual(root[0][0].get("class"), "emoji emoji-1f642")
+            else:
+                self.assertEqual(list(root[0]), [])
+                self.assertEqual(root[0].text, ":)")
+
+    def test_live_emoticon_catalog_and_unknown_target(self) -> None:
+        from zerver.lib import emoji
+
+        def configure(md: ZulipMarkdown) -> None:
+            md.zulip_db_data = self.emoji_data([])
+            md.zulip_db_data.translate_emoticons = True
+
+        def build() -> Element:
+            root = Element("div")
+            SubElement(root, "p").text = ":) :D"
+            return root
+
+        for replacement in [":slight_smile:", ":smile:"]:
+            with mock.patch.dict(emoji.EMOTICON_CONVERSIONS, {":)": replacement}):
+                self.compare(build, configure=configure)
+        native = inline_stash._rust_native_inline
+        if native is None:
+            self.skipTest("Native inline engine is disabled")
+        md = self.markdown()
+        configure(md)
+        root = build()
+        with mock.patch.dict(emoji.EMOTICON_CONVERSIONS, {":)": ":unknown_target:"}):
+            self.assertFalse(
+                native_inline.try_run(
+                    InlineProcessor(md), root, None, native.plan_markdown_native_inline
+                )
+            )
+        self.assertEqual(root[0].text, ":) :D")
+        self.assertEqual(list(root[0]), [])
+
     def test_unicode_whitespace_around_emphasis(self) -> None:
         for separator in [
             "\t",
@@ -498,6 +636,8 @@ class MarkdownNativeInlineTest(TestCase):
             ("emoji", "compiled_re", re.compile("custom")),
             ("emoji", "compiled_re", re.compile(r"^(.*?)(?P<syntax>:[\w\-\+]+:)(.*)$", re.ASCII)),
             ("emoji", "zmd", object()),
+            ("translate_emoticons", "compiled_re", re.compile("custom")),
+            ("translate_emoticons", "zmd", object()),
         ]:
             with self.subTest(name=name, attribute=attribute):
                 pattern = processor.inlinePatterns[name]
@@ -531,8 +671,11 @@ class MarkdownNativeInlineTest(TestCase):
         if native is None:
             self.skipTest("Native inline engine is disabled")
         root = Element("div")
-        SubElement(root, "p").text = "***bold :smile:*** `:smile:` ~~strike~~\nفارسی :zulip:"
-        processor = InlineProcessor(self.markdown())
+        SubElement(root, "p").text = "***bold :smile:*** `:smile:` ~~strike~~\nفارسی :zulip: :)"
+        md = self.markdown()
+        md.zulip_db_data = self.emoji_data([])
+        md.zulip_db_data.translate_emoticons = True
+        processor = InlineProcessor(md)
         with mock.patch.object(
             inlinepatterns.SimpleTagPattern, "handleMatch", autospec=True
         ) as callback:
@@ -566,4 +709,6 @@ class MarkdownNativeInlineTest(TestCase):
         finally:
             sys.setprofile(previous)
         self.assertEqual(calls, [])
-        self.assertEqual([node.tag for node in root[0]], ["strong", "code", "del", "br", "img"])
+        self.assertEqual(
+            [node.tag for node in root[0]], ["strong", "code", "del", "br", "img", "span"]
+        )

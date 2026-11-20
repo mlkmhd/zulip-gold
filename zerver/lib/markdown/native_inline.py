@@ -16,6 +16,7 @@ Text: TypeAlias = tuple[str, bool]
 Node: TypeAlias = tuple[str, str, Text | None, Text | None, list[int]]
 PlannedNode: TypeAlias = tuple[str, str, Text | None, Text | None, list[int], list[tuple[str, str]]]
 EmojiCatalog: TypeAlias = tuple[dict[str, str], dict[str, str]]
+EmoticonCatalog: TypeAlias = tuple[list[tuple[str, str]], dict[str, str]]
 Stashed: TypeAlias = tuple[int | None, Text | None]
 Plan: TypeAlias = tuple[list[PlannedNode], list[tuple[int, int]], list[Stashed], list[str], bool]
 Planner: TypeAlias = Callable[
@@ -25,6 +26,7 @@ Planner: TypeAlias = Callable[
         list[str],
         list[tuple[object, object | None]],
         list[EmojiCatalog | None],
+        EmoticonCatalog | None,
     ],
     Plan | None,
 ]
@@ -53,11 +55,14 @@ _EMPHASIS = {
 def try_run(
     processor: "InlineProcessor", root: Element, ancestors: list[str] | None, planner: Planner
 ) -> bool:
+    from zerver.lib import markdown
+    from zerver.lib.emoji import EMOTICON_CONVERSIONS, EMOTICON_RE
     from zerver.lib.markdown import (
         TEXT_PRESENTATION_RE,
         BacktickInlineProcessor,
         DbData,
         Emoji,
+        EmoticonTranslation,
         UnicodeEmoji,
         ZulipMarkdown,
         _native_emoji_callbacks,
@@ -124,6 +129,7 @@ def try_run(
     patterns: list[tuple[int, list[str]]] = []
     guards: list[tuple[object, object | None]] = []
     emoji_catalogs: list[EmojiCatalog | None] = []
+    emoticon_catalog = None
     for name, _ in ordered:
         pattern = cast(inlinepatterns.Pattern, data[name])
         callbacks = _native_inline_handlers.get(type(pattern))
@@ -172,13 +178,17 @@ def try_run(
             if expression.pattern != r"\n" or pattern.tag != "br":
                 return False
             kind = 7
-        elif type(pattern) is Emoji:
+        elif type(pattern) in (Emoji, EmoticonTranslation):
+            renderer = cast(Emoji | EmoticonTranslation, pattern).zmd
             if (
-                expression.pattern != r"^(.*?)(?P<syntax>:[\w\-\+]+:)(.*)$"
+                expression.pattern
+                != "^(.*?)"
+                + (r"(?P<syntax>:[\w\-\+]+:)" if type(pattern) is Emoji else EMOTICON_RE)
+                + "(.*)$"
                 or make_emoji is not _native_emoji_callbacks[0]
                 or make_realm_emoji is not _native_emoji_callbacks[1]
-                or type(pattern.zmd) is not ZulipMarkdown
-                or pattern.zmd is not processor.md
+                or type(renderer) is not ZulipMarkdown
+                or renderer is not processor.md
                 or type(name_to_codepoint) is not dict
                 or any(
                     type(key) is not str
@@ -189,24 +199,51 @@ def try_run(
                 )
             ):
                 return False
-            db_data = pattern.zmd.zulip_db_data
+            db_data = renderer.zulip_db_data
             if db_data is not None and type(db_data) is not DbData:
                 return False
-            active = {} if db_data is None else db_data.active_realm_emoji
-            if type(active) is not dict or any(
-                type(name) is not str
-                or _SURROGATE_RE.search(name)
-                or type(info) is not dict
-                or type(info.get("source_url")) is not str
-                or _SURROGATE_RE.search(info["source_url"])
-                for name, info in active.items()
-            ):
-                return False
-            catalog = (
-                name_to_codepoint,
-                {name: info["source_url"] for name, info in active.items()},
-            )
-            kind = 8
+            if type(pattern) is EmoticonTranslation:
+                if (
+                    markdown.translate_emoticons is not _native_emoji_callbacks[2]
+                    or type(EMOTICON_CONVERSIONS) is not dict
+                    or any(
+                        type(key) is not str
+                        or not key
+                        or _SURROGATE_RE.search(key)
+                        or type(value) is not str
+                        or _SURROGATE_RE.search(value)
+                        or "\\" in value
+                        for key, value in EMOTICON_CONVERSIONS.items()
+                    )
+                    or (
+                        db_data is not None
+                        and type(cast(object, db_data.translate_emoticons)) is not bool
+                    )
+                    or r"(?<![^,.;?!()\[\] \"'\n\t])(?P<emoticon>("
+                    + r")|(".join(re.escape(key) for key in EMOTICON_CONVERSIONS)
+                    + r"))(?![^,.;?!()\[\] \"'\n\t])"
+                    != EMOTICON_RE
+                ):
+                    return False
+                if db_data is not None and db_data.translate_emoticons:
+                    emoticon_catalog = (list(EMOTICON_CONVERSIONS.items()), name_to_codepoint)
+                kind = 9
+            else:
+                kind = 8
+                active = {} if db_data is None else db_data.active_realm_emoji
+                if type(active) is not dict or any(
+                    type(name) is not str
+                    or _SURROGATE_RE.search(name)
+                    or type(info) is not dict
+                    or type(info.get("source_url")) is not str
+                    or _SURROGATE_RE.search(info["source_url"])
+                    for name, info in active.items()
+                ):
+                    return False
+                catalog = (
+                    name_to_codepoint,
+                    {name: info["source_url"] for name, info in active.items()},
+                )
         if kind and (
             type(compiled) is not re.Pattern or expression.flags != re.DOTALL | re.UNICODE
         ):
@@ -260,7 +297,7 @@ def try_run(
                 children,
             )
         )
-    plan = planner(nodes, patterns, ancestors or [], guards, emoji_catalogs)
+    plan = planner(nodes, patterns, ancestors or [], guards, emoji_catalogs, emoticon_catalog)
     if plan is None:
         return False
     updates, parents, stash, final_ancestors, registry_used = plan

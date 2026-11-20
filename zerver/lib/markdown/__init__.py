@@ -35,8 +35,9 @@ from typing_extensions import Self, override
 from zerver.lib import mention
 from zerver.lib.alert_words import AlertWordAutomaton
 from zerver.lib.camo import get_camo_url
-from zerver.lib.emoji import EMOTICON_RE, codepoint_to_name, translate_emoticons
+from zerver.lib.emoji import EMOTICON_RE, codepoint_to_name
 from zerver.lib.emoji import name_to_codepoint as name_to_codepoint
+from zerver.lib.emoji import translate_emoticons as translate_emoticons
 from zerver.lib.emoji_utils import emoji_to_hex_codepoint, unqualify_emoji
 from zerver.lib.exceptions import MarkdownRenderingError
 from zerver.lib.markdown import channel_links, emphasis, fenced_code, postprocessing
@@ -3200,7 +3201,7 @@ def get_markdown_image_for_url(filename: str, url: str) -> str:
     return f"!{get_markdown_link_for_url(filename, url)}"
 
 
-_native_emoji_callbacks = (make_emoji, make_realm_emoji)
+_native_emoji_callbacks = (make_emoji, make_realm_emoji, translate_emoticons)
 
 _native_inline_handlers: dict[type[object], tuple[Callable[..., object], ...]] = {
     cls: (cls.handleMatch, cls.getCompiledRegExp, cls.type)

@@ -33,6 +33,7 @@ class Case:
     ancestors: list[str] | None
     registry: str = "default"
     accepted: bool | None = None
+    translate_emoticons: bool = False
 
 
 def build(case: Case) -> Element:
@@ -98,6 +99,23 @@ def exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
 
     md = ZulipMarkdown(linkifiers=[], linkifiers_key=0, email_gateway=False)
     md.zulip_db_data = None
+    if case.translate_emoticons:
+        from unittest.mock import Mock
+
+        from zerver.lib.markdown import DbData
+        from zerver.lib.thumbnail import AttachmentData
+
+        md.zulip_db_data = DbData(
+            mention_data=Mock(),
+            realm_url="https://example.com",
+            realm_alert_words_automaton=None,
+            active_realm_emoji={},
+            sent_by_bot=False,
+            stream_names={},
+            topic_info={},
+            translate_emoticons=True,
+            user_upload_previews=AttachmentData(audio_path_ids=set(), image_metadata={}),
+        )
     registry = cast(native_inline.RegistryInternals, md.inlinePatterns)
     if case.registry == "empty":
         md.inlinePatterns = util.Registry()
@@ -201,6 +219,19 @@ def cases(seed: int, count: int) -> Iterator[Case]:
             None,
             accepted=True,
         )
+    for enabled in (False, True):
+        for value in (
+            ":) (: :( <3 :| :/ ;) :D :o :O :p :P",
+            "**:)** `:)` ~~:D~~",
+            "سلام :) ",
+            "a:) :)a",
+        ):
+            yield Case(
+                [Node("div", None, None, [1]), Node("p", (value, False), None, [])],
+                None,
+                accepted=True,
+                translate_emoticons=enabled,
+            )
     rng = random.Random(seed)
     pieces = [
         "***",
@@ -224,6 +255,11 @@ def cases(seed: int, count: int) -> Iterator[Case]:
         ":zulip:",
         ":unknown:",
         ":+1:",
+        ":)",
+        "(:",
+        ":D",
+        "<3",
+        ":/",
         ":نام:",
         "😀",
         "$$x$$",
@@ -253,6 +289,7 @@ def cases(seed: int, count: int) -> Iterator[Case]:
             nodes,
             rng.choice([None, [], ["outer"], ["a", "P"]]),
             rng.choice(["default", "default", "formatting", "excluded", "empty"]),
+            translate_emoticons=bool(rng.randrange(2)),
         )
 
 
