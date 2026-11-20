@@ -129,6 +129,7 @@ class MarkdownNativeInlineTest(TestCase):
             native.plan_markdown_native_inline,
             native.plan_markdown_native_inline_media,
             getattr(native, "plan_markdown_native_inline_html", None),
+            getattr(native, "plan_markdown_native_inline_autolinks", None),
         )
         if accepted is not None:
             self.assertEqual(result, accepted)
@@ -140,6 +141,230 @@ class MarkdownNativeInlineTest(TestCase):
             PythonInlineProcessor.run(processor, root, ["outer"])
         self.assertEqual(reference, self.snapshot(processor, root))
         self.assertEqual(reference_md.zulip_rendering_result, native_md.zulip_rendering_result)
+
+    def test_native_autolinks_and_complete_state(self) -> None:
+        samples = [
+            "example.com https://host/a(b(c))tail... https://host?. https://host??",
+            "https://host\n",
+            "https://x:_:@:??\u0085",
+            "https://host/a;\nplain\n",
+            "https://host? https://host?) https://host?() https://host?(!).",
+            "https://user:pass@host:8080/path?q#fragment https://host/a.,;!?>'",
+            "foo@example.com foo+bar@example.com bitcoin:1BoatSLRHtKNngkdXEeobR76b53LETtpyT",
+            "obsidian://open?vault=example zotero://open/1 asanadesktop://task/1 hansoft://item",
+            "a.md a.py a.zip a.java a.mov a.com file:///tmp/name HTTP://EXAMPLE.COM",
+            "[https://host] (https://host), <https://host> 🙂https://host \u0301https://host",
+            "https://host/سلام?x=۱۲ https://host/?&amp; **example.com** `example.com`",
+            "[example.com](https://host/path) https://host/_atomic_ :smile:",
+            "https://host/" + "(" * 7 + "x" + ")" * 7,
+            "https://host/" + "(" * 8 + "x" + ")" * 8 + " example.com",
+            "\x1chttps://host\x1dhttps://other\u0085example.com",
+            "á.com 𞓐.com 𜰀.com user@h.é 𞓐@h.com",
+        ]
+        for text in samples:
+            with self.subTest(text=text):
+
+                def build(text: str = text) -> Element:
+                    root = Element("div")
+                    shared = Element("span", {"sentinel": "kept"})
+                    shared.text = text
+                    shared.tail = " example.org"
+                    SubElement(root, "p").append(shared)
+                    SubElement(root, "blockquote").append(shared)
+                    SubElement(root, "code").text = AtomicString(text)
+                    return root
+
+                self.compare(build, accepted=None)
+
+    def test_native_autolinks_live_schemes_tlds_and_file_links(self) -> None:
+        from django.test import override_settings
+
+        from zerver.lib import markdown
+
+        try:
+            for files in False, True:
+                with (
+                    self.subTest(files=files),
+                    override_settings(ENABLE_FILE_LINKS=files),
+                    mock.patch.object(markdown, "tld_set", {"com", "custom", "zip"}),
+                    mock.patch.object(markdown, "auto_linked_schemes", ["https?", "custom"]),
+                ):
+                    markdown.clear_web_link_regex_for_testing()
+
+                    def build() -> Element:
+                        root = Element("div")
+                        SubElement(root, "p").text = (
+                            "a.custom a.zip custom://host https://host?. "
+                            "file:///tmp/name file:///tmp/a\nb.txt"
+                        )
+                        return root
+
+                    self.compare(build)
+                    with mock.patch.object(markdown, "allowed_schemes", ("custom", "file")):
+                        self.compare(build)
+        finally:
+            markdown.clear_web_link_regex_for_testing()
+
+    def test_native_autolinks_commit_mentions_media_and_html_together(self) -> None:
+        text = (
+            "example.com &amp; @**alice** @*devs* "
+            "![picture](/user_uploads/1/picture) <time:2024-W01>"
+        )
+        self.compare(lambda: self._autolink_root(text), configure=self.media_data)
+        self.compare(
+            lambda: self._autolink_root(text + " https://例.com"),
+            configure=self.media_data,
+            accepted=False,
+        )
+
+    def test_native_autolinks_late_failure_and_legacy_wheel(self) -> None:
+        def build() -> Element:
+            root = Element("div")
+            SubElement(root, "p").text = "&amp; example.com https://例.com"
+            return root
+
+        self.compare(build, accepted=False)
+        native = inline_stash._rust_native_inline
+        if native is None:
+            self.skipTest("Native inline engine is disabled")
+        md = self.markdown()
+        processor = InlineProcessor(md)
+        md.treeprocessors.register(processor, "inline", 25)
+        root = Element("div")
+        SubElement(root, "p").text = "&amp; example.com"
+        self.assertFalse(
+            native_inline.try_run(
+                processor,
+                root,
+                None,
+                native.plan_markdown_native_inline,
+                native.plan_markdown_native_inline_media,
+                native.plan_markdown_native_inline_html,
+            )
+        )
+        self.assertEqual(root[0].text, "&amp; example.com")
+        self.assertEqual(md.htmlStash.rawHtmlBlocks, [])
+        root[0].text = "**formatting**"
+        self.assertTrue(
+            native_inline.try_run(
+                processor,
+                root,
+                None,
+                native.plan_markdown_native_inline,
+                native.plan_markdown_native_inline_media,
+                native.plan_markdown_native_inline_html,
+            )
+        )
+        self.compare(lambda: self._autolink_root("https://x " * 1600), accepted=False)
+
+    def _autolink_root(self, text: str) -> Element:
+        root = Element("div")
+        SubElement(root, "p").text = text
+        return root
+
+    def test_native_autolinks_without_entities_do_not_read_html_counter(self) -> None:
+        def configure(md: ZulipMarkdown) -> None:
+            registry = cast(native_inline.RegistryInternals, md.inlinePatterns)
+            for name in list(registry._data):
+                if name != "autolink":
+                    md.inlinePatterns.deregister(name)
+            md.htmlStash.html_counter = -1
+
+        self.compare(lambda: self._autolink_root("example.com"), configure=configure)
+
+    def test_native_autolinks_guard_snapshot_and_helpers(self) -> None:
+        import unicodedata
+
+        from django.conf import settings
+
+        from zerver.lib import markdown
+
+        native = inline_stash._rust_native_inline
+        if native is None:
+            self.skipTest("Native inline engine is disabled")
+        md = self.markdown()
+        processor = InlineProcessor(md)
+        md.treeprocessors.register(processor, "inline", 25)
+        root = self._autolink_root("**before** example.com &amp;")
+        for target, name, replacement in [
+            (markdown, "url_to_a", mock.Mock()),
+            (markdown, "web_link_regex", mock.Mock()),
+            (markdown, "list_of_tlds", mock.Mock()),
+            (markdown, "sanitize_url", mock.Mock()),
+            (markdown, "rewrite_local_links_to_relative", mock.Mock()),
+            (markdown, "urlsplit", mock.Mock()),
+            (markdown, "tld_set", ("com",)),
+            (markdown, "tld_set", {1}),
+            (markdown, "auto_linked_schemes", ("http",)),
+            (markdown, "auto_linked_schemes", [1]),
+            (unicodedata, "unidata_version", "changed"),
+            (settings, "ENABLE_FILE_LINKS", not settings.ENABLE_FILE_LINKS),
+            (
+                md.inlinePatterns["autolink"],
+                "compiled_re",
+                re.compile("changed", re.DOTALL | re.VERBOSE),
+            ),
+        ]:
+            with self.subTest(name=name), mock.patch.object(target, name, replacement):
+                self.assertFalse(
+                    native_inline.try_run(
+                        processor,
+                        root,
+                        None,
+                        native.plan_markdown_native_inline,
+                        native.plan_markdown_native_inline_media,
+                        native.plan_markdown_native_inline_html,
+                        native.plan_markdown_native_inline_autolinks,
+                    )
+                )
+                if isinstance(replacement, mock.Mock):
+                    replacement.assert_not_called()
+        self.assertEqual(root[0].text, "**before** example.com &amp;")
+        self.assertEqual(md.htmlStash.rawHtmlBlocks, [])
+
+    def test_native_autolinks_do_not_call_python_handlers(self) -> None:
+        from zerver.lib import markdown
+
+        native = inline_stash._rust_native_inline
+        if native is None:
+            self.skipTest("Native inline engine is disabled")
+        md = self.markdown()
+        processor = InlineProcessor(md)
+        md.treeprocessors.register(processor, "inline", 25)
+        root = self._autolink_root("example.com https://host?(). foo@bar.com")
+        forbidden = {
+            markdown.AutoLink.handleMatch.__code__,
+            markdown.url_to_a.__code__,
+            markdown.sanitize_url.__code__,
+            markdown.rewrite_local_links_to_relative.__code__,
+        }
+        calls = []
+
+        def profile(frame: FrameType, event: str, arg: object) -> None:
+            if event == "call" and frame.f_code in forbidden:
+                calls.append(frame.f_code.co_name)
+
+        previous = sys.getprofile()
+        try:
+            sys.setprofile(profile)
+            self.assertTrue(
+                native_inline.try_run(
+                    processor,
+                    root,
+                    None,
+                    native.plan_markdown_native_inline,
+                    native.plan_markdown_native_inline_media,
+                    native.plan_markdown_native_inline_html,
+                    native.plan_markdown_native_inline_autolinks,
+                )
+            )
+        finally:
+            sys.setprofile(previous)
+        self.assertEqual(calls, [])
+        self.assertEqual(
+            [node.text for node in root.iter("a")],
+            ["example.com", "https://host?()", "foo@bar.com"],
+        )
 
     def test_native_entities_and_complete_html_stash(self) -> None:
         samples = [
@@ -714,9 +939,7 @@ class MarkdownNativeInlineTest(TestCase):
 
                 self.compare(build, configure=configure)
                 if separator in ".[":
-                    self.compare(
-                        build, accepted=separator == "[" and sys.version_info[:2] == (3, 12)
-                    )
+                    self.compare(build, accepted=sys.version_info[:2] == (3, 12))
 
     def emoji_data(self, names: list[str]) -> DbData:
         return DbData(
@@ -1374,32 +1597,38 @@ class MarkdownNativeInlineTest(TestCase):
                 self.compare(build, accepted=sys.version_info[:2] == (3, 12))
 
     def test_native_links_live_settings_and_local_rewriting(self) -> None:
-        for files in [False, True]:
-            for allowed in [("http", "file"), ("custom",)]:
-                with (
-                    self.subTest(files=files, allowed=allowed),
-                    mock.patch("zerver.lib.markdown.allowed_schemes", allowed),
-                    mock.patch("zerver.lib.markdown.settings.ENABLE_FILE_LINKS", files),
-                ):
+        from zerver.lib import markdown
 
-                    def build() -> Element:
-                        root = Element("div")
-                        SubElement(root, "p").text = (
-                            "[x](file:///a) [x](custom:path) [x](example.com) "
-                            "[ ](http://chat.example/#fragment) "
-                            "[x](http://chat.example/user_uploads/a)"
+        try:
+            for files in [False, True]:
+                for allowed in [("http", "file"), ("custom",)]:
+                    with (
+                        self.subTest(files=files, allowed=allowed),
+                        mock.patch("zerver.lib.markdown.allowed_schemes", allowed),
+                        mock.patch("zerver.lib.markdown.settings.ENABLE_FILE_LINKS", files),
+                    ):
+                        markdown.clear_web_link_regex_for_testing()
+
+                        def build() -> Element:
+                            root = Element("div")
+                            SubElement(root, "p").text = (
+                                "[x](file:///a) [x](custom:path) [x](example.com) "
+                                "[ ](http://chat.example/#fragment) "
+                                "[x](http://chat.example/user_uploads/a)"
+                            )
+                            return root
+
+                        def configure(md: ZulipMarkdown) -> None:
+                            md.zulip_db_data = self.emoji_data([])
+                            md.zulip_db_data.realm_url = "http://chat.example"
+
+                        self.compare(
+                            build,
+                            accepted=sys.version_info[:2] == (3, 12),
+                            configure=configure,
                         )
-                        return root
-
-                    def configure(md: ZulipMarkdown) -> None:
-                        md.zulip_db_data = self.emoji_data([])
-                        md.zulip_db_data.realm_url = "http://chat.example"
-
-                    self.compare(
-                        build,
-                        accepted=allowed != ("custom",) and sys.version_info[:2] == (3, 12),
-                        configure=configure,
-                    )
+        finally:
+            markdown.clear_web_link_regex_for_testing()
 
     def test_native_link_helpers_delegate_without_execution(self) -> None:
         from zerver.lib import markdown
@@ -2099,9 +2328,7 @@ class MarkdownNativeInlineTest(TestCase):
                     SubElement(root, "section").append(shared)
                     return root
 
-                self.compare(
-                    build, configure=self.media_data, accepted="javascript:" not in content
-                )
+                self.compare(build, configure=self.media_data)
 
     def test_native_media_absent_and_empty_previews(self) -> None:
         self.require_native_media()

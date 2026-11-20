@@ -82,6 +82,12 @@ pub mod markdown_link_syntax;
 pub mod markdown_links;
 
 #[cfg(feature = "native-markdown")]
+pub mod markdown_autolinks;
+
+#[cfg(feature = "native-markdown")]
+mod markdown_autolink_data;
+
+#[cfg(feature = "native-markdown")]
 pub mod markdown_media;
 
 #[cfg(feature = "native-markdown")]

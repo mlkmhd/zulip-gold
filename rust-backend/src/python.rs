@@ -89,6 +89,7 @@ type NativeInlinePlannedNode = (
 type NativeEmojiCatalog = (HashMap<String, String>, HashMap<String, String>);
 type NativeEmoticonCatalog = (Vec<(String, String)>, HashMap<String, String>);
 type NativeUnicodeEmojiCatalog = (String, HashMap<String, String>);
+type NativeAutolinkSpec = (String, Vec<String>, Vec<String>, bool);
 type NativeLinkPolicy = (Vec<String>, Vec<String>, bool, Option<String>);
 type NativeChannelInputs = (
     HashMap<String, (i64, bool)>,
@@ -277,6 +278,7 @@ mod _zulip_backend {
             mention_inputs,
             None,
             None,
+            None,
         )
         .map(|(result, _, _, _)| result)
     }
@@ -309,6 +311,7 @@ mod _zulip_backend {
             channel_inputs,
             mention_inputs,
             media_inputs,
+            None,
             None,
         )
         .map(|(plan, paths, image, _)| (plan, paths, image))
@@ -344,6 +347,42 @@ mod _zulip_backend {
             mention_inputs,
             media_inputs,
             html_counter,
+            None,
+        )
+    }
+
+    #[pyfunction]
+    #[pyo3(signature = (nodes, patterns, ancestors, guards, emoji_catalogs, emoticon_catalog=None, unicode_emoji_catalog=None, link_policy=None, channel_inputs=None, mention_inputs=None, media_inputs=None, html_counter=None, autolink_spec=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn plan_markdown_native_inline_autolinks(
+        nodes: Vec<NativeInlineNode>,
+        patterns: Vec<(u8, Vec<String>)>,
+        ancestors: Vec<String>,
+        guards: Vec<(Bound<'_, PyAny>, Option<Bound<'_, PyAny>>)>,
+        emoji_catalogs: Vec<Option<NativeEmojiCatalog>>,
+        emoticon_catalog: Option<NativeEmoticonCatalog>,
+        unicode_emoji_catalog: Option<NativeUnicodeEmojiCatalog>,
+        link_policy: Option<NativeLinkPolicy>,
+        channel_inputs: Option<NativeChannelInputs>,
+        mention_inputs: Option<NativeMentionInputs>,
+        media_inputs: Option<crate::python_media::MediaInputs>,
+        html_counter: Option<usize>,
+        autolink_spec: Option<NativeAutolinkSpec>,
+    ) -> Option<(NativeInlineResult, Vec<String>, bool, Vec<String>)> {
+        plan_native_inline(
+            nodes,
+            patterns,
+            ancestors,
+            guards,
+            emoji_catalogs,
+            emoticon_catalog,
+            unicode_emoji_catalog,
+            link_policy,
+            channel_inputs,
+            mention_inputs,
+            media_inputs,
+            html_counter,
+            autolink_spec,
         )
     }
 
@@ -361,14 +400,31 @@ mod _zulip_backend {
         mention_inputs: Option<NativeMentionInputs>,
         media_inputs: Option<crate::python_media::MediaInputs>,
         html_counter: Option<usize>,
+        autolink_spec: Option<NativeAutolinkSpec>,
     ) -> Option<(NativeInlineResult, Vec<String>, bool, Vec<String>)> {
         use markdown_native_inline::{Emoticons, NamedEmoji, Node, Pattern, Stashed, Text};
         if (html_counter.is_none() && patterns.iter().any(|(kind, _)| *kind == 20))
+            || (autolink_spec.is_none() && patterns.iter().any(|(kind, _)| *kind == 21))
             || patterns.len() != guards.len()
             || patterns.len() != emoji_catalogs.len()
         {
             return None;
         }
+        let autolinks = match autolink_spec {
+            None => None,
+            Some((version, tlds, schemes, enable_file_links)) => {
+                if version != crate::markdown_autolinks::UNICODE_VERSION {
+                    return None;
+                }
+                Some(crate::markdown_autolinks::Matcher::cached(
+                    crate::markdown_autolinks::Spec {
+                        tlds,
+                        schemes,
+                        enable_file_links,
+                    },
+                )?)
+            }
+        };
         let text = |(value, atomic)| Text { value, atomic };
         let nodes = nodes
             .into_iter()
@@ -410,7 +466,7 @@ mod _zulip_backend {
                 } else {
                     None
                 },
-                links: if matches!(kind, 11..=13) {
+                links: if matches!(kind, 11..=13 | 21) {
                     link_policy.as_ref().map(|(allowed, netloc, files, realm)| {
                         crate::markdown_links::Policy {
                             allowed_schemes: allowed.clone(),
@@ -492,6 +548,7 @@ mod _zulip_backend {
                 channels: channels.as_ref(),
                 mentions: mentions.as_ref(),
                 html_counter,
+                autolinks: autolinks.as_deref(),
             },
             |index, data| {
                 let (compiled, text_presentation) = &guards[index];

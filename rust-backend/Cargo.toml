@@ -41,6 +41,10 @@ name = "links"
 required-features = ["native-markdown"]
 
 [[example]]
+name = "autolinks"
+required-features = ["native-markdown"]
+
+[[example]]
 name = "media"
 required-features = ["native-markdown"]
 

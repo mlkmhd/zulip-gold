@@ -7,6 +7,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::draft_text::is_python_whitespace;
+use crate::markdown_autolinks;
 use crate::markdown_channel_spans;
 use crate::markdown_channel_syntax::{self, Kind as ChannelKind};
 use crate::markdown_code::find_inline_code;
@@ -72,7 +73,8 @@ pub struct Pattern {
     /// 5: strikethrough; 6: literal emphasis markers; 7: line break; 8: named emoji;
     /// 9: emoticon translation; 10: Unicode emoji; 11: explicit link;
     /// 12: audio; 13: image; 14: channel; 15: topic; 16: message link;
-    /// 17: user mention; 18: group mention; 19: ISO timestamp; 20: HTML entity.
+    /// 17: user mention; 18: group mention; 19: ISO timestamp; 20: HTML entity;
+    /// 21: automatic link.
     pub kind: u8,
     pub excludes: Vec<String>,
     pub emoji: Option<NamedEmoji>,
@@ -175,6 +177,7 @@ pub struct Inputs<'a> {
     pub channels: Option<&'a Channels>,
     pub mentions: Option<&'a Mentions>,
     pub html_counter: Option<usize>,
+    pub autolinks: Option<&'a markdown_autolinks::Matcher>,
 }
 
 /// Snapshot stash values for link unescaping without resolving nested placeholders.
@@ -261,7 +264,9 @@ struct Engine<'a, G> {
     remaining_mention_bytes: usize,
     remaining_timestamp_bytes: usize,
     remaining_entity_bytes: usize,
+    remaining_autolink_bytes: usize,
     html_counter: Option<usize>,
+    autolinks: Option<&'a markdown_autolinks::Matcher>,
 }
 
 impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
@@ -848,6 +853,40 @@ impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
                             Stashed::Text(Text::plain(format!("\u{2}wzxhzdk:{counter}\u{3}"))),
                         )
                     }
+                    21 => {
+                        let Some(range) = self
+                            .autolinks?
+                            .find(&data, &mut self.remaining_autolink_bytes)?
+                        else {
+                            break;
+                        };
+                        let url = &data[range.clone()];
+                        // The legacy Pattern suffix uses '$', before a final LF.
+                        let suffix_end = if range.end < data.len() && data.ends_with('\n') {
+                            data.len() - 1
+                        } else {
+                            data.len()
+                        };
+                        let policy = self.patterns[index].links.as_ref()?;
+                        let stashed = match markdown_links::sanitize(url, policy).ok()? {
+                            None => Stashed::Text(Text::plain(url)),
+                            Some(href) => {
+                                let href = markdown_links::rewrite_local(href, policy);
+                                let node = self.add_node("a");
+                                self.state.nodes[node].attributes = vec![("href".to_owned(), href)];
+                                self.state.nodes[node].text = Some(Text {
+                                    value: url.to_owned(),
+                                    atomic: true,
+                                });
+                                Stashed::Node(node)
+                            }
+                        };
+                        (
+                            data[..range.start].to_owned(),
+                            data[range.end..suffix_end].to_owned(),
+                            stashed,
+                        )
+                    }
                     _ => return None,
                 };
                 if let Stashed::Node(node) = &mut stashed {
@@ -1262,7 +1301,9 @@ pub fn run_with_inputs(
         remaining_mention_bytes: 8 * 1024 * 1024,
         remaining_timestamp_bytes: 8 * 1024 * 1024,
         remaining_entity_bytes: 8 * 1024 * 1024,
+        remaining_autolink_bytes: 8 * 1024 * 1024,
         html_counter: inputs.html_counter,
+        autolinks: inputs.autolinks,
     }
     .run(ancestors)
 }

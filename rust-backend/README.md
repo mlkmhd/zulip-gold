@@ -3046,5 +3046,70 @@ stash, parent order, ancestors, registry, HTML stash and all rendering metadata.
 It checks original HTML-stash list identity and pre-fallback immutability too.
 Entity cases vary counter offsets, shared graphs, excluded ancestors, handler
 priority, malformed references, media and mentions. This remains an opt-in
-Django bridge; autolinks, TeX, highlighting, previews and standalone scheduled
+Django bridge; TeX, highlighting, previews and standalone scheduled
 message orchestration remain dependencies before Python renderer retirement.
+
+## Match automatic links without Python callbacks
+
+`ZULIP_RUST_MARKDOWN_NATIVE_INLINE=1` also handles `AutoLink` in the native
+arena. The matcher uses the live ordered TLDs and scheme expressions, the file
+links setting, and CPython 3.12's Unicode 15.0 word class. Its reference data can
+be regenerated offline with `tools/generate_markdown_autolink_data.py`.
+The adapter checks the complete expression and flags against those settings,
+together with the handler, URL helpers, constructors and renderer policy. A
+stale cached reference expression or changed helper delegates the whole plan.
+
+The scanner preserves start boundaries, email and bitcoin alternatives, greedy
+file paths, lazy URL paths, punctuation and the reference's parenthesis expansion
+(the initial group plus six nested expansions). The legacy suffix's `$` may
+exclude a final LF after a successful match; this is retained too. A query such
+as `https://host?.` has an atomic label ending in `?`; the existing sanitizer
+removes the empty query from its `href`. URL sanitization and local upload/narrow
+rewrites use the existing Rust implementation. Unsupported Unicode or bracketed
+authorities retain reference handling. Schemes with additional regular
+expression operators also delegate, rather than being interpreted differently.
+
+`markdown_autolinks::Matcher` has no Python dependency and returns UTF-8 byte
+ranges. Up to four compiled snapshots are cached. Compilation and live
+configuration sizes are bounded; an 8 MiB cumulative scan budget bounds candidate
+searches and repeated substitutions. This is a compatibility boundary, not a
+benchmark or a claim of exhaustive URL grammar support.
+
+`plan_markdown_native_inline_autolinks` returns the same four-item result as the
+HTML planner and accepts an additional `autolink_spec`: the Unicode version,
+ordered TLDs, ordered schemes and file-links flag. Kind 21 requires that snapshot
+and the existing link policy. All three older entrypoints retain their signatures
+and result shapes and reject the new kind. Old wheels continue to use guarded
+Python autolinks. Graph changes, ordered attributes, atomic labels, HTML stash,
+notifications and attachment effects commit together after the entire plan
+succeeds. No flag, default, HTTP route or Python file retirement changes here.
+
+Using a fresh wheel built with `maturin build --release --locked --offline`
+and installed with `pip --no-index --no-deps`:
+
+```bash
+PYTHONPATH="$PWD/var/autolink-python:$PWD" \
+    ZULIP_RUST_MARKDOWN_NATIVE_INLINE=1 ZULIP_RUST_MARKDOWN_UPLOAD_PATHS=1 \
+    ./tools/test-backend zerver.tests.test_markdown_native_inline
+PYTHONPATH="$PWD/var/autolink-python:$PWD" \
+    python rust-backend/tests/test_native_autolink_bridge.py
+PYTHONPATH="$PWD/var/autolink-python:$PWD" \
+    python rust-backend/tests/check_native_inline_parity.py \
+    --cases 10000 --autolink-cases 20000 --entity-cases 5000 \
+    --timestamp-cases 5000 --week-timestamp-cases 5000 --seed 962840 \
+    --report var/autolink-inline-parity.json
+cargo build --manifest-path rust-backend/Cargo.toml --release --locked --offline \
+    --features native-markdown --example autolinks
+python rust-backend/tests/check_autolink_parity.py \
+    --probe rust-backend/target/release/examples/autolinks \
+    --cases 100000 --unicode-scalars --report var/autolink-ranges-parity.json
+```
+
+The graph oracle compares all rendering metadata as well as the tree, ordered
+attributes, atomic text, inline/HTML stashes, parent order, ancestors and registry.
+It checks pre-fallback immutability, shared graphs, reordered/excluded handlers,
+file links and combinations with entities, timestamps, mentions and media. The
+range oracle compares the actual reference expression, including every Unicode
+scalar in four contexts, independently of the sanitizer. TeX, highlighting,
+previews and the rest of the renderer and scheduled delivery orchestration remain
+before Python renderer retirement.

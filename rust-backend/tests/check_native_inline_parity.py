@@ -5,9 +5,11 @@ import json
 import os
 import platform
 import random
+import re
 import sys
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from importlib import import_module
 from itertools import chain
 from pathlib import Path
@@ -43,6 +45,7 @@ class Case:
     previous_image: bool = True
     cloud: bool = False
     html_offset: int = 0
+    file_links: bool = False
 
 
 def build(case: Case) -> Element:
@@ -107,7 +110,23 @@ def snapshot(processor: "PythonInlineProcessor", root: Element) -> dict[str, obj
     }
 
 
+@lru_cache(1)
+def file_link_expression() -> re.Pattern[str]:
+    from zerver.lib import markdown
+
+    return markdown.verbose_compile(
+        markdown.web_link_regex(
+            "|".join(markdown.list_of_tlds()), "|".join(markdown.auto_linked_schemes), True
+        )
+    )
+
+
 def exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
+    if case.file_links:
+        from django.test import override_settings
+
+        with override_settings(ENABLE_FILE_LINKS=True):
+            return _exercise(case, native=native)
     if not case.cloud:
         return _exercise(case, native=native)
     from unittest.mock import patch
@@ -134,6 +153,8 @@ def _exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
     from zerver.lib.markdown.inline_stash import InlineProcessor
 
     md = ZulipMarkdown(linkifiers=[], linkifiers_key=0, email_gateway=False)
+    if case.file_links:
+        md.inlinePatterns["autolink"].compiled_re = file_link_expression()
     md.zulip_db_data = None
     md.zulip_realm = None
     if case.translate_emoticons:
@@ -303,11 +324,11 @@ def _exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
         for name in list(registry._data):
             if name != "unicodeemoji":
                 md.inlinePatterns.deregister(name)
-    elif case.registry in ("formatting", "timestamp", "entity"):
+    elif case.registry in ("formatting", "timestamp", "entity", "autolink"):
         for name in list(registry._data):
             if name not in (
                 {case.registry}
-                if case.registry in ("timestamp", "entity")
+                if case.registry in ("timestamp", "entity", "autolink")
                 else {
                     "backtick",
                     "strong_em",
@@ -319,6 +340,10 @@ def _exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
                 }
             ):
                 md.inlinePatterns.deregister(name)
+    elif case.registry == "autolink_first":
+        md.inlinePatterns.register(md.inlinePatterns["autolink"], "autolink", 110)
+    elif case.registry == "autolink_excluded":
+        md.inlinePatterns["autolink"].__dict__["ANCESTOR_EXCLUDES"] = ("P", "outer")
     elif case.registry == "entity_first":
         md.inlinePatterns.register(md.inlinePatterns["entity"], "entity", 110)
     elif case.registry == "entity_excluded":
@@ -351,6 +376,7 @@ def _exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
             import_module("_zulip_backend").plan_markdown_native_inline,
             import_module("_zulip_backend").plan_markdown_native_inline_media,
             getattr(import_module("_zulip_backend"), "plan_markdown_native_inline_html", None),
+            getattr(import_module("_zulip_backend"), "plan_markdown_native_inline_autolinks", None),
         )
         assert md.htmlStash.rawHtmlBlocks is html_blocks, "Plan replaced the HTML stash list"
         assert set(original_nodes).issubset(root.iter()), "Plan replaced an original element"
@@ -520,6 +546,60 @@ def timestamp_cases(seed: int, count: int, *, week: bool = False) -> Iterator[Ca
             nodes,
             rng.choice([None, [], ["outer"]]),
             "default" if rng.randrange(8) == 0 else "timestamp",
+        )
+
+
+def autolink_cases(seed: int, count: int) -> Iterator[Case]:
+    rng = random.Random(seed + 37)
+    labels = [
+        "host",
+        "example.com",
+        "user:pass@host:123",
+        "例.com",
+        "a..com",
+        "_a.com",
+        "h.é",
+        "İ.com",
+    ]
+    for _ in range(count):
+        scheme = rng.choice(
+            ["", "http://", "https://", "HTTP://", "obsidian://", "asanadesktop://"]
+        )
+        url = scheme + rng.choice(labels)
+        if rng.randrange(5):
+            url += rng.choice(["/", "?", "#", "", "/?", "??"])
+            url += "".join(rng.choices("ab012.:;?!>,( )\"'/*_&#é🙂\t\n", k=rng.randrange(25)))
+            if rng.randrange(3) == 0:
+                url += "(" * rng.randrange(10) + "a" + ")" * rng.randrange(10)
+        text = rng.choice(["", "x", "\x1c", "[", "(", "é", "🙂", "\u0301", "<", "'"])
+        text += url + rng.choice(["", ".", "??", ")!", "\n", " ", "\u2003", "]", " **tail**"])
+        text += rng.choice(
+            [
+                "",
+                " example.org",
+                " foo@bar.com",
+                " &amp;",
+                " file:///tmp/a\nb.txt",
+                " bitcoin:1BoatSLRHtKNngkdXEeobR76b53LETtpyT",
+                " <time:2024-W01> ",
+            ]
+        )
+        nodes = [Node("div", None, None, [1]), Node("p", (text, False), None, [])]
+        if rng.randrange(2):
+            nodes[0].children.append(3)
+            nodes[1].children.append(2)
+            nodes.extend(
+                [
+                    Node("span", (text, rng.randrange(4) == 0), (text, False), []),
+                    Node(rng.choice(["a", "section", "code"]), None, None, [2]),
+                ]
+            )
+        yield Case(
+            nodes,
+            rng.choice([None, [], ["outer"]]),
+            rng.choice(["autolink", "default", "autolink_first", "autolink_excluded"]),
+            html_offset=rng.choice([0, 7, 99999]),
+            file_links=bool(rng.randrange(2)),
         )
 
 
@@ -814,6 +894,7 @@ def main() -> None:
         description="Compare native inline graph state with Python-Markdown."
     )
     parser.add_argument("--cases", type=int, default=10000)
+    parser.add_argument("--autolink-cases", type=int, default=0)
     parser.add_argument("--entity-cases", type=int, default=0)
     parser.add_argument("--timestamp-cases", type=int, default=0)
     parser.add_argument("--week-timestamp-cases", type=int, default=0)
@@ -825,6 +906,7 @@ def main() -> None:
     args = parser.parse_args()
     if (
         args.cases < 0
+        or args.autolink_cases < 0
         or args.entity_cases < 0
         or args.timestamp_cases < 0
         or args.week_timestamp_cases < 0
@@ -871,6 +953,10 @@ def main() -> None:
         args.repository / "zerver/lib/markdown/native_mentions.py",
         args.repository / "zerver/lib/markdown/native_media.py",
         args.repository / "zerver/lib/markdown/inline_stash.py",
+        args.repository / "rust-backend/src/markdown_autolinks.rs",
+        args.repository / "rust-backend/src/markdown_autolink_data.rs",
+        args.repository / "rust-backend/tools/generate_markdown_autolink_data.py",
+        args.repository / "zerver/lib/markdown/native_autolinks.py",
         args.repository / "rust-backend/src/markdown_media.rs",
         args.repository / "rust-backend/src/python_media.rs",
         args.repository / "zerver/lib/camo.py",
@@ -895,6 +981,7 @@ def main() -> None:
         "seed": args.seed,
         "generated_cases": args.cases,
         "entity_cases": args.entity_cases,
+        "autolink_cases": args.autolink_cases,
         "timestamp_cases": args.timestamp_cases,
         "week_timestamp_cases": args.week_timestamp_cases,
         "unicode_scalars": args.unicode_scalars,
@@ -906,6 +993,7 @@ def main() -> None:
         chain(
             cases(args.seed, args.cases, unicode_scalars=args.unicode_scalars),
             entity_cases(args.seed, args.entity_cases),
+            autolink_cases(args.seed, args.autolink_cases),
             timestamp_cases(args.seed, args.timestamp_cases),
             timestamp_cases(args.seed, args.week_timestamp_cases, week=True),
         )

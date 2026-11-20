@@ -41,6 +41,93 @@ fn pattern(kind: u8) -> Pattern {
 }
 
 #[test]
+fn autolinks_keep_atomic_labels_sanitization_and_local_rewrites() {
+    use _zulip_backend::markdown_autolinks::{Matcher, Spec};
+    use _zulip_backend::markdown_links::Policy;
+
+    let matcher = Matcher::new(&Spec {
+        tlds: vec!["com".to_owned()],
+        schemes: vec!["https?".to_owned(), "custom".to_owned()],
+        enable_file_links: false,
+    })
+    .unwrap();
+    let mut autolink = pattern(21);
+    autolink.links = Some(Policy {
+        allowed_schemes: vec!["http".to_owned(), "https".to_owned(), "mailto".to_owned()],
+        netloc_schemes: vec!["http".to_owned(), "https".to_owned()],
+        enable_file_links: false,
+        realm_url: Some("https://example.com".to_owned()),
+    });
+    let patterns = [autolink];
+    let input = Inputs {
+        autolinks: Some(&matcher),
+        ..Inputs::default()
+    };
+    let plan = run_with_inputs(
+        paragraph("https://example.com/#narrow foo@example.com custom://x"),
+        &patterns,
+        vec![],
+        input,
+        |_, _| panic!("autolinks are native"),
+    )
+    .unwrap();
+    let links: Vec<_> = plan.nodes.iter().filter(|node| node.tag == "a").collect();
+    assert_eq!(links.len(), 2);
+    assert_eq!(
+        links[0].attributes,
+        [("href".to_owned(), "#narrow".to_owned())]
+    );
+    assert_eq!(
+        links[0].text.as_ref().unwrap().value,
+        "https://example.com/#narrow"
+    );
+    assert!(links.iter().all(|link| link.text.as_ref().unwrap().atomic));
+    assert!(plan.stash.iter().any(|value| {
+        matches!(value, Stashed::Text(text) if text.value == "custom://x" && !text.atomic)
+    }));
+}
+
+#[test]
+fn autolinks_require_snapshots_and_discard_effects_on_unsupported_urls() {
+    use _zulip_backend::markdown_autolinks::{Matcher, Spec};
+    use _zulip_backend::markdown_links::Policy;
+
+    assert!(
+        run(paragraph("example.com"), &[pattern(21)], vec![], |_, _| {
+            None
+        })
+        .is_none()
+    );
+    let matcher = Matcher::new(&Spec {
+        tlds: vec!["com".to_owned()],
+        schemes: vec!["https?".to_owned()],
+        enable_file_links: false,
+    })
+    .unwrap();
+    let mut autolink = pattern(21);
+    autolink.links = Some(Policy {
+        allowed_schemes: vec!["http".to_owned(), "https".to_owned()],
+        netloc_schemes: vec!["http".to_owned(), "https".to_owned()],
+        enable_file_links: false,
+        realm_url: None,
+    });
+    assert!(
+        run_with_inputs(
+            paragraph("&amp; example.com https://例.com"),
+            &[pattern(20), autolink],
+            vec![],
+            Inputs {
+                autolinks: Some(&matcher),
+                html_counter: Some(99),
+                ..Inputs::default()
+            },
+            |_, _| panic!("native handlers do not call guards"),
+        )
+        .is_none()
+    );
+}
+
+#[test]
 fn entities_preserve_raw_spelling_and_host_stash_offset() {
     let plan = run_with_inputs(
         paragraph("&amp; &#xFF; &#000; &unknown; &12; &#XFF; &é; &; &bad&amp;"),
