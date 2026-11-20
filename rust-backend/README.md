@@ -2103,8 +2103,20 @@ ZULIP_RUST_MARKDOWN_INLINE_ENGINE=1 ./tools/test-backend --parallel 1 \
 Set `ZULIP_RUST_MARKDOWN_NATIVE_INLINE=1` after installing a fresh Python
 extension wheel, then restart Django processes. This default-off flag runs a
 native tree, text, and placeholder planner for the built-in backtick, emphasis,
-strike-through, and newline patterns. It preserves the existing Element
+strike-through, newline, and ASCII named-emoji patterns. Named emoji uses the
+current catalog and active realm overrides, including overrides of Unicode
+names and `:zulip:`. Unknown names remain text. It preserves the existing Element
 objects and their attributes when applying the completed plan.
+
+Rust constructs ordered attributes and atomic display text for new emoji
+nodes. The host continues to serialize and escape attributes. Non-ASCII
+characters encountered in a colon-name candidate delegate the entire run;
+this includes the catalog's non-ASCII aliases. This avoids depending on a
+different Unicode word-character database from the running Python version.
+Custom emoji helpers, renderer configuration, or catalog values also delegate
+before mutation. Catalogs are read on every run, so edits and deactivations
+remain visible; their validation and transfer have a cost even for plain text.
+This extension does not establish a rendering speedup.
 
 Before changing the tree, the planner checks the processor, pattern registry,
 regular expressions, callbacks, string types, and input depth. Other syntax,
@@ -2127,8 +2139,11 @@ ZULIP_RUST_MARKDOWN_NATIVE_INLINE=1 ./tools/test-backend --parallel 1 \
 The `native-markdown` Cargo feature exposes the same planner as
 `_zulip_backend::markdown_native_inline`, without linking Python. Both the
 `python` and `http` features include it. Callers supply an indexed graph,
-ordered patterns, ancestor names, and a guard for unsupported handlers. The
-guard must have no side effects on the host renderer and accept only handlers
+ordered patterns, ancestor names, and a guard for unsupported handlers.
+`Node.attributes` vector retains attribute order. A named-emoji pattern uses
+kind `8` and a `NamedEmoji` catalog with Unicode codepoints and active realm
+source URLs; other patterns use `emoji: None`. The guard must have no side
+effects on the host renderer and accept only handlers
 that would leave both text and renderer state unchanged. A rejected plan
 returns `None`; callers must retain their original tree until the entire plan
 succeeds. The returned
@@ -2181,11 +2196,12 @@ PYTHONPATH="$PWD/var/markdown-release-python:$PWD" \
 Run without Rust feature flags in the environment. The script compares the
 Python fallback with each of serialization, prettification, inline stash
 resolution, inline pattern dispatch, inline match application, inline tree
-traversal, the coordinated inline engine, postprocessing, and character
-restoration. It also measures the four separate inline bridges together and
-then enables all nine bridges.
+traversal, the coordinated inline engine, the native inline planner,
+postprocessing, and character restoration. It also measures the four separate
+inline bridges together and
+then enables all ten bridges.
 It asserts equality of the complete `MessageRenderingResult` before timing
-short, rich, and long messages without previews or organization data.
+short, emoji, rich, and long messages without previews or organization data.
 
 Results report median microseconds per conversion and elapsed-time ratios
 relative to Python; a ratio above one is slower. `--iterations` and `--repeats`

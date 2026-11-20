@@ -4,7 +4,7 @@
 //! represents shared nodes with shared indices, and supplies a guard for handlers
 //! that still require the host renderer. A rejected guard discards the whole plan.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 use crate::draft_text::is_python_whitespace;
 use crate::markdown_code::find_inline_code;
@@ -34,6 +34,7 @@ pub struct Node {
     pub text: Option<Text>,
     pub tail: Option<Text>,
     pub children: Vec<usize>,
+    pub attributes: Vec<(String, String)>,
 }
 
 impl Node {
@@ -44,6 +45,7 @@ impl Node {
             text: None,
             tail: None,
             children: Vec::new(),
+            attributes: Vec::new(),
         }
     }
 }
@@ -56,9 +58,16 @@ pub enum Stashed {
 
 pub struct Pattern {
     /// 0: guarded host handler; 1: code; 2: strong/em; 3: strong; 4: em;
-    /// 5: strikethrough; 6: literal emphasis markers; 7: line break.
+    /// 5: strikethrough; 6: literal emphasis markers; 7: line break; 8: named emoji.
     pub kind: u8,
     pub excludes: Vec<String>,
+    pub emoji: Option<NamedEmoji>,
+}
+
+/// The current renderer's emoji catalog, including active realm overrides.
+pub struct NamedEmoji {
+    pub unicode: HashMap<String, String>,
+    pub realm: HashMap<String, String>,
 }
 
 pub struct State {
@@ -191,6 +200,47 @@ impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
                             data[start + 1..].to_owned(),
                             Stashed::Node(self.add_node("br")),
                         )
+                    }
+                    8 => {
+                        let Some((start, end)) = find_named_emoji(&data)? else {
+                            break;
+                        };
+                        let catalog = self.patterns[index].emoji.as_ref()?;
+                        let syntax = &data[start..end];
+                        let name = &syntax[1..syntax.len() - 1];
+                        let title = name.replace('_', " ");
+                        let source = catalog.realm.get(name).map(String::as_str).or_else(|| {
+                            (name == "zulip")
+                                .then_some("/static/generated/emoji/images/emoji/unicode/zulip.png")
+                        });
+                        let stashed = if let Some(source) = source {
+                            let attributes = vec![
+                                ("src".to_owned(), source.to_owned()),
+                                ("class".to_owned(), "emoji".to_owned()),
+                                ("alt".to_owned(), syntax.to_owned()),
+                                ("title".to_owned(), title),
+                            ];
+                            let node = self.add_node("img");
+                            self.state.nodes[node].attributes = attributes;
+                            Stashed::Node(node)
+                        } else if let Some(codepoint) = catalog.unicode.get(name) {
+                            let attributes = vec![
+                                ("class".to_owned(), format!("emoji emoji-{codepoint}")),
+                                ("title".to_owned(), title.clone()),
+                                ("role".to_owned(), "img".to_owned()),
+                                ("aria-label".to_owned(), title),
+                            ];
+                            let node = self.add_node("span");
+                            self.state.nodes[node].attributes = attributes;
+                            self.state.nodes[node].text = Some(Text {
+                                value: syntax.to_owned(),
+                                atomic: true,
+                            });
+                            Stashed::Node(node)
+                        } else {
+                            Stashed::Text(Text::plain(syntax))
+                        };
+                        (data[..start].to_owned(), data[end..].to_owned(), stashed)
                     }
                     _ => return None,
                 };
@@ -449,6 +499,27 @@ fn find_not_strong(data: &str) -> Option<(usize, usize)> {
     None
 }
 
+fn find_named_emoji(data: &str) -> Option<Option<(usize, usize)>> {
+    for (start, _) in data.match_indices(':') {
+        for (offset, c) in data[start + 1..].char_indices() {
+            if c == ':' {
+                if offset > 0 {
+                    return Some(Some((start, start + offset + 2)));
+                }
+                break;
+            }
+            // Python's Unicode word class depends on its Unicode database version.
+            if !c.is_ascii() {
+                return None;
+            }
+            if !c.is_ascii_alphanumeric() && !matches!(c, '_' | '-' | '+') {
+                break;
+            }
+        }
+    }
+    Some(None)
+}
+
 /// Return a complete plan rooted at node 0, or delegate the entire run.
 ///
 /// The guard receives a pattern index and the text remaining at that priority.
@@ -505,7 +576,8 @@ mod tests {
                 vec![root, paragraph],
                 &[Pattern {
                     kind: 255,
-                    excludes: vec![]
+                    excludes: vec![],
+                    emoji: None,
                 }],
                 vec![],
                 |_, _| Some(())
@@ -524,10 +596,12 @@ mod tests {
             Pattern {
                 kind: 3,
                 excludes: vec![],
+                emoji: None,
             },
             Pattern {
                 kind: 0,
                 excludes: vec![],
+                emoji: None,
             },
         ];
         let mut calls = 0;
@@ -555,6 +629,7 @@ mod tests {
             &[Pattern {
                 kind: 0,
                 excludes: vec![],
+                emoji: None,
             }],
             vec![],
             |_, _| panic!("atomic string matched"),

@@ -12,6 +12,8 @@ from markdown.treeprocessors import InlineProcessor as PythonInlineProcessor
 from markdown.util import AtomicString
 
 from zerver.lib.markdown import (
+    EMOJI_REGEX,
+    DbData,
     MessageRenderingResult,
     ZulipMarkdown,
     do_convert,
@@ -19,6 +21,8 @@ from zerver.lib.markdown import (
     native_inline,
 )
 from zerver.lib.markdown.inline_stash import InlineProcessor
+from zerver.lib.thumbnail import AttachmentData
+from zerver.models.realm_emoji import EmojiInfo
 
 
 class MarkdownNativeInlineTest(TestCase):
@@ -49,23 +53,35 @@ class MarkdownNativeInlineTest(TestCase):
                 type(node.text),
                 node.tail,
                 type(node.tail),
-                node.attrib,
+                list(node.attrib.items()),
                 [index(child) for child in node],
             )
             for node in nodes
         ]
         return tree, stash, parents, processor.ancestors
 
-    def compare(self, build: Callable[[], Element], *, accepted: bool = True) -> None:
+    def compare(
+        self,
+        build: Callable[[], Element],
+        *,
+        accepted: bool = True,
+        configure: Callable[[ZulipMarkdown], None] | None = None,
+    ) -> None:
         native = inline_stash._rust_native_inline
         if native is None:
             self.skipTest("Native inline engine is disabled")
-        expected = PythonInlineProcessor(self.markdown())
+        reference_md = self.markdown()
+        if configure is not None:
+            configure(reference_md)
+        expected = PythonInlineProcessor(reference_md)
         root = build()
         expected.md.treeprocessors.register(expected, "inline", 25)
         expected.run(root, ["outer"])
         reference = self.snapshot(expected, root)
-        processor = InlineProcessor(self.markdown())
+        native_md = self.markdown()
+        if configure is not None:
+            configure(native_md)
+        processor = InlineProcessor(native_md)
         processor.md.treeprocessors.register(processor, "inline", 25)
         root = build()
         before = [(node, node.text, node.tail, list(node)) for node in root.iter()]
@@ -120,6 +136,163 @@ class MarkdownNativeInlineTest(TestCase):
             return root
 
         self.compare(build)
+
+    def test_named_emoji_catalog_and_inline_state(self) -> None:
+        from zerver.lib.markdown import name_to_codepoint
+
+        samples = [
+            "سلام :smile: **:thumbs_up:** `:smile:` :zulip:",
+            ":smile::smile: :unknown: :+1: :-1:",
+            ":unknown_***bold***: :smile:\n:zulip:",
+            ":::smile::: :SMILE: : :smile :smile::missing:",
+            ":a-b+c_123: :a.b: :a/b: :a\tb:",
+        ]
+        samples.extend(f":{name}:" for name in name_to_codepoint)
+        for value in samples:
+            with self.subTest(value=value):
+
+                def build(value: str = value) -> Element:
+                    root = Element("div")
+                    SubElement(root, "p").text = value
+                    return root
+
+                self.compare(
+                    build,
+                    accepted=all(
+                        match.group().isascii() for match in re.finditer(EMOJI_REGEX, value)
+                    ),
+                )
+
+    def test_named_emoji_helpers_and_catalogs_delegate(self) -> None:
+        from zerver.lib import markdown
+
+        native = inline_stash._rust_native_inline
+        if native is None:
+            self.skipTest("Native inline engine is disabled")
+        root = Element("div")
+        SubElement(root, "p").text = "**earlier** :smile:"
+        processor = InlineProcessor(self.markdown())
+        for name in ("make_emoji", "make_realm_emoji"):
+            with mock.patch.object(markdown, name) as callback:
+                self.assertFalse(
+                    native_inline.try_run(processor, root, None, native.plan_markdown_native_inline)
+                )
+                callback.assert_not_called()
+        for value in [42, "\ud800", AtomicString("1f604")]:
+            with (
+                self.subTest(value=value),
+                mock.patch.dict(markdown.name_to_codepoint, smile=value),
+            ):
+                self.assertFalse(
+                    native_inline.try_run(processor, root, None, native.plan_markdown_native_inline)
+                )
+        with mock.patch.object(processor.md, "zulip_db_data", object()):
+            self.assertFalse(
+                native_inline.try_run(processor, root, None, native.plan_markdown_native_inline)
+            )
+        self.assertEqual(root[0].text, "**earlier** :smile:")
+        self.assertFalse(hasattr(processor, "stashed_nodes"))
+
+    def test_named_emoji_ascii_boundaries(self) -> None:
+        def configure(md: ZulipMarkdown) -> None:
+            registry = cast(native_inline.RegistryInternals, md.inlinePatterns)
+            for name in list(registry._data):
+                if name not in {
+                    "backtick",
+                    "strong_em",
+                    "strong",
+                    "emphasis",
+                    "del",
+                    "not_strong",
+                    "nl",
+                    "emoji",
+                }:
+                    md.inlinePatterns.deregister(name)
+
+        for codepoint in range(128):
+            separator = chr(codepoint)
+            value = f":unknown{separator}name: :smile:{separator}:zulip:"
+            with self.subTest(codepoint=codepoint):
+
+                def build(value: str = value) -> Element:
+                    root = Element("div")
+                    SubElement(root, "p").text = value
+                    return root
+
+                self.compare(build, configure=configure)
+                if separator in ".[":
+                    self.compare(build, accepted=False)
+
+    def emoji_data(self, names: list[str]) -> DbData:
+        return DbData(
+            mention_data=mock.Mock(),
+            realm_url="https://example.com",
+            realm_alert_words_automaton=None,
+            active_realm_emoji={
+                name: EmojiInfo(
+                    id=str(index),
+                    name=name,
+                    source_url=f'/user_uploads/{name}/<&>".png',
+                    deactivated=False,
+                    author_id=None,
+                    still_url=None,
+                )
+                for index, name in enumerate(names)
+            },
+            sent_by_bot=False,
+            stream_names={},
+            topic_info={},
+            translate_emoticons=False,
+            user_upload_previews=AttachmentData(audio_path_ids=set(), image_metadata={}),
+        )
+
+    def test_realm_emoji_overrides_and_attributes(self) -> None:
+        def configure(md: ZulipMarkdown) -> None:
+            md.zulip_db_data = self.emoji_data(["smile", "zulip", "custom_name"])
+
+        rng = random.Random(87631)
+        samples = ["**:smile:** :zulip: :custom_name: :unknown:"]
+        pieces = [":smile:", ":zulip:", ":custom_name:", ":unknown:", "*", "`", "\n", "فارسی", " "]
+        samples.extend("".join(rng.choices(pieces, k=12)) for _ in range(200))
+        for value in samples:
+            with self.subTest(value=value):
+
+                def build(value: str = value) -> Element:
+                    root = Element("div")
+                    paragraph = SubElement(root, "p", {"title": "unchanged"})
+                    paragraph.text = value
+                    SubElement(paragraph, "span").tail = ":smile:"
+                    return root
+
+                self.compare(build, configure=configure)
+
+    def test_live_realm_catalog_and_invalid_source_delegate(self) -> None:
+        native = inline_stash._rust_native_inline
+        if native is None:
+            self.skipTest("Native inline engine is disabled")
+        md = self.markdown()
+        md.zulip_db_data = self.emoji_data(["smile"])
+        processor = InlineProcessor(md)
+        for source in ["/custom/first.png", "/custom/second.png", "\ud800"]:
+            md.zulip_db_data.active_realm_emoji["smile"]["source_url"] = source
+            root = Element("div")
+            SubElement(root, "p").text = ":smile:"
+            accepted = native_inline.try_run(
+                processor, root, None, native.plan_markdown_native_inline
+            )
+            self.assertEqual(accepted, source != "\ud800")
+            if accepted:
+                self.assertEqual(root[0][0].get("src"), source)
+            else:
+                self.assertEqual(root[0].text, ":smile:")
+                self.assertEqual(list(root[0]), [])
+        md.zulip_db_data.active_realm_emoji.clear()
+        root = Element("div")
+        SubElement(root, "p").text = ":smile:"
+        self.assertTrue(
+            native_inline.try_run(processor, root, None, native.plan_markdown_native_inline)
+        )
+        self.assertEqual(root[0][0].tag, "span")
 
     def test_unicode_whitespace_around_emphasis(self) -> None:
         for separator in [
@@ -186,7 +359,7 @@ class MarkdownNativeInlineTest(TestCase):
     def test_unsupported_syntax_delegates_before_mutation(self) -> None:
         for text in [
             "**earlier** [link](https://example.com)",
-            "**earlier** :smile:",
+            "**earlier** :نام:",
             "**earlier** 😀",
             "**earlier** &copy;",
             "**earlier** $$x$$",
@@ -276,7 +449,7 @@ class MarkdownNativeInlineTest(TestCase):
             self.skipTest("Native inline engine is disabled")
         for text, expected in [
             ("**bold**", True),
-            ("**bold** :smile:", False),
+            ("**bold** :smile: 😀", False),
             (AtomicString("**atomic**"), True),
         ]:
             md = self.markdown()
@@ -322,6 +495,9 @@ class MarkdownNativeInlineTest(TestCase):
             ("strong", "ANCESTOR_EXCLUDES", {"p"}),
             ("strong", "ANCESTOR_EXCLUDES", ["\ud800"]),
             ("nl", "tag", "custom"),
+            ("emoji", "compiled_re", re.compile("custom")),
+            ("emoji", "compiled_re", re.compile(r"^(.*?)(?P<syntax>:[\w\-\+]+:)(.*)$", re.ASCII)),
+            ("emoji", "zmd", object()),
         ]:
             with self.subTest(name=name, attribute=attribute):
                 pattern = processor.inlinePatterns[name]
@@ -339,6 +515,7 @@ class MarkdownNativeInlineTest(TestCase):
             self.skipTest("Native inline engine is disabled")
         for content in [
             "سلام **دنیا**\nمتن `code` و *تأکید*.",
+            "سلام **:smile:** :zulip: `:smile:` :unknown: :thumbs_up:",
             "## **heading**\n\n* ***item***\n* ~~item~~\n\n> **quote**",
             "**format** [link](https://example.com) 😀 :zulip: &copy;",
             "|text|code|\n|---|---|\n|**bold**|`<&>`|",
@@ -354,7 +531,7 @@ class MarkdownNativeInlineTest(TestCase):
         if native is None:
             self.skipTest("Native inline engine is disabled")
         root = Element("div")
-        SubElement(root, "p").text = "***bold*** `code` ~~strike~~\nفارسی"
+        SubElement(root, "p").text = "***bold :smile:*** `:smile:` ~~strike~~\nفارسی :zulip:"
         processor = InlineProcessor(self.markdown())
         with mock.patch.object(
             inlinepatterns.SimpleTagPattern, "handleMatch", autospec=True
@@ -363,7 +540,7 @@ class MarkdownNativeInlineTest(TestCase):
                 native_inline.try_run(processor, root, None, native.plan_markdown_native_inline)
             )
             callback.assert_not_called()
-        from zerver.lib.markdown import _native_inline_handlers
+        from zerver.lib.markdown import _native_emoji_callbacks, _native_inline_handlers
 
         forbidden = {
             callback.__code__
@@ -373,6 +550,7 @@ class MarkdownNativeInlineTest(TestCase):
         forbidden.update(
             callback.__code__ for callback in inline_stash._inline_engine_callbacks.values()
         )
+        forbidden.update(callback.__code__ for callback in _native_emoji_callbacks)
         calls = []
 
         def profile(frame: FrameType, event: str, arg: object) -> None:
@@ -388,4 +566,4 @@ class MarkdownNativeInlineTest(TestCase):
         finally:
             sys.setprofile(previous)
         self.assertEqual(calls, [])
-        self.assertEqual([node.tag for node in root[0]], ["strong", "code", "del", "br"])
+        self.assertEqual([node.tag for node in root[0]], ["strong", "code", "del", "br", "img"])

@@ -78,9 +78,18 @@ type NativeInlineNode = (
     Option<NativeInlineText>,
     Vec<usize>,
 );
+type NativeInlinePlannedNode = (
+    String,
+    String,
+    Option<NativeInlineText>,
+    Option<NativeInlineText>,
+    Vec<usize>,
+    Vec<(String, String)>,
+);
+type NativeEmojiCatalog = (HashMap<String, String>, HashMap<String, String>);
 type NativeInlineStash = (Option<usize>, Option<NativeInlineText>);
 type NativeInlineResult = (
-    Vec<NativeInlineNode>,
+    Vec<NativeInlinePlannedNode>,
     Vec<(usize, usize)>,
     Vec<NativeInlineStash>,
     Vec<String>,
@@ -227,8 +236,12 @@ mod _zulip_backend {
         patterns: Vec<(u8, Vec<String>)>,
         ancestors: Vec<String>,
         guards: Vec<(Bound<'_, PyAny>, Option<Bound<'_, PyAny>>)>,
+        emoji_catalogs: Vec<Option<NativeEmojiCatalog>>,
     ) -> Option<NativeInlineResult> {
-        use markdown_native_inline::{Node, Pattern, Stashed, Text};
+        use markdown_native_inline::{NamedEmoji, Node, Pattern, Stashed, Text};
+        if patterns.len() != guards.len() || patterns.len() != emoji_catalogs.len() {
+            return None;
+        }
         let text = |(value, atomic)| Text { value, atomic };
         let nodes = nodes
             .into_iter()
@@ -238,15 +251,18 @@ mod _zulip_backend {
                 text: content.map(text),
                 tail: tail.map(text),
                 children,
+                attributes: Vec::new(),
             })
             .collect();
         let patterns = patterns
             .into_iter()
-            .map(|(kind, excludes)| Pattern { kind, excludes })
+            .zip(emoji_catalogs)
+            .map(|((kind, excludes), catalog)| Pattern {
+                kind,
+                excludes,
+                emoji: catalog.map(|(unicode, realm)| NamedEmoji { unicode, realm }),
+            })
             .collect::<Vec<_>>();
-        if patterns.len() != guards.len() {
-            return None;
-        }
         let result = markdown_native_inline::run(nodes, &patterns, ancestors, |index, data| {
             let (compiled, text_presentation) = &guards[index];
             if let Some(text_presentation) = text_presentation {
@@ -286,6 +302,7 @@ mod _zulip_backend {
                         node.text.map(text),
                         node.tail.map(text),
                         node.children,
+                        node.attributes,
                     )
                 })
                 .collect(),

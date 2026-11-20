@@ -60,11 +60,13 @@ def main() -> None:
         "inline_apply": (inline_stash, "_rust_inline_apply"),
         "inline_tree": (inline_stash, "_rust_inline_tree"),
         "inline_engine": (inline_stash, "_rust_inline_engine"),
+        "native_inline": (inline_stash, "_rust_native_inline"),
         "postprocessing": (postprocessing, "_rust_postprocessing"),
         "unescape": (unescape, "_rust_unescape"),
     }
     samples = {
         "short": "سلام **دنیا**\nمتن `code` و *تأکید*.",
+        "emoji": "سلام **:smile:** :zulip: `:smile:` :unknown: :thumbs_up:",
         "rich": (
             "## عنوان **پررنگ**\n\n"
             "> نقل‌قول با ***~~قالب‌بندی~~***\n\n"

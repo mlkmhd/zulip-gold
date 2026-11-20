@@ -14,10 +14,18 @@ if TYPE_CHECKING:
 
 Text: TypeAlias = tuple[str, bool]
 Node: TypeAlias = tuple[str, str, Text | None, Text | None, list[int]]
+PlannedNode: TypeAlias = tuple[str, str, Text | None, Text | None, list[int], list[tuple[str, str]]]
+EmojiCatalog: TypeAlias = tuple[dict[str, str], dict[str, str]]
 Stashed: TypeAlias = tuple[int | None, Text | None]
-Plan: TypeAlias = tuple[list[Node], list[tuple[int, int]], list[Stashed], list[str], bool]
+Plan: TypeAlias = tuple[list[PlannedNode], list[tuple[int, int]], list[Stashed], list[str], bool]
 Planner: TypeAlias = Callable[
-    [list[Node], list[tuple[int, list[str]]], list[str], list[tuple[object, object | None]]],
+    [
+        list[Node],
+        list[tuple[int, list[str]]],
+        list[str],
+        list[tuple[object, object | None]],
+        list[EmojiCatalog | None],
+    ],
     Plan | None,
 ]
 
@@ -48,8 +56,15 @@ def try_run(
     from zerver.lib.markdown import (
         TEXT_PRESENTATION_RE,
         BacktickInlineProcessor,
+        DbData,
+        Emoji,
         UnicodeEmoji,
+        ZulipMarkdown,
+        _native_emoji_callbacks,
         _native_inline_handlers,
+        make_emoji,
+        make_realm_emoji,
+        name_to_codepoint,
     )
     from zerver.lib.markdown.inline_stash import (
         InlineProcessor,
@@ -108,6 +123,7 @@ def try_run(
     )
     patterns: list[tuple[int, list[str]]] = []
     guards: list[tuple[object, object | None]] = []
+    emoji_catalogs: list[EmojiCatalog | None] = []
     for name, _ in ordered:
         pattern = cast(inlinepatterns.Pattern, data[name])
         callbacks = _native_inline_handlers.get(type(pattern))
@@ -131,6 +147,7 @@ def try_run(
             return False
         expression = cast(re.Pattern[str] | regex.Pattern[str], compiled)
         kind = 0
+        catalog = None
         if type(pattern) is BacktickInlineProcessor:
             if (
                 expression.pattern != inlinepatterns.BACKTICK_RE
@@ -155,6 +172,41 @@ def try_run(
             if expression.pattern != r"\n" or pattern.tag != "br":
                 return False
             kind = 7
+        elif type(pattern) is Emoji:
+            if (
+                expression.pattern != r"^(.*?)(?P<syntax>:[\w\-\+]+:)(.*)$"
+                or make_emoji is not _native_emoji_callbacks[0]
+                or make_realm_emoji is not _native_emoji_callbacks[1]
+                or type(pattern.zmd) is not ZulipMarkdown
+                or pattern.zmd is not processor.md
+                or type(name_to_codepoint) is not dict
+                or any(
+                    type(key) is not str
+                    or type(value) is not str
+                    or _SURROGATE_RE.search(key)
+                    or _SURROGATE_RE.search(value)
+                    for key, value in name_to_codepoint.items()
+                )
+            ):
+                return False
+            db_data = pattern.zmd.zulip_db_data
+            if db_data is not None and type(db_data) is not DbData:
+                return False
+            active = {} if db_data is None else db_data.active_realm_emoji
+            if type(active) is not dict or any(
+                type(name) is not str
+                or _SURROGATE_RE.search(name)
+                or type(info) is not dict
+                or type(info.get("source_url")) is not str
+                or _SURROGATE_RE.search(info["source_url"])
+                for name, info in active.items()
+            ):
+                return False
+            catalog = (
+                name_to_codepoint,
+                {name: info["source_url"] for name, info in active.items()},
+            )
+            kind = 8
         if kind and (
             type(compiled) is not re.Pattern or expression.flags != re.DOTALL | re.UNICODE
         ):
@@ -167,6 +219,7 @@ def try_run(
             return False
         patterns.append((kind, [tag.lower() for tag in excludes]))
         guards.append((compiled, TEXT_PRESENTATION_RE if type(pattern) is UnicodeEmoji else None))
+        emoji_catalogs.append(catalog)
 
     if type(root) is not Element:
         return False
@@ -207,11 +260,11 @@ def try_run(
                 children,
             )
         )
-    plan = planner(nodes, patterns, ancestors or [], guards)
+    plan = planner(nodes, patterns, ancestors or [], guards, emoji_catalogs)
     if plan is None:
         return False
     updates, parents, stash, final_ancestors, registry_used = plan
-    elements = originals + [Element(node[0]) for node in updates[len(originals) :]]
+    elements = originals + [Element(node[0], dict(node[5])) for node in updates[len(originals) :]]
 
     def restore(text: Text | None) -> str | None:
         if text is None:
@@ -219,7 +272,7 @@ def try_run(
         value, atomic = text
         return util.AtomicString(value) if atomic else value
 
-    for element, (_, _, text, tail, children) in zip(elements, updates, strict=True):
+    for element, (_, _, text, tail, children, _) in zip(elements, updates, strict=True):
         element.text = restore(text)
         element.tail = restore(tail)
         element[:] = [elements[child] for child in children]

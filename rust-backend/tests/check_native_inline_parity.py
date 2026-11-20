@@ -180,7 +180,7 @@ def cases(seed: int, count: int) -> Iterator[Case]:
                 accepted=True,
             )
     for unsupported in (
-        ":smile:",
+        ":نام:",
         "😀",
         "$$x$$",
         "&copy;",
@@ -194,6 +194,12 @@ def cases(seed: int, count: int) -> Iterator[Case]:
             ],
             None,
             accepted=False,
+        )
+    for value in (":smile:", ":zulip:", ":unknown:", ":+1:", "***:smile:*** `:zulip:`"):
+        yield Case(
+            [Node("div", None, None, [1]), Node("p", (value, False), None, [])],
+            None,
+            accepted=True,
         )
     rng = random.Random(seed)
     pieces = [
@@ -215,6 +221,10 @@ def cases(seed: int, count: int) -> Iterator[Case]:
         "\x02klzzwxh:9999\x03",
         "&copy;",
         ":smile:",
+        ":zulip:",
+        ":unknown:",
+        ":+1:",
+        ":نام:",
         "😀",
         "$$x$$",
         "[x](https://example.com)",
