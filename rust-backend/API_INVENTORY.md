@@ -1140,3 +1140,17 @@ handler شمارهٔ ۹ و کاتالوگ `Emoticons` تشخیص مرز ASCII، 
 این مرحله عملیات HTTP تازه‌ای را مستقل نمی‌کند؛ شمار همان ۲۸ از
 ۱۷۱ OpenAPI و ۲۸ از ۱۹۰ وب و شمار فایل‌های Python حذف‌شده صفر است.
 [قرارداد اجرا](README.md#run-the-native-inline-markdown-planner)
+
+## ایموجی Unicode در هستهٔ inline بومی
+
+handler شمارهٔ ۱۰ و `UnicodeEmoji`، grammar، qualification، کاتالوگ
+نام و ساخت span را در Rust اجرا می‌کنند. propertyهای صریح renderer
+با ابزار محلی از `regex 2026.9.29` تولید می‌شوند؛ نسخه یا helper و
+regex ناسازگار پیش از mutation واگذار می‌شود. پرچم native همچنان
+پیش‌فرض خاموش است؛ بهبود سرعتی اثبات نشده است. مقایسهٔ نهایی تمام
+Unicode scalarها و ۱۴٬۳۹۷ حالت کامل، بدون اختلاف بود.
+
+این مرحله عملیات HTTP تازه‌ای را مستقل نمی‌کند: شمار همان ۲۸ از
+۱۷۱ OpenAPI و ۲۸ از ۱۹۰ وب و شمار فایل‌های Python حذف‌شده صفر است.
+لینک، mention و metadata کامل و اتصال renderer به listener هنوز
+باقی‌اند. [قرارداد و بازتولید](README.md#run-the-native-inline-markdown-planner)
