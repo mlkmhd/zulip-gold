@@ -3574,3 +3574,130 @@ metadata باید با هم commit شوند و شکست کل plan هیچ اثر 
 پرچم خاموش و روشن هنوز برای این اتصال لازم‌اند. adapter رسانه،
 highlighting، TeX، preview و orchestration مجوز و پیوست در listener
 زمان‌بندی نیز باقی‌اند.
+
+## لینک‌های کانال، موضوع و پیام در planner بومی — ۲۰۲۶-۱۱-۲۰
+
+این ادامه سه برش دارد: `229caf1aa3`، API مستقل تشخیص syntax و فیلدها؛
+`139ecfb46e`، ساخت لینک در arena؛ و `d4803663b5`، اتصال guarded
+به پل موجود Django. مرحلهٔ سوم با همان
+`ZULIP_RUST_MARKDOWN_NATIVE_INLINE=1` فعال می‌شود. پرچم همچنان پیش‌فرض
+خاموش است و بازگشت به Python با خاموش‌کردن آن انجام می‌شود. عملیات HTTP
+مستقل یا پرچم استقرار تازه‌ای اضافه نشده است.
+
+### قرارداد و مرز دسترسی
+
+`markdown_channel_syntax::find` برای کانال، موضوع و پیام offset بایتی
+UTF-8 برمی‌گرداند. نام‌ها trim یا normalize نمی‌شوند؛ شناسهٔ پیام رشته
+می‌ماند و رقم Unicode، صفر ابتدایی و طول زیاد آن حفظ می‌شوند. snapshot
+رقم‌های decimal از runtime میزبان می‌آید و یک‌بار در همان interpreter
+کش می‌شود. offset نامعتبر واگذاری است، نه نبودن syntax. براکت `[`، بر
+خلاف mention کاربر، مرز مجاز پیش از `#` نیست.
+
+`markdown_channel_spans::channel_link` همان سازندهٔ قبلی فیلدهای پل است
+که اکنون بدون Python نیز در دسترس است. ترتیب attribute و متن atomic
+حفظ می‌شوند؛ `em` موضوع خالی، متن plainِ نام جایگزین میزبان را دارد و
+پسوند atomic پیام tail همان child است. serializer همچنان متن و
+attributeها را escape می‌کند؛ این API، HTML آماده تولید نمی‌کند.
+
+`run_with_inputs`، snapshotهای `Channels` و `Media` را در یک plan
+ترکیب می‌کند. wrapperهای قبلی سازگارند. kindهای ۱۴، ۱۵ و ۱۶ به ترتیب
+کانال، موضوع و پیام‌اند و ترتیب واقعی registry تقدم را تعیین می‌کند.
+کانال حل‌نشده و موضوع غیرخالی در کانال فقط‌موضوع‌خالی رد می‌شوند و
+جست‌وجوی همان handler تا نامزد بعدی ادامه دارد. anchor موضوع بر کلید
+دقیق کانال/موضوع انتخاب می‌شود؛ لینک پیام بر `with` مقدم است.
+
+adapter فقط از `DbData.stream_names`، cache مجاز کانال و
+`DbData.topic_info` snapshot می‌گیرد؛ این مسیر مجوز صادر نمی‌کند و
+وجود پیام را نمی‌سنجد. سیاست ارثی فقط از فیلد از قبل بارگذاری‌شدهٔ
+realm خوانده می‌شود؛ نبود فیلد یا descriptor سفارشی، پیش از fetch یا
+فراخوانی property به Python واگذار می‌شود. نبودن channel info همان
+رفتار مرجعِ عدم محدودیت موضوع را نگه می‌دارد. lookup، regex، کلاس کلید
+موضوع، encoder و تنظیمات قابل تغییر آن نیز guard دارند.
+
+دادهٔ سفارشی، surrogate، شناسهٔ کانال یا anchor خارج از i64، بیش از
+۱۰۰ هزار مدخل یا بیش از یک میلیون نویسهٔ snapshot، کل plan را پیش از
+mutation واگذار می‌کند. شناسهٔ پیام تبدیل به i64 نمی‌شود. اسکن نامزدها
+سقف مشترک ۸ MiB لینک/رسانه و فیلدهای کانال سقف جداگانهٔ ۸ MiB دارند.
+درخت، stash، parent map، ancestors و registry فقط با موفقیت کل plan
+ثبت می‌شوند؛ metadata اعلان و پیوست قبلی دست‌نخورده می‌ماند.
+
+### تأیید و محدودیت
+
+مقایسهٔ API روی باینری واقعی Cargo و seed برابر `962830`، در میزبان
+Python 3.15 تعداد ۳٬۹۰۸٬۵۴۲ حالت و در Linux با Python 3.12.3 تعداد
+۳٬۹۰۸٬۲۷۲ حالت را بدون اختلاف گذراند. اختلاف تعداد از رقم‌های تازهٔ
+Unicode است. هر گزارش ۱۰۱٬۵۱۲ حالت فیلد و همهٔ scalarهای Unicode در
+مرز شروع لینک را دارد؛ این exhaustive بودن شامل همهٔ رشته‌ها نیست.
+mutant تغییر `/near/` به `/with/` با ۵۰۴ اختلاف از ۱۷۲٬۳۵۰ حالت رد شد.
+
+مقایسهٔ arena با موتور واقعی Python-Markdown 3.10.3 و seed برابر
+`962831`، تعداد ۳۳۱٬۲۱۶ حالت داشت: ۳۳۱٬۱۶۰ پذیرش و ۵۶ واگذاری، بدون
+اختلاف. registry محدود شامل code، لینک معمولی، emphasis و newline،
+تقدم معمول و معکوس، ancestor مستثنا، متن atomic و plain و metadata
+قبلی بررسی شدند. mutant atomic‌کردن متن child موضوع خالی در ۱۱٬۲۱۶
+حالت با هفت اختلاف رد شد.
+
+گزارش نهایی wheel با seed برابر `962832`، تعداد ۱۰٬۰۶۷ گراف
+ترکیبی، شامل گراف مشترک، رجیستری‌های مختلف، سیاست ارثی و metadata
+قبلی را بدون اختلاف گذراند: ۴٬۱۲۰ پذیرش و ۵٬۹۴۷ واگذاری.
+هر واگذاری پیش از fallback از نظر حفظ ورودی، attribute identity،
+registry و وضعیت processor بررسی شد. گزارش `pre-descriptor` متعلق به
+پیش از guard نهایی realm است و جای گزارش `final-parity` را نمی‌گیرد.
+این مقایسه renderer کامل، benchmark یا آزمون جامع دسترسی DB نیست.
+
+مجموعهٔ نهایی Markdown، planner، زمان‌بندی و یادآورها با پرچم روشن
+۲۷۶ تست را با دو skip گذراند. حالت خاموش نیز
+۲۷۶ تست داشت؛ subtestهای مخصوص planner خاموش طبق انتظار skip شدند.
+ماتریس پل‌های قدیمی syntax، فیلد و URL با native خاموش و روشن، در هر
+حالت ۲۷ تست را گذراند؛ حالت خاموش ۴۱۵ subtest مختص native را skip کرد.
+هفت تست کانال با coverage روی guard نهایی پاس شدند؛ helper تازه تمام
+۶۶ statement و تمام خط‌های اجرایی تازهٔ adapter را پوشش داد. Cargo
+بدون feature، native و همهٔ featureها به‌ترتیب ۴۰، ۱۵۳ و ۲۱۳ تست
+موفق داشت؛ integration قدیمی PostgreSQL/Memcached همچنان ignored است.
+این اعداد مربوط به snapshot این برش، پیش از mention هم‌زمان‌اند.
+پذیرش ترکیبیِ کامیت `d4803663b5` شامل `7e57b05e4c` نیز با wheel تازه
+انجام شد: ۱۶۱ تست native میزبان، ۲۲۱ تست همهٔ featureها، ۲۷۶ تست backend با
+دو skip شناخته‌شده و ۱۰٬۰۶۷ گراف بدون اختلاف؛ Clippy همهٔ targetها و
+featureها نیز پاس شد.
+
+wheel release تازه با کش موجود ساخته شد. rustfmt فایل‌های این برش،
+Clippy همهٔ featureها و targetها، lint هدفمند شامل mypy و README و
+پیام کامیت‌ها پاس شدند. هشدارهای دو مستند فارسی با baseline برابر ماندند.
+مسیر HTTP عوض نشده و staging تازهٔ HTTP یا benchmark برای این برش
+اجرا نشد. از این اعداد بهبود عمومی سرعت استنتاج نمی‌شود؛ هزینهٔ پل
+و snapshot در پیام‌های کوتاه همچنان دلیل حفظ پیش‌فرض خاموش است.
+
+گزارش‌ها با پیشوندهای `zulip-rust-channels-`،
+`zulip-rust-channel-plan-` و `zulip-rust-channel-live-` در
+`/home/ubuntu/` حفظ شده‌اند؛ نسخهٔ میزبان گزارش‌های نهایی و اثبات
+hash در `/tmp` است. hash منبع، probe و extension گزارش‌ها با منبع
+آزموده‌شده و کامیت‌های همین برش تطبیق داده شد.
+[قرارداد و بازتولید](README.md#render-channel-links-through-the-guarded-native-inline-bridge)
+
+### محیط و ادامه
+
+checkout همان `/home/ubuntu/zulip-rust-markdown-tables` و target همان
+headings کش‌شده است؛ wheel برش مستقل در `var/channel-live-python` و نسخهٔ ترکیبی در
+`var/channel-composed-python` قرار دارد. تمام وابستگی‌ها از کش و Cargoهای مخزن با `--locked --offline` و یک job
+ساخته شدند؛ دانلود بسته انجام نشد. برای رفع کمبود دیسک فقط باینری‌های
+قدیمی و قابل بازسازی HTTP، آزمون و مثال پاک شدند؛ کش بسته‌های
+Rust و Python، sourceها و گزارش‌های جاری حفظ شدند. خروجی debug قدیمی
+checkout پیش‌نویس نیز با hash برابر روی میزبان در
+`/tmp/zulip-rust-old-draft-debug.tar.gz` آرشیو شد؛ target فعال باقی ماند.
+
+پذیرش ترکیبی ابتدا به علت timestamp قدیمی فایل‌های آرشیوشده، artifact
+قدیمی Cargo را برداشت. timestampها بدون پاک‌کردن کش اصلاح شدند و
+wheel دوباره ساخته شد. گزارش `stale-artifact` مدرک پذیرش نیست. یک
+اجرای DB نیز با خروج PostgreSQL به علت SIGBUS در زمان کمبود دیسک قطع
+شد؛ پس از recovery و آزادشدن فضا، آزمون بدون build هم‌زمان تکرار شد.
+
+یک fetch محدود upstream را در `1a5951844b` بررسی کرد. `merge-tree`
+بدون تغییر checkout تعارض‌های فورک را تأیید کرد؛ rebase شاخهٔ زنده،
+push و استقرار انجام نشد. کار mention هم‌زمان در arena، تست‌ها و
+manifest دست‌نخورده و از کامیت کد این برش جدا ماند؛ پذیرش ترکیبی در گزارش‌های `composed` ثبت شد.
+
+قدم بعدی، adapter زندهٔ تصویر/صوت با snapshot مجاز و guardهای MIME،
+URL، static و camo و ثبت اتمی درخت و metadata پیوست است. اتصال mention
+و اعلان‌ها، highlighting، TeX، preview و listener زمان‌بندی نیز باقی‌اند.
+هنوز renderer مستقل کامل نداریم. شمار عملیات مستقل همان ۲۸ از ۱۷۱
+OpenAPI و ۲۸ از ۱۹۰ وب است و هیچ فایل Python حذف نشده است.
