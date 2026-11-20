@@ -1185,3 +1185,18 @@ Python-Markdown 3.10.3 بدون اختلاف گذشتند. این API آماده
 عملیات HTTP تازه یا حذف Python نیست؛ شمار همان ۲۸ از ۱۷۱ OpenAPI
 و ۲۸ از ۱۹۰ وب و شمار فایل‌های Python حذف‌شده صفر است.
 [قرارداد و بازتولید](README.md#parse-inline-link-and-image-syntax-from-rust)
+
+## snapshot متن stash از arena بومی
+
+API عمومی `markdown_native_inline::snapshot_text_stash` متن عنصرهای
+stash را با ترتیب `ElementTree.itertext()`، tail فرزندان و بدون tail
+ریشه، مستقیماً از arena می‌سازد. عنصر مشترک در هر محل حضور شمرده
+می‌شود و متن atomic و placeholder تودرتو بدون تفسیر باقی می‌مانند.
+چرخه، اندیس نامعتبر و سقف کار یا متن به واگذاری کل plan نیاز دارند.
+
+هشت تست جدید و ۱۰۰٬۰۰۵ مقایسه با ElementTree روی میزبان بدون
+اختلاف گذشتند. این API آماده‌سازی به dispatch زنده متصل نشده است؛
+handler لینک، sanitizer، بازنویسی، رسانه و metadata هنوز باقی‌اند.
+شمار همان ۲۸ از ۱۷۱ OpenAPI و ۲۸ از ۱۹۰ وب است و فایل Python
+حذف نشده است.
+[قرارداد و بازتولید](README.md#snapshot-native-inline-stash-text)
