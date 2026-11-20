@@ -11,10 +11,14 @@ use crate::markdown_channel_spans;
 use crate::markdown_channel_syntax::{self, Kind as ChannelKind};
 use crate::markdown_code::find_inline_code;
 use crate::markdown_emphasis::find_emphasis;
+use crate::markdown_inline_mentions::{
+    self, MentionNotification, MentionUser, UserPolicy, UserReference,
+};
 use crate::markdown_inline_stash::Scanner;
 use crate::markdown_link_syntax::TextStash;
 use crate::markdown_links;
 use crate::markdown_media::{self, AudioPolicy, ImageMetadata};
+use crate::markdown_mention_syntax::{self, Kind as MentionKind};
 use crate::markdown_unicode_emoji::{self, UnicodeEmoji};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -66,7 +70,8 @@ pub struct Pattern {
     /// 0: guarded host handler; 1: code; 2: strong/em; 3: strong; 4: em;
     /// 5: strikethrough; 6: literal emphasis markers; 7: line break; 8: named emoji;
     /// 9: emoticon translation; 10: Unicode emoji; 11: explicit link;
-    /// 12: audio; 13: image; 14: channel; 15: topic; 16: message link.
+    /// 12: audio; 13: image; 14: channel; 15: topic; 16: message link;
+    /// 17: user mention; 18: group mention.
     pub kind: u8,
     pub excludes: Vec<String>,
     pub emoji: Option<NamedEmoji>,
@@ -98,6 +103,8 @@ pub struct State {
     pub attachment_paths: Vec<String>,
     /// Set the host's has_image when true; false never clears an existing value.
     pub has_image: bool,
+    /// Union these notifications with existing host metadata after plan success.
+    pub mentions: MentionEffects,
 }
 
 /// Already-authorized media snapshots and live renderer settings.
@@ -121,11 +128,49 @@ pub struct Channels {
     pub unicode_decimal: HashSet<char>,
 }
 
+pub struct MentionUserSnapshot {
+    pub id: i32,
+    pub full_name: String,
+    pub is_active: bool,
+}
+
+pub struct MentionGroupSnapshot {
+    pub id: i32,
+    pub display_name: String,
+    pub deactivated: bool,
+}
+
+/// Keys are exact syntax names resolved by the host, including its lowercase
+/// rules and duplicate-name ordering. Do not lowercase them again in Rust.
+/// User values in either map must come from the same authorized lookup snapshot.
+/// Name maps include cached misses as `None`. An absent key delegates the whole
+/// plan, since earlier handlers can introduce syntax that was not snapshotted.
+pub struct MentionData {
+    pub users_by_name: HashMap<String, Option<MentionUserSnapshot>>,
+    pub users_by_id: HashMap<i32, MentionUserSnapshot>,
+    pub groups_by_name: HashMap<String, Option<MentionGroupSnapshot>>,
+}
+
+pub struct Mentions {
+    /// None represents a renderer without database context, even for wildcards.
+    pub data: Option<MentionData>,
+    pub user_policy: UserPolicy,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct MentionEffects {
+    pub users: HashSet<i32>,
+    pub groups: HashSet<i32>,
+    pub channel: bool,
+    pub topic: bool,
+}
+
 /// Immutable authorized snapshots; none of the native handlers perform lookups.
 #[derive(Default)]
 pub struct Inputs<'a> {
     pub media: Option<&'a Media>,
     pub channels: Option<&'a Channels>,
+    pub mentions: Option<&'a Mentions>,
 }
 
 /// Snapshot stash values for link unescaping without resolving nested placeholders.
@@ -203,11 +248,13 @@ struct Engine<'a, G> {
     patterns: &'a [Pattern],
     media: Option<&'a Media>,
     channels: Option<&'a Channels>,
+    mentions: Option<&'a Mentions>,
     guard: G,
     remaining: usize,
     remaining_link_bytes: usize,
     remaining_media_bytes: usize,
     remaining_channel_bytes: usize,
+    remaining_mention_bytes: usize,
 }
 
 impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
@@ -633,6 +680,118 @@ impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
                             Stashed::Node(node),
                         )
                     }
+                    17 | 18 => {
+                        if !data.contains('@') {
+                            break;
+                        }
+                        let mentions = self.mentions?;
+                        let Some(snapshot) = mentions.data.as_ref() else {
+                            break;
+                        };
+                        let kind = if kind == 17 {
+                            MentionKind::User
+                        } else {
+                            MentionKind::Group
+                        };
+                        let mut start = 0;
+                        let mut found = None;
+                        loop {
+                            self.step(depth)?;
+                            self.remaining_link_bytes =
+                                self.remaining_link_bytes.checked_sub(data.len() - start)?;
+                            let Some(candidate) =
+                                markdown_mention_syntax::find(&data, start, kind).ok()?
+                            else {
+                                break;
+                            };
+                            start = candidate.range.end;
+                            let name = &data[candidate.name];
+                            let span = if matches!(kind, MentionKind::User) {
+                                let mut missing_name = false;
+                                let span = markdown_inline_mentions::prepare_user(
+                                    name,
+                                    candidate.silent,
+                                    &mentions.user_policy,
+                                    |reference| {
+                                        let user = match reference {
+                                            UserReference::Name(name) => {
+                                                match snapshot.users_by_name.get(name) {
+                                                    Some(user) => user.as_ref(),
+                                                    None => {
+                                                        missing_name = true;
+                                                        None
+                                                    }
+                                                }
+                                            }
+                                            UserReference::Id(id) => snapshot.users_by_id.get(&id),
+                                        }?;
+                                        Some(MentionUser {
+                                            id: user.id,
+                                            full_name: &user.full_name,
+                                            is_active: user.is_active,
+                                        })
+                                    },
+                                )
+                                .ok()?;
+                                if missing_name {
+                                    return None;
+                                }
+                                span
+                            } else {
+                                snapshot.groups_by_name.get(name)?.as_ref().map(|group| {
+                                    markdown_inline_mentions::group_mention_span(
+                                        group.id,
+                                        &group.display_name,
+                                        candidate.silent,
+                                        group.deactivated,
+                                    )
+                                })
+                            };
+                            if let Some(span) = span {
+                                found = Some((candidate.range, span));
+                                break;
+                            }
+                        }
+                        let Some((range, span)) = found else {
+                            break;
+                        };
+                        self.remaining_mention_bytes =
+                            self.remaining_mention_bytes.checked_sub(span.text.len())?;
+                        for (key, value) in &span.attributes {
+                            self.remaining_mention_bytes = self
+                                .remaining_mention_bytes
+                                .checked_sub(key.len())?
+                                .checked_sub(value.len())?;
+                        }
+                        match span.notification {
+                            Some(MentionNotification::User(id)) => {
+                                self.state.mentions.users.insert(id);
+                            }
+                            Some(MentionNotification::Group(id)) => {
+                                self.state.mentions.groups.insert(id);
+                            }
+                            Some(MentionNotification::Channel) => {
+                                self.state.mentions.channel = true
+                            }
+                            Some(MentionNotification::Topic) => self.state.mentions.topic = true,
+                            None => {}
+                        }
+                        let node = self.add_node("span");
+                        self.state.nodes[node].attributes = span
+                            .attributes
+                            .into_iter()
+                            .map(|(key, value)| (key.to_owned(), value))
+                            .collect();
+                        self.state.nodes[node].text = Some(Text {
+                            value: span.text,
+                            atomic: true,
+                        });
+                        (
+                            data[..range.start].to_owned(),
+                            data[range.end..].to_owned(),
+                            Stashed::Node(node),
+                        )
+                    }
                     _ => return None,
                 };
                 if let Stashed::Node(node) = &mut stashed {
@@ -981,7 +1140,9 @@ pub fn run_with_media(
 ///
 /// The caller must guard live syntax, lookup methods, topic policy, localized
 /// fallback text and Unicode properties before supplying channel data. This
-/// neither authorizes links nor verifies message existence. All graph and media
+/// neither authorizes links nor verifies message existence. Mention snapshots
+/// require guarded syntax, host lookup semantics, localized group names and
+/// live decimal properties/conversion limits. All graph, media and notification
 /// effects are discarded together on unsupported input or resource limits.
 pub fn run_with_inputs(
     nodes: Vec<Node>,
@@ -1012,15 +1173,18 @@ pub fn run_with_inputs(
             ancestors: Vec::new(),
             attachment_paths: Vec::new(),
             has_image: false,
+            mentions: MentionEffects::default(),
         },
         patterns,
         media: inputs.media,
         channels: inputs.channels,
+        mentions: inputs.mentions,
         guard,
         remaining: 100_000,
         remaining_link_bytes: 8 * 1024 * 1024,
         remaining_media_bytes: 8 * 1024 * 1024,
         remaining_channel_bytes: 8 * 1024 * 1024,
+        remaining_mention_bytes: 8 * 1024 * 1024,
     }
     .run(ancestors)
 }

@@ -60,6 +60,10 @@ required-features = ["native-markdown"]
 name = "channel_links"
 required-features = ["native-markdown"]
 
+[[example]]
+name = "mention_plan"
+required-features = ["native-markdown"]
+
 [dependencies]
 aho-corasick = { version = "1.1", optional = true }
 axum = { version = "0.8.9", default-features = false, features = ["http1", "multipart", "tokio"], optional = true }

@@ -345,6 +345,7 @@ fn channels_and_media_share_one_plan_and_discard_it_on_late_failure() {
         Inputs {
             media: Some(&media),
             channels: Some(&channels),
+            ..Inputs::default()
         },
         |_, _| Some(()),
     )
@@ -366,6 +367,7 @@ fn channels_and_media_share_one_plan_and_discard_it_on_late_failure() {
             Inputs {
                 media: Some(&media),
                 channels: Some(&channels),
+                ..Inputs::default()
             },
             |_, _| None
         )
