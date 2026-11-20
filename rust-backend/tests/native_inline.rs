@@ -38,6 +38,76 @@ fn pattern(kind: u8) -> Pattern {
     }
 }
 
+#[test]
+fn timestamps_keep_source_atomic_and_escape_invalid_calendar_values() {
+    let plan = run(
+        paragraph("<time:2024-03-01T00+03:30> <time:1900-02-29> <time:unclosed"),
+        &[pattern(19)],
+        vec![],
+        |_, _| panic!("timestamp parsing is native"),
+    )
+    .unwrap();
+    let [time] = plan.nodes[1].children.as_slice() else {
+        panic!("expected one valid time");
+    };
+    assert_eq!(plan.nodes[*time].tag, "time");
+    assert_eq!(
+        plan.nodes[*time].attributes,
+        [("datetime".into(), "2024-02-29T20:30:00Z".into())]
+    );
+    assert_eq!(
+        plan.nodes[*time].text,
+        Some(Text {
+            value: "2024-03-01T00+03:30".into(),
+            atomic: true
+        })
+    );
+    assert_eq!(
+        plan.nodes[*time].tail.as_ref().unwrap().value,
+        " &lt;time:1900-02-29&gt; <time:unclosed"
+    );
+}
+
+#[test]
+fn timestamps_discard_the_whole_plan_for_other_iso_grammars() {
+    assert!(
+        run(
+            paragraph("**before** <time:2024-01-01T12Z> <time:2024-W01-1>"),
+            &[pattern(3), pattern(19)],
+            vec![],
+            |_, _| panic!("native handler delegates without invoking the host"),
+        )
+        .is_none()
+    );
+    let mut excluded = pattern(19);
+    excluded.excludes.push("p".into());
+    let plan = run(
+        paragraph("<time:2024-W01-1>"),
+        &[excluded],
+        vec![],
+        |_, _| None,
+    )
+    .unwrap();
+    assert!(plan.nodes[1].children.is_empty());
+    assert_eq!(
+        plan.nodes[1].text.as_ref().unwrap().value,
+        "<time:2024-W01-1>"
+    );
+}
+
+#[test]
+fn timestamp_scans_share_a_bounded_work_budget() {
+    assert!(
+        run(
+            paragraph(&"<time:2024-01-01> ".repeat(2000)),
+            &[pattern(19)],
+            vec![],
+            |_, _| panic!("timestamp scanning is native"),
+        )
+        .is_none()
+    );
+}
+
 fn link_pattern() -> Pattern {
     let mut pattern = pattern(11);
     pattern.links = Some(_zulip_backend::markdown_links::Policy {

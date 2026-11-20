@@ -3213,6 +3213,7 @@ _native_emoji_callbacks = (
     unqualify_emoji,
 )
 _native_unicode_emoji_patterns = (POSSIBLE_EMOJI_RE, TEXT_PRESENTATION_RE)
+_native_timestamp_types = (datetime, timezone, Element, markdown.util.AtomicString)
 _native_link_callbacks = (
     LinkInlineProcessor.getText,
     LinkInlineProcessor.getLink,

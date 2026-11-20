@@ -19,6 +19,7 @@ use crate::markdown_link_syntax::TextStash;
 use crate::markdown_links;
 use crate::markdown_media::{self, AudioPolicy, ImageMetadata};
 use crate::markdown_mention_syntax::{self, Kind as MentionKind};
+use crate::markdown_timestamp::{self, Rendered as Timestamp};
 use crate::markdown_unicode_emoji::{self, UnicodeEmoji};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -71,7 +72,7 @@ pub struct Pattern {
     /// 5: strikethrough; 6: literal emphasis markers; 7: line break; 8: named emoji;
     /// 9: emoticon translation; 10: Unicode emoji; 11: explicit link;
     /// 12: audio; 13: image; 14: channel; 15: topic; 16: message link;
-    /// 17: user mention; 18: group mention.
+    /// 17: user mention; 18: group mention; 19: calendar timestamp.
     pub kind: u8,
     pub excludes: Vec<String>,
     pub emoji: Option<NamedEmoji>,
@@ -255,6 +256,7 @@ struct Engine<'a, G> {
     remaining_media_bytes: usize,
     remaining_channel_bytes: usize,
     remaining_mention_bytes: usize,
+    remaining_timestamp_bytes: usize,
 }
 
 impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
@@ -792,6 +794,39 @@ impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
                             Stashed::Node(node),
                         )
                     }
+                    19 => {
+                        self.remaining_timestamp_bytes =
+                            self.remaining_timestamp_bytes.checked_sub(data.len())?;
+                        let Some(start) = data.find("<time:") else {
+                            break;
+                        };
+                        let body = start + "<time:".len();
+                        let Some(length) = data[body..].find('>') else {
+                            break;
+                        };
+                        let end = body + length;
+                        let source = &data[body..end];
+                        let stashed = match markdown_timestamp::render(source)? {
+                            Timestamp::Invalid => {
+                                Stashed::Text(Text::plain(format!("&lt;time:{source}&gt;")))
+                            }
+                            Timestamp::Valid(value) => {
+                                let node = self.add_node("time");
+                                self.state.nodes[node].attributes =
+                                    vec![("datetime".to_owned(), value)];
+                                self.state.nodes[node].text = Some(Text {
+                                    value: source.to_owned(),
+                                    atomic: true,
+                                });
+                                Stashed::Node(node)
+                            }
+                        };
+                        (
+                            data[..start].to_owned(),
+                            data[end + 1..].to_owned(),
+                            stashed,
+                        )
+                    }
                     _ => return None,
                 };
                 if let Stashed::Node(node) = &mut stashed {
@@ -1185,6 +1220,7 @@ pub fn run_with_inputs(
         remaining_media_bytes: 8 * 1024 * 1024,
         remaining_channel_bytes: 8 * 1024 * 1024,
         remaining_mention_bytes: 8 * 1024 * 1024,
+        remaining_timestamp_bytes: 8 * 1024 * 1024,
     }
     .run(ancestors)
 }

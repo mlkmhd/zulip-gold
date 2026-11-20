@@ -133,6 +133,196 @@ class MarkdownNativeInlineTest(TestCase):
         self.assertEqual(reference, self.snapshot(processor, root))
         self.assertEqual(reference_md.zulip_rendering_result, native_md.zulip_rendering_result)
 
+    def test_native_timestamps_and_complete_state(self) -> None:
+        samples = [
+            "0001-01-01",
+            "9999-12-31",
+            "2000-02-29",
+            "1900-02-29",
+            "0000-01-01",
+            "2024-00-01",
+            "2024-13-01",
+            "2024-04-31",
+            "2024-01-00",
+            "2024-03-01T00:00:00+03:30",
+            "2023-12-31T23:59:59-00:00:01",
+            "2024-01-01T12.5",
+            "2024-01-01T12:34,5",
+            "2024-01-01T12:34:56.123456789Z",
+            "2024-01-01💡12:34:56",
+            "2024-01-01\n12:34:56",
+            "2024-01-01012:34:56",
+            "2024-01-01T12+00:60",
+            "2024-01-01T12+00:00:99",
+            "2024-01-01T12+00:00:00.5",
+            "2024-01-01T00+00:00:01.5",
+            "2024-01-01T24",
+            "2024-01-01T12:60",
+            "2024-01-01T12:34:60",
+            "2024-01-01T12+24",
+            "2024-01-01T12-23:60",
+            "0001-01-01T00+00:00:01",
+            "9999-12-31T23:59:59-00:00:01",
+        ]
+        for value in samples:
+            with self.subTest(value=value):
+
+                def build(value: str = value) -> Element:
+                    root = Element("div")
+                    paragraph = SubElement(root, "p")
+                    paragraph.text = f"**before** <time:{value}> <time:{value}> **after**"
+                    shared = SubElement(paragraph, "span", {"title": "original"})
+                    shared.text = AtomicString(f"<time:{value}>")
+                    shared.tail = f"<time:{value}>"
+                    SubElement(root, "section").append(shared)
+                    return root
+
+                self.compare(build, accepted=None)
+
+    def test_native_timestamp_delegation_is_atomic(self) -> None:
+        for value in [
+            "",
+            "not a date <&>",
+            "20240101T123456",
+            "2024-W01-1T12:34:56",
+            "2024-01-01T123456",
+            "2024-01-01T12:",
+            "2024-01-01T12Zx",
+            "۲۰۲۴-01-01",
+            "2024-01-01T12.1a",
+            "2024-01-01T12+01:02:03.",
+        ]:
+            with self.subTest(value=value):
+
+                def build(value: str = value) -> Element:
+                    root = Element("div")
+                    SubElement(root, "p").text = f"**earlier** <time:2024-01-01T12Z> <time:{value}>"
+                    return root
+
+                self.compare(build, accepted=False)
+
+    def test_native_timestamp_work_budget_preserves_state(self) -> None:
+        native = inline_stash._rust_native_inline
+        if native is None:
+            self.skipTest("Native inline engine is disabled")
+        md = self.markdown()
+        processor = InlineProcessor(md)
+        root = Element("div")
+        SubElement(root, "p").text = "<time:2024-01-01> " * 2000
+        before = root[0].text
+        rendering = copy.deepcopy(md.zulip_rendering_result)
+        self.assertFalse(
+            native_inline.try_run(
+                processor,
+                root,
+                None,
+                native.plan_markdown_native_inline,
+            )
+        )
+        self.assertEqual(root[0].text, before)
+        self.assertEqual(list(root[0]), [])
+        self.assertEqual(md.zulip_rendering_result, rendering)
+        self.assertFalse(hasattr(processor, "stashed_nodes"))
+
+    def test_native_timestamp_commits_media_and_mentions_together(self) -> None:
+        self.require_native_media()
+        for value, accepted in [("2024-01-01T12Z", True), ("2024-W01-1", False)]:
+            with self.subTest(value=value):
+
+                def build(value: str = value) -> Element:
+                    root = Element("div")
+                    SubElement(root, "p").text = "@**alice** ![picture](/user_uploads/1/picture)"
+                    SubElement(root, "p").text = f"<time:{value}>"
+                    return root
+
+                self.compare(build, configure=self.media_data, accepted=accepted)
+
+    def test_native_timestamp_helper_and_pattern_guards(self) -> None:
+        from zerver.lib import markdown
+
+        native = inline_stash._rust_native_inline
+        if native is None or sys.version_info[:2] != (3, 12):
+            self.skipTest("Native timestamps require the CPython 3.12 reference contract")
+        md = self.markdown()
+        processor = InlineProcessor(md)
+        root = Element("div")
+        SubElement(root, "p").text = "**before** <time:2024-01-01T12Z>"
+        for target, name, value in [
+            (markdown, "datetime", object()),
+            (markdown, "timezone", object()),
+            (markdown, "Element", object()),
+            (util, "AtomicString", object()),
+            (md.inlinePatterns["timestamp"], "compiled_re", re.compile("custom")),
+            (
+                md.inlinePatterns["timestamp"],
+                "compiled_re",
+                re.compile(r"^(.*?)<time:(?P<time>[^>]*?)>(.*)$"),
+            ),
+        ]:
+            with self.subTest(name=name), mock.patch.object(target, name, value):
+                self.assertFalse(
+                    native_inline.try_run(
+                        processor,
+                        root,
+                        None,
+                        native.plan_markdown_native_inline,
+                    )
+                )
+                self.assertEqual(root[0].text, "**before** <time:2024-01-01T12Z>")
+
+    def test_native_timestamp_registry_order_and_exclusions(self) -> None:
+        for reverse in (False, True):
+
+            def configure(md: ZulipMarkdown, reverse: bool = reverse) -> None:
+                md.inlinePatterns.register(
+                    md.inlinePatterns["timestamp"], "timestamp", 200 if reverse else 75
+                )
+                md.inlinePatterns["timestamp"].__dict__["ANCESTOR_EXCLUDES"] = ("CODE",)
+
+            def build() -> Element:
+                root = Element("div")
+                SubElement(root, "p").text = "`<time:2024-01-01T12Z>` <time:2024-01-01T12Z>"
+                SubElement(root, "code").text = "<time:2024-01-01T12Z>"
+                SubElement(root, "p").text = "<time:unclosed"
+                return root
+
+            self.compare(build, configure=configure)
+
+    def test_native_timestamp_does_not_call_python_parser(self) -> None:
+        from zerver.lib.markdown import Timestamp
+
+        native = inline_stash._rust_native_inline
+        if native is None or sys.version_info[:2] != (3, 12):
+            self.skipTest("Native timestamps require the CPython 3.12 reference contract")
+        md = self.markdown()
+        processor = InlineProcessor(md)
+        root = Element("div")
+        SubElement(root, "p").text = "<time:2024-03-01T00+03:30> <time:1900-02-29>"
+        calls = []
+
+        def profile(frame: FrameType, event: str, arg: object) -> None:
+            if event == "call" and frame.f_code is Timestamp.handleMatch.__code__:
+                calls.append("handler")
+            elif event == "c_call" and getattr(arg, "__name__", None) in (
+                "fromisoformat",
+                "astimezone",
+                "isoformat",
+            ):
+                calls.append("datetime parser")
+
+        previous = sys.getprofile()
+        try:
+            sys.setprofile(profile)
+            self.assertTrue(
+                native_inline.try_run(processor, root, None, native.plan_markdown_native_inline)
+            )
+        finally:
+            sys.setprofile(previous)
+        self.assertEqual(calls, [])
+        self.assertEqual(root[0][0].attrib, {"datetime": "2024-02-29T20:30:00Z"})
+        self.assertIsInstance(root[0][0].text, AtomicString)
+        self.assertEqual(root[0][0].tail, " &lt;time:1900-02-29&gt;")
+
     def test_native_formatting_and_complete_state(self) -> None:
         samples = [
             "plain فارسی 123",

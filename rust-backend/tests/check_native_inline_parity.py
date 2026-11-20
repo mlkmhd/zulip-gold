@@ -9,6 +9,7 @@ import sys
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass
 from importlib import import_module
+from itertools import chain
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from xml.etree.ElementTree import Element
@@ -293,17 +294,21 @@ def _exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
         for name in list(registry._data):
             if name != "unicodeemoji":
                 md.inlinePatterns.deregister(name)
-    elif case.registry == "formatting":
+    elif case.registry in ("formatting", "timestamp"):
         for name in list(registry._data):
-            if name not in {
-                "backtick",
-                "strong_em",
-                "strong",
-                "emphasis",
-                "del",
-                "not_strong",
-                "nl",
-            }:
+            if name not in (
+                {"timestamp"}
+                if case.registry == "timestamp"
+                else {
+                    "backtick",
+                    "strong_em",
+                    "strong",
+                    "emphasis",
+                    "del",
+                    "not_strong",
+                    "nl",
+                }
+            ):
                 md.inlinePatterns.deregister(name)
     elif case.registry == "excluded":
         for name in ("backtick", "strong", "emphasis"):
@@ -360,6 +365,62 @@ def _exercise(case: Case, *, native: bool) -> tuple[bool, dict[str, object]]:
     state["input_ancestors"] = ancestors
     state["rendering"] = asdict(md.zulip_rendering_result)
     return accepted, state
+
+
+def timestamp_cases(seed: int, count: int) -> Iterator[Case]:
+    rng = random.Random(seed)
+    for _ in range(count):
+        year = rng.choice([1, 4, 100, 400, 1900, 2000, 2024, 9999, rng.randrange(10000)])
+        month = rng.randrange(14)
+        day = rng.randrange(33)
+        value = f"{year:04}-{month:02}-{day:02}"
+        if rng.randrange(8):
+            value += rng.choice(["T", "t", " ", "💡", "0", "\n", "\x00", "-", "+", "Z"])
+            value += f"{rng.randrange(100):02}"
+            for _ in range(rng.randrange(3)):
+                value += f":{rng.randrange(100):02}"
+            if rng.randrange(2):
+                value += rng.choice([".", ","]) + "".join(
+                    rng.choices("0123456789", k=rng.randrange(1, 12))
+                )
+            zone = rng.choice(["", "Z", "+", "-"])
+            value += zone
+            if zone in ("+", "-"):
+                value += f"{rng.randrange(25):02}"
+                for _ in range(rng.randrange(3)):
+                    value += f":{rng.randrange(100):02}"
+                if rng.randrange(2):
+                    value += rng.choice([".", ","]) + "".join(
+                        rng.choices("0123456789", k=rng.randrange(1, 12))
+                    )
+        if rng.randrange(5) == 0:
+            position = rng.randrange(len(value) + 1)
+            value = (
+                value[:position]
+                + rng.choice(["", "x", "۰", ">", "<", ":", "+", "💡"])
+                + value[position:]
+            )
+        text = f"**before** <time:2024-01-01T12Z> <time:{value}> **after**"
+        nodes = [Node("div", None, None, [1]), Node("p", (text, False), None, [])]
+        if rng.randrange(2):
+            nodes[0].children.append(3)
+            nodes[1].children.append(2)
+            nodes.extend(
+                [
+                    Node(
+                        "span",
+                        (f"<time:{value}>", rng.randrange(4) == 0),
+                        (text, False),
+                        [],
+                    ),
+                    Node("section", None, None, [2]),
+                ]
+            )
+        yield Case(
+            nodes,
+            rng.choice([None, [], ["outer"]]),
+            "default" if rng.randrange(8) == 0 else "timestamp",
+        )
 
 
 def cases(seed: int, count: int, *, unicode_scalars: bool = False) -> Iterator[Case]:
@@ -604,6 +665,12 @@ def cases(seed: int, count: int, *, unicode_scalars: bool = False) -> Iterator[C
         "![malformed](http://[bad]/a)",
         "![unbounded](https://例.example/a)",
         "![",
+        "<time:2024-03-01T00:00:00+03:30>",
+        "<time:1900-02-29>",
+        "<time:2024-01-01T12+00:00:00.5>",
+        "<time:2024-W01-1>",
+        "<time:bad **date**>",
+        "<time:",
     ]
     for _ in range(count):
         nodes = []
@@ -644,13 +711,14 @@ def main() -> None:
         description="Compare native inline graph state with Python-Markdown."
     )
     parser.add_argument("--cases", type=int, default=10000)
+    parser.add_argument("--timestamp-cases", type=int, default=0)
     parser.add_argument("--seed", type=int, default=962817)
     parser.add_argument("--unicode-scalars", action="store_true")
     parser.add_argument("--repository", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--report", type=Path)
     parser.add_argument("--max-failures", type=int, default=10)
     args = parser.parse_args()
-    if args.cases < 0 or args.max_failures < 1:
+    if args.cases < 0 or args.timestamp_cases < 0 or args.max_failures < 1:
         parser.error("cases must be nonnegative and max-failures must be positive")
     if any(name.startswith("ZULIP_RUST_") and value == "1" for name, value in os.environ.items()):
         parser.error("unset Rust feature flags to isolate native inline execution")
@@ -675,6 +743,7 @@ def main() -> None:
         Path(extension_path),
         Path(__file__),
         args.repository / "rust-backend/src/markdown_native_inline.rs",
+        args.repository / "rust-backend/src/markdown_timestamp.rs",
         args.repository / "rust-backend/src/markdown_links.rs",
         args.repository / "rust-backend/src/markdown_link_syntax.rs",
         args.repository / "rust-backend/src/markdown_unicode_emoji.rs",
@@ -711,13 +780,17 @@ def main() -> None:
         "extension": extension_path,
         "seed": args.seed,
         "generated_cases": args.cases,
+        "timestamp_cases": args.timestamp_cases,
         "unicode_scalars": args.unicode_scalars,
         "hashes": {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in files},
     }
     failures = []
     accepted = delegated = checked = 0
     for number, case in enumerate(
-        cases(args.seed, args.cases, unicode_scalars=args.unicode_scalars)
+        chain(
+            cases(args.seed, args.cases, unicode_scalars=args.unicode_scalars),
+            timestamp_cases(args.seed, args.timestamp_cases),
+        )
     ):
         if number % 100 == 0:
             print(f"Checking case {number}", flush=True)

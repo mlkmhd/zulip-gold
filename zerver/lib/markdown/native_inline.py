@@ -109,6 +109,7 @@ def try_run(
         StreamPattern,
         StreamTopicMessagePattern,
         StreamTopicPattern,
+        Timestamp,
         UnicodeEmoji,
         UserGroupMentionPattern,
         UserMentionPattern,
@@ -121,6 +122,7 @@ def try_run(
         _native_link_patterns,
         _native_media_pattern,
         _native_mention_patterns,
+        _native_timestamp_types,
         _native_unicode_emoji_patterns,
         codepoint_to_name,
         make_emoji,
@@ -239,6 +241,20 @@ def try_run(
             if expression.pattern != r"\n" or pattern.tag != "br":
                 return False
             kind = 7
+        elif (
+            type(pattern) is Timestamp
+            and sys.implementation.name == "cpython"
+            and sys.version_info[:2] == (3, 12)
+        ):
+            if (
+                expression.pattern != r"^(.*?)<time:(?P<time>[^>]*?)>(.*)$"
+                or vars(markdown).get("datetime") is not _native_timestamp_types[0]
+                or vars(markdown).get("timezone") is not _native_timestamp_types[1]
+                or vars(markdown).get("Element") is not _native_timestamp_types[2]
+                or util.AtomicString is not _native_timestamp_types[3]
+            ):
+                return False
+            kind = 19
         elif type(pattern) in (Emoji, EmoticonTranslation):
             renderer = cast(Emoji | EmoticonTranslation, pattern).zmd
             if (

@@ -87,6 +87,9 @@ pub mod markdown_media;
 #[cfg(feature = "native-markdown")]
 pub mod markdown_native_inline;
 
+#[cfg(feature = "native-markdown")]
+pub mod markdown_timestamp;
+
 #[cfg(feature = "python")]
 mod markdown_list_blocks;
 
