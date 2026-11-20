@@ -1349,3 +1349,21 @@ trigger ربات، در هر حالت ۳۶ تست موفق داشت. Cargo می�
 ۲۸ از ۱۷۱ OpenAPI و ۲۸ از ۱۹۰ وب است. renderer کامل، adapter رسانه
 و listener زمان‌بندی هنوز کامل نیستند و فایل Python حذف نشد.
 [قرارداد و بازتولید](README.md#render-mentions-through-the-guarded-native-inline-bridge)
+
+## انتقال رسانه به planner از PyO3 — ۲۰۲۶-۱۱-۲۰
+
+- کامیت `ee6c09ea7b` با `plan_markdown_native_inline_media`، snapshot تصویر و صوت و سیاست‌های
+  MIME، static و Camo را به arena منتقل می‌کند و در کنار خروجی سازگار
+  planner، مسیر پیوست‌های معوق و `has_image` می‌دهد. lookup یا مجوز جدید
+  صادر نمی‌شود؛ adapter زندهٔ guarded در Django هنوز باقی است.
+- ده آزمون مستقیم extension، ترکیب با کانال و اعلان و شکست اتمی را
+  پوشش می‌دهند. مقایسهٔ مرجع روی ۱۲۰٬۲۵۲ حالت، ۱۲۰٬۱۶۲ پذیرش و ۹۰
+  واگذاری، بدون اختلاف بود؛ mutant حذف پیوست با ۸۶ اختلاف رد شد.
+  دو حالت پرچم در مجموعهٔ Markdown و planner، هر کدام ۲۲۸ تست موفق
+  داشتند. رابط قبلی در ۱٬۰۹۹ حالت بدون اختلاف ماند.
+- Cargo میزبان ۴۰ تست بدون feature و ۱۶۲ تست native و Linux تعداد
+  ۲۲۲ تست همهٔ featureها با یک integration قدیمی ignored داشت؛ ساخت release،
+  Clippy و lint از کش انجام شدند و بسته‌ای دانلود نشد. پوشش عملیات
+  HTTP و بازنشستگی Python تغییر نکرد: ۲۸/۱۷۱ OpenAPI، ۲۸/۱۹۰ وب و
+  صفر فایل بازنشسته. این برش ادعای renderer مستقل کامل یا بهبود سرعت
+  ندارد.

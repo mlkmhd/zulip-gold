@@ -2847,3 +2847,55 @@ cover translation, conversion limits, resource guards, existing set identity
 and accepted execution without Python mention handlers or lookup callbacks.
 This is not a complete standalone renderer, notification-delivery benchmark or
 proof of a general speedup; the default remains off.
+
+## Transport native media plans through PyO3
+
+`plan_markdown_native_inline_media` accepts the same graph, registry, guards,
+channel and mention inputs as `plan_markdown_native_inline`, plus optional
+`media_inputs`. It returns `(inline_result, attachment_paths, has_image)`, or
+`None` when the entire plan must be delegated. The existing entry point retains
+its signature and six-field result. Both use the same planner implementation.
+
+`media_inputs` is `(realm_host, audio_previews, image_previews, audio_policy)`.
+Preview snapshots distinguish `None` (no message data) from an empty collection
+(an authorized lookup with no previewable uploads). Audio previews are a set of
+exact path suffixes. Image previews map exact suffixes to
+`(width, height, content_type)`; dimensions remain decimal strings to preserve
+Python integers without an i64 conversion. Query and fragment suffixes remain
+part of preview keys, while attachment effects use the parsed path.
+
+`audio_policy` contains `(mime, static_url, external_uri_scheme,
+public_upload_root, camo_uri, camo_key)`. `mime` contains, in order, the suffix
+map, encoding-extension set, strict MIME map, supported audio MIME set, and
+URL parameter-scheme set. These are snapshots of the reference runtime's live
+settings and initialized MIME database, rather than the Rust host's defaults.
+
+The caller must first validate the snapshot and guard the live URL, MIME,
+static, Camo and parser helpers. This transport performs no database lookups or
+permission checks. Its output is pending: append attachment paths in order,
+including duplicates and rejected candidates, and OR `has_image` into the
+existing rendering result only when committing the complete graph and pending
+mention notifications. A late unsupported candidate discards all those effects.
+
+The Django adapter does not dispatch media through this entry point yet.
+Guarded snapshot construction and atomic host application are the next slice;
+no flag, HTTP route or deployment default changes here.
+
+Using an offline release wheel installed into `var/media-bridge-python`:
+
+```bash
+PYTHONPATH="$PWD/var/media-bridge-python:$PWD" \
+    python rust-backend/tests/test_native_media_bridge.py
+PYTHONPATH="$PWD/var/media-bridge-python:$PWD" \
+    python rust-backend/tests/check_media_plan_parity.py \
+    --extension var/media-bridge-python/_zulip_backend/_zulip_backend.abi3.so \
+    --cases 10000 --report var/media-bridge-parity.json
+```
+
+The differential uses the actual extension and Python-Markdown with the
+reference link, image and audio handlers. It compares the whole graph, ordered
+attributes, atomic text, stash, parent-map order, ancestors and all rendering
+metadata across absent, empty and populated previews, reversed media priority
+and atomic input. It also retains the existing `--probe` mode for testing the
+standalone Cargo example. This is neither complete renderer coverage nor a
+performance measurement.
