@@ -1,8 +1,49 @@
 use pyo3::exceptions::PyNameError;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyString, PyType};
+use pyo3::types::{PyDict, PyList, PyString, PyType};
 
 use crate::{markdown_code, markdown_code_header};
+
+#[pyfunction]
+pub(crate) fn format_fenced_spoiler<'py>(
+    processor: &Bound<'py, PyAny>,
+    header: Bound<'py, PyAny>,
+    text: Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let mut fragments = Vec::with_capacity(5);
+    fragments.push(processor.call_method1(
+        "placeholder",
+        ("<div class=\"spoiler-block\"><div class=\"spoiler-header\">",),
+    )?);
+    if !header.is_none() {
+        fragments.push(header);
+    }
+    fragments.push(processor.call_method1(
+        "placeholder",
+        ("</div><div class=\"spoiler-content\" aria-hidden=\"true\">",),
+    )?);
+    fragments.push(text);
+    fragments.push(processor.call_method1("placeholder", ("</div></div>",))?);
+
+    let py = processor.py();
+    let strings: Option<Vec<_>> = fragments
+        .iter()
+        .map(|value| {
+            value
+                .is_exact_instance_of::<PyString>()
+                .then(|| value.cast::<PyString>().ok()?.to_str().ok())
+                .flatten()
+        })
+        .collect();
+    if let Some(strings) = strings
+        && strings.iter().map(|value| value.len()).sum::<usize>() <= 8 * 1024 * 1024
+    {
+        return Ok(PyString::new(py, &strings.join("\n\n")).into_any());
+    }
+    // Preserve the host's exact join errors and lone surrogates without
+    // rerunning any of the three effectful placeholder callbacks.
+    PyString::new(py, "\n\n").call_method1("join", (PyList::new(py, fragments)?,))
+}
 
 #[pyfunction]
 pub(crate) fn escape_fenced_code(source: &Bound<'_, PyString>) -> Option<String> {

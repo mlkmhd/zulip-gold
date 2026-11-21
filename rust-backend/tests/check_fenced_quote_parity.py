@@ -17,7 +17,7 @@ EXTENSION = import_module("_zulip_backend")
 SOURCE = ROOT / "zerver/lib/markdown/fenced_code.py"
 
 
-def load_formatter(backend: object) -> Callable[[object, str], str]:
+def load_formatter(backend: object, name: str = "format_quote") -> Callable[..., str]:
     module = ast.parse(SOURCE.read_text(encoding="utf-8"), filename=str(SOURCE))
     cls = next(
         node
@@ -25,13 +25,11 @@ def load_formatter(backend: object) -> Callable[[object, str], str]:
         if isinstance(node, ast.ClassDef) and node.name == "FencedBlockPreprocessor"
     )
     method = next(
-        node
-        for node in cls.body
-        if isinstance(node, ast.FunctionDef) and node.name == "format_quote"
+        node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == name
     )
     namespace = {"_rust_markdown_fences": backend, "cast": cast}
     exec(compile(ast.Module(body=[method], type_ignores=[]), str(SOURCE), "exec"), namespace)  # noqa: S102
-    return cast(Callable[[object, str], str], namespace["format_quote"])
+    return cast(Callable[..., str], namespace[name])
 
 
 class FencedQuoteParity(unittest.TestCase):
@@ -74,6 +72,55 @@ class FencedQuoteParity(unittest.TestCase):
         self.assertTrue(EXTENSION.format_markdown_fenced_quote(outside) is None)
         self.assertTrue(opted_in(None, outside) == reference(None, outside))
         native.assert_called_once_with(outside)
+
+
+class FencedSpoilerParity(unittest.TestCase):
+    def test_callback_order_and_results(self) -> None:
+        for header, text, failure in [
+            (None, "normal", None),
+            ("", "", None),
+            ("header\ud800", "فارسی\0", None),
+            ("header", "text", 1),
+            ("header", "text", 2),
+            ("header", "text", 3),
+            ("header", "text", "invalid-fragment"),
+        ]:
+            with self.subTest(header=header, text=text, failure=failure):
+                baseline = self.exercise(None, header, text, failure)
+                self.assertEqual(self.exercise(SimpleNamespace(), header, text, failure), baseline)
+                self.assertEqual(self.exercise(EXTENSION, header, text, failure), baseline)
+
+    def exercise(
+        self, backend: object, header: str | None, text: str, failure: int | str | None
+    ) -> tuple[object, list[str]]:
+        formatter = load_formatter(backend, "format_spoiler")
+        seen: list[str] = []
+        processor = SimpleNamespace()
+        original = RuntimeError("placeholder failed")
+
+        def make_placeholder(number: int) -> Callable[[str], object]:
+            def placeholder(value: str) -> object:
+                seen.append(value)
+                if failure == number:
+                    raise original
+                # The host may replace the method during a callback.
+                processor.placeholder = make_placeholder(number + 1)
+                if failure == "invalid-fragment" and number == 2:
+                    return 17
+                return f"{{{number}}}"
+
+            return placeholder
+
+        processor.placeholder = make_placeholder(1)
+        try:
+            result: object = formatter(processor, header, text)
+        except RuntimeError as error:
+            self.assertIs(error, original)
+            result = (type(error), error.args)
+        except TypeError as error:
+            self.assertEqual(len(seen), 3)
+            result = (type(error), error.args)
+        return result, seen
 
 
 if __name__ == "__main__":

@@ -3981,3 +3981,16 @@ PYTHONPATH="$extension_dir:$PWD" python rust-backend/tests/check_fenced_quote_pa
 This check extracts the actual source method and compares opt-in and
 old-wheel dispatch with Python. It does not exercise the complete
 provisioned Django Markdown stack.
+
+## Assemble fenced spoilers through Rust
+
+On the same opt-in path, a capable extension assembles spoiler fragments
+and invokes the current Python placeholder method at each of the original
+three call sites. A callback can replace the method for the next call.
+The original error types and side effects remain observable. If fragments
+are not exact UTF-8 strings or exceed the native join budget, Python joins
+the already-collected fragments without invoking any callback again.
+A missing export selects the original implementation.
+
+The fenced-quote parity script also tests these contracts, including
+all three throwing positions and an invalid fragment discovered at join.

@@ -677,6 +677,9 @@ class FencedBlockPreprocessor(Preprocessor):
         return "\n".join(quoted_paragraphs)
 
     def format_spoiler(self, header: str | None, text: str) -> str:
+        format_native = getattr(_rust_markdown_fences, "format_fenced_spoiler", None)
+        if format_native is not None:
+            return cast(str, format_native(self, header, text))
         output = []
         header_div_open_html = '<div class="spoiler-block"><div class="spoiler-header">'
         end_header_start_content_html = '</div><div class="spoiler-content" aria-hidden="true">'
