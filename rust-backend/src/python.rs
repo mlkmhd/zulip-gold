@@ -302,10 +302,11 @@ mod _zulip_backend {
 
     #[pymodule_export]
     use crate::python_highlight::{
-        create_fenced_block_handler, dispatch_new_fenced_block, escape_fenced_code,
-        finish_fenced_block, finish_fenced_highlight, finish_fenced_input, format_fenced_spoiler,
-        handle_fenced_block_line, handle_nested_fenced_block_line, normalize_fenced_code_language,
-        parse_fenced_code_header, parse_fenced_highlight_lines, prepare_fenced_highlight,
+        create_fenced_block_handler, dispatch_fenced_input_lines, dispatch_new_fenced_block,
+        escape_fenced_code, finish_fenced_block, finish_fenced_highlight, finish_fenced_input,
+        format_fenced_spoiler, handle_fenced_block_line, handle_nested_fenced_block_line,
+        normalize_fenced_code_language, parse_fenced_code_header, parse_fenced_highlight_lines,
+        prepare_fenced_highlight,
     };
     #[pymodule_export]
     use crate::python_tex::{

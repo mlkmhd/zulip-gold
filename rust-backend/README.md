@@ -4110,3 +4110,17 @@ Disabled flags and older wheels retain the Python path.
 
 The fenced-quote parity script uses the source EOF method in the real
 nested handler fixture and checks stack replacement, padding, and errors.
+
+## Dispatch fenced input lines through Rust
+
+`ZULIP_RUST_MARKDOWN_FENCES=1` can also dispatch the unplanned stream of
+input lines through the Rust adapter. It advances the Python iterator once
+per line and resolves the current handler at index `-1` after each advance.
+Line objects are passed unchanged; a handler can replace the stack and an
+exception stops dispatch without retry. The existing block planner keeps
+priority and its materialized lines still feed the ordinary dispatch if it
+declines. Disabled flags and older wheels retain the Python loop.
+
+The parity script covers the real nested Markdown stack, successful and
+declined plans, iterator and callback failures, and line lifetime across
+iterator advances.

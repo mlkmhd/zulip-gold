@@ -591,6 +591,10 @@ class FencedBlockPreprocessor(Preprocessor):
                         else:
                             target.append(text)
                 return
+        dispatch = getattr(_rust_markdown_fences, "dispatch_fenced_input_lines", None)
+        if dispatch is not None:
+            dispatch(self, lines)
+            return
         for line in lines:
             self.handlers[-1].handle_line(line)
 

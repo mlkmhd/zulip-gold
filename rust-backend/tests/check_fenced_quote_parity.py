@@ -6,7 +6,7 @@ import ast
 import random
 import re
 import unittest
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
@@ -629,6 +629,117 @@ class FencedInputCompletionParity(unittest.TestCase):
         except RuntimeError as caught:
             self.assertIs(caught, error)
             return seen, (type(caught), caught.args)
+
+
+class FencedInputDispatchParity(unittest.TestCase):
+    def test_live_iterator_and_handler_stack(self) -> None:
+        native = Mock(wraps=EXTENSION.dispatch_fenced_input_lines)
+        backend = SimpleNamespace(dispatch_fenced_input_lines=native)
+        stages = ["empty", "success", "iter", "next", "lookup", "callback", "planner-miss", "plan"]
+        for stage in stages:
+            with self.subTest(stage=stage):
+                reference = self.exercise(None, stage)
+                self.assertEqual(self.exercise(SimpleNamespace(), stage), reference)
+                self.assertEqual(self.exercise(backend, stage), reference)
+        self.assertEqual(native.call_count, len(stages) - 1)
+
+    def exercise(self, backend: object, stage: str) -> tuple[object, ...]:
+        seen: list[object] = []
+        error = RuntimeError(stage)
+        first_line, second_line = object(), object()
+
+        def record(name: str) -> None:
+            seen.append(name)
+            if stage == name:
+                raise error
+
+        class Lines:
+            def __iter__(self) -> "Lines":
+                record("iter")
+                self.offset = 0
+                return self
+
+            def __next__(self) -> object:
+                self.offset += 1
+                if self.offset == 1 and stage != "empty":
+                    return first_line
+                if self.offset == 2:
+                    record("next")
+                    return second_line
+                raise StopIteration
+
+        class Stack(list):
+            def __getitem__(self, index: int) -> object:
+                seen.append(index)
+                record("lookup")
+                return super().__getitem__(index)
+
+        scope = load_fence_stack(backend)
+        outer = cast(type, scope["OuterHandler"])
+
+        class Outer(outer):
+            def handle_line(self, line: object) -> None:
+                self_test.assertIs(line, first_line)
+                record("callback")
+                self.processor.handlers = Stack([SimpleNamespace(handle_line=second)])
+
+        def second(line: object) -> None:
+            self.assertIs(line, second_line)
+            record("replacement")
+
+        def plan(lines: list[object], language: str | None) -> object:
+            self.assertEqual(lines, [first_line, second_line])
+            self.assertEqual(language, "python")
+            record("planner")
+            return [("line", "planned", None, None, None)] if stage == "plan" else None
+
+        self_test = self
+        scope["OuterHandler"] = Outer
+        if stage in {"planner-miss", "plan"}:
+            scope["_rust_markdown_blocks"] = SimpleNamespace(plan_markdown_blocks=plan)
+
+        base = cast(type, scope["FencedBlockPreprocessor"])
+
+        class Processor(base):
+            def push(self, handler: object) -> None:
+                self.handlers = Stack([handler])
+
+        output: list[str] = []
+        processor = Processor(Markdown(), run_content_validators=False)
+        result = None
+        try:
+            processor.handle_lines(Lines(), output, "python")
+        except RuntimeError as caught:
+            self.assertIs(caught, error)
+            result = caught.args
+        return seen, output, result
+
+    def test_previous_line_stays_live_during_iterator_advance(self) -> None:
+        def exercise(dispatch: Callable[..., object]) -> list[object]:
+            seen: list[object] = []
+
+            class Line:
+                def __del__(self) -> None:
+                    seen.append("drop-line")
+
+            def lines() -> Iterable[object]:
+                try:
+                    yield Line()
+                    seen.append("resume")
+                    yield Line()
+                    seen.append("exhaust")
+                finally:
+                    seen.append("finish")
+
+            handler = SimpleNamespace(handle_line=lambda line: seen.append("handle"))
+            dispatch(SimpleNamespace(handlers=[handler]), lines())
+            return seen
+
+        def reference(processor: SimpleNamespace, lines: Iterable[object]) -> None:
+            for line in lines:
+                processor.handlers[-1].handle_line(line)
+
+        self.assertEqual(exercise(EXTENSION.dispatch_fenced_input_lines), exercise(reference))
 
 
 if __name__ == "__main__":

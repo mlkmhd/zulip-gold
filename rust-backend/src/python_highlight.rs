@@ -134,6 +134,24 @@ pub(crate) fn dispatch_new_fenced_block<'py>(
 }
 
 #[pyfunction]
+pub(crate) fn dispatch_fenced_input_lines(
+    processor: &Bound<'_, PyAny>,
+    lines: &Bound<'_, PyAny>,
+) -> PyResult<()> {
+    // Match Python's for-loop lifetime: the previous item stays live while
+    // advancing the iterator, and the iterator drops before the last item.
+    let mut line;
+    for next in lines.try_iter()? {
+        line = next?;
+        let handler = processor.getattr("handlers")?.get_item(-1)?;
+        let handle_line = handler.getattr("handle_line")?;
+        drop(handler);
+        handle_line.call1((&line,))?;
+    }
+    Ok(())
+}
+
+#[pyfunction]
 pub(crate) fn finish_fenced_input(
     processor: &Bound<'_, PyAny>,
     output: &Bound<'_, PyAny>,
