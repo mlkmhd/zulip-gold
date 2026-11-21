@@ -8,6 +8,8 @@ import platform
 import statistics
 import timeit
 from functools import partial
+from pathlib import Path
+from types import ModuleType
 
 from check_fenced_quote_parity import (
     EXTENSION,
@@ -17,69 +19,148 @@ from check_fenced_quote_parity import (
     render_fenced_fixture,
 )
 
+EXPORT_GROUPS = {
+    "dispatch": frozenset({"dispatch_fenced_input_lines"}),
+    "line_callbacks": frozenset({"handle_fenced_block_line", "handle_nested_fenced_block_line"}),
+}
+
+
+def omit_exports(exports: frozenset[str]) -> ModuleType:
+    namespace = vars(EXTENSION)
+    if missing := exports - namespace.keys():
+        raise RuntimeError(
+            f"extension lacks exports required for this experiment: {sorted(missing)}"
+        )
+    fixture = ModuleType(EXTENSION.__name__)
+    fixture.__dict__.update(
+        (name, value) for name, value in namespace.items() if name not in exports
+    )
+    return fixture
+
+
+def execution_order(modes: list[str], repeat: int) -> list[str]:
+    offset = repeat % len(modes)
+    order = modes[offset:] + modes[:offset]
+    return order if repeat // len(modes) % 2 == 0 else order[::-1]
+
+
+def paired_ratios(
+    timings_us: dict[str, list[float]], pairs: list[tuple[str, str]]
+) -> dict[str, dict[str, float | list[float]]]:
+    result: dict[str, dict[str, float | list[float]]] = {}
+    for numerator, denominator in pairs:
+        ratios = [
+            left / right
+            for left, right in zip(timings_us[numerator], timings_us[denominator], strict=True)
+        ]
+        result[f"{numerator}/{denominator}"] = {
+            "median": round(statistics.median(ratios), 5),
+            "per_repeat": [round(value, 5) for value in ratios],
+        }
+    return result
+
 
 def convert(md: FencedFixtureMarkdown, sample: str) -> str:
     return md.reset().convert(sample)
 
 
 def main() -> None:
+    samples = FENCED_RENDER_SAMPLES | {
+        "batch": "\n\n".join([FENCED_RENDER_SAMPLES["code"], FENCED_RENDER_SAMPLES["nested"]] * 8)
+    }
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--iterations", type=int, default=100)
     parser.add_argument("--repeats", type=int, default=7)
+    parser.add_argument("--samples", nargs="+", choices=list(samples))
+    parser.add_argument("--highlight", choices=["off", "on", "both"], default="both")
+    parser.add_argument("--isolate-exports", action="store_true")
+    parser.add_argument("--report", type=Path, help="also write paired measurements to a JSON file")
     args = parser.parse_args()
     if args.iterations < 1 or args.repeats < 1:
         parser.error("iterations and repeats must be positive")
 
-    samples = FENCED_RENDER_SAMPLES | {
-        "batch": "\n\n".join([FENCED_RENDER_SAMPLES["code"], FENCED_RENDER_SAMPLES["nested"]] * 8)
+    omissions = (
+        {
+            "rust_no_dispatch": EXPORT_GROUPS["dispatch"],
+            "rust_no_line_callbacks": EXPORT_GROUPS["line_callbacks"],
+            "rust_no_both": EXPORT_GROUPS["dispatch"] | EXPORT_GROUPS["line_callbacks"],
+        }
+        if args.isolate_exports
+        else {}
+    )
+    backends = {"python": None, "rust": EXTENSION} | {
+        mode: omit_exports(omitted) for mode, omitted in omissions.items()
     }
+    pairs = [(mode, "python") for mode in backends if mode != "python"]
+    if args.isolate_exports:
+        pairs.extend(
+            [
+                ("rust", "rust_no_dispatch"),
+                ("rust", "rust_no_line_callbacks"),
+                ("rust", "rust_no_both"),
+                ("rust_no_dispatch", "rust_no_both"),
+                ("rust_no_line_callbacks", "rust_no_both"),
+            ]
+        )
+    highlighting = (False, True) if args.highlight == "both" else (args.highlight == "on",)
+    modes = list(backends)
     results = []
-    for highlight in (False, True):
+    for highlight in highlighting:
         renderers = {
             mode: make_fenced_render_fixture(
                 backend, default_language="javascript", highlight=highlight
             )
-            for mode, backend in (("python", None), ("rust", EXTENSION))
+            for mode, backend in backends.items()
         }
-        for name, sample in samples.items():
-            python, rust = (render_fenced_fixture(md, sample) for md in renderers.values())
-            if python != rust or isinstance(python[0], type):
-                raise RuntimeError(f"unexpected rendering result for {name}, highlight={highlight}")
+        for name in args.samples or samples:
+            sample = samples[name]
+            expected = render_fenced_fixture(renderers["python"], sample)
+            if not isinstance(expected[0], str):
+                raise RuntimeError(f"Python rendering failed for {name}, highlight={highlight}")
+            for mode, md in renderers.items():
+                if mode != "python" and render_fenced_fixture(md, sample) != expected:
+                    raise RuntimeError(
+                        f"{mode} differs from Python for {name}, highlight={highlight}"
+                    )
             timers = {
                 mode: timeit.Timer(partial(convert, md, sample)) for mode, md in renderers.items()
             }
-            results_by_mode: dict[str, list[float]] = {"python": [], "rust": []}
+            timings_us: dict[str, list[float]] = {mode: [] for mode in modes}
             iterations = max(1, args.iterations // 16) if name == "batch" else args.iterations
             for repeat in range(args.repeats):
-                order = ("python", "rust") if repeat % 2 == 0 else ("rust", "python")
-                for mode in order:
-                    results_by_mode[mode].append(timers[mode].timeit(number=iterations))
-            python_us, rust_us = (
-                statistics.median(result) * 1e6 / iterations for result in results_by_mode.values()
-            )
+                for mode in execution_order(modes, repeat):
+                    elapsed = timers[mode].timeit(number=iterations)
+                    timings_us[mode].append(elapsed * 1e6 / iterations)
+            medians = {mode: statistics.median(samples) for mode, samples in timings_us.items()}
             results.append(
                 {
                     "sample": name,
                     "highlight": highlight,
                     "iterations": iterations,
-                    "python_us": round(python_us, 2),
-                    "rust_us": round(rust_us, 2),
-                    "rust_over_python": round(rust_us / python_us, 3),
+                    "python_us": round(medians["python"], 2),
+                    "rust_us": round(medians["rust"], 2),
+                    "rust_over_python": round(medians["rust"] / medians["python"], 3),
+                    "median_us": {mode: round(value, 2) for mode, value in medians.items()},
+                    "paired_ratios": paired_ratios(timings_us, pairs),
                 }
             )
 
-    print(
-        json.dumps(
-            {
-                "python": platform.python_version(),
-                "machine": platform.machine(),
-                "extension": EXTENSION.__file__,
-                "repeats": args.repeats,
-                "results": results,
-            },
-            indent=2,
-        )
+    report = json.dumps(
+        {
+            "python": platform.python_version(),
+            "machine": platform.machine(),
+            "extension": EXTENSION.__file__,
+            "repeats": args.repeats,
+            "modes": modes,
+            "omitted_exports": {mode: sorted(exports) for mode, exports in omissions.items()},
+            "repeat_orders": [execution_order(modes, repeat) for repeat in range(args.repeats)],
+            "results": results,
+        },
+        indent=2,
     )
+    if args.report is not None:
+        args.report.write_text(report + "\n", encoding="utf-8")
+    print(report)
 
 
 if __name__ == "__main__":

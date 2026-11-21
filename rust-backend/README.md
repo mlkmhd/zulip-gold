@@ -4160,3 +4160,22 @@ Python and Rust, checks parity first, and reports median per-conversion
 times and Rust/Python ratios. The fixture supplies a realm setting and
 a deterministic TeX stub; it does not exercise full Zulip rendering,
 production traffic or the actual TeX service.
+
+To isolate the net cost of optional line dispatch and handler adapters,
+run the same optimized extension with fixture-only omissions. Each mode
+must match Python's HTML and stash before being timed.
+
+```sh
+python rust-backend/tests/benchmark_fenced_markdown.py --isolate-exports --samples plain code nested batch \
+  --highlight off --iterations 240 --repeats 10 --report fenced-no-highlight.json
+python rust-backend/tests/benchmark_fenced_markdown.py --isolate-exports --samples plain code nested batch \
+  --highlight on --iterations 240 --repeats 10 --report fenced-with-highlight.json
+```
+
+The JSON includes the omitted exports, timing order, and paired ratios
+within each repeat. The numerator and denominator are named in each key.
+Use a multiple of ten repeats for equal position counts in the five-mode
+experiment. The [recorded sample](tests/fenced_markdown_export_omission_sample.json)
+shows a net contribution for both omissions on the batched fixture, but
+does not measure individual call cost. Interactions and measurement noise
+remain; this is not a production performance or compatibility result.
