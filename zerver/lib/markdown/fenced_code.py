@@ -179,6 +179,12 @@ CODE_VALIDATORS: dict[str | None, Callable[[list[str]], None]] = {
 
 # This function is similar to one used in fenced_code.ts
 def get_unused_fence(content: str) -> str:
+    choose_fence = getattr(_rust_markdown_fences, "get_unused_markdown_fence", None)
+    if choose_fence is not None and type(content) is str:
+        result = choose_fence(content)
+        if result is not None:
+            return cast(str, result)
+
     # Define the regular expression pattern to match ``` fences
     fence_length_re = re.compile(r"^ {0,3}(`{3,})", re.MULTILINE)
 

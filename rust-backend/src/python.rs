@@ -731,6 +731,15 @@ mod _zulip_backend {
     }
 
     #[pyfunction]
+    fn get_unused_markdown_fence(content: &Bound<'_, PyString>) -> Option<String> {
+        let content = content.to_str().ok()?;
+        if content.len() > 8 * 1024 * 1024 {
+            return None;
+        }
+        Some("`".repeat(reminder_quote::unused_fence_length(content)))
+    }
+
+    #[pyfunction]
     fn parse_markdown_fence(
         line: &Bound<'_, PyString>,
     ) -> Option<(Option<String>, Option<String>, Option<String>)> {

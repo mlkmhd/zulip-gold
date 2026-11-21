@@ -1,6 +1,6 @@
 use crate::draft_text::{MESSAGE_TRUNCATION_SUFFIX, truncate};
 
-fn unused_fence_length(message: &str) -> usize {
+pub(crate) fn unused_fence_length(message: &str) -> usize {
     let mut length = 3;
     for line in message.split('\n') {
         let spaces = line

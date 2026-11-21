@@ -3487,3 +3487,42 @@ scalar in a fixed HTML context, enumerates short strings, randomizes bodies
 and exercises both sides of the byte-size limit. It verifies actual native
 acceptance and explicit delegation. `--mutant-unescaped-quotes` must report
 differences. This is neither exhaustive string testing nor a benchmark.
+
+## Choose unused quote fences through Rust
+
+`ZULIP_RUST_MARKDOWN_FENCES=1` additionally opts `get_unused_fence` into
+`get_unused_markdown_fence(content)` when the wheel exports it. This reuses
+`reminder_quote::unused_fence_length`, the same native scanner already used by
+reminder quote construction. It finds backtick runs of at least three at the
+start of a line after zero to three ASCII spaces and returns one more backtick
+than the longest such run, with a minimum of three. Only LF starts a new line;
+CR, Unicode line separators, tabs and other spaces retain their existing
+Python regex behavior. Tildes and inline backticks do not affect the result.
+
+The helper's consumers include quote replies, reminders, moderation reports,
+onboarding and GitHub/GitLab webhook content. Their imports and formatting stay
+unchanged. The flag remains off by default; older wheels without this export,
+string subclasses, surrogate-containing text and input over 8 MiB use the
+original regex before any external effects. A native exception propagates
+without retrying. There is no new dependency, routing change or Python-file
+retirement, and this does not replace `close_unclosed_fences`.
+
+With a fresh cached wheel in `var/unused-fence-python`:
+
+```bash
+PYTHONPATH="$PWD/var/unused-fence-python:$PWD" ZULIP_RUST_MARKDOWN_FENCES=1 \
+    ./tools/test-backend zerver.tests.test_unused_fence_rust \
+    zerver.tests.test_compose_reply zerver.tests.test_message_report zerver.tests.test_reminders
+PYTHONPATH="$PWD/var/unused-fence-python:$PWD" DJANGO_SETTINGS_MODULE=zproject.test_settings \
+    python rust-backend/tests/check_unused_fence_parity.py --unicode \
+    --report var/unused-fence-parity.json
+```
+
+Use the locked/offline build and no-index/no-dependency installation commands
+above, retaining earlier targets. The oracle compares the original Python
+helper with the native scanner, checks actual acceptance and delegation,
+enumerates short strings, tests every Unicode scalar in three fixed contexts
+and includes both sides of the size limit. `--mutant-short-fence` must report
+differences. This is a compatibility corpus rather than exhaustive testing or
+a performance benchmark. Deferred TeX, previews and complete renderer/listener
+orchestration remain separate migration work.
