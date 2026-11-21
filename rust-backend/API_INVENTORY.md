@@ -1659,3 +1659,15 @@ wheel قدیمی، subclass، surrogate، متن بیش از ۸ MiB و زبان 
 ASCII fallback دارند. flag پیش‌فرض خاموش، شمار HTTP مستقل ۲۸/۱۷۱
 OpenAPI و ۲۸/۱۹۰ وب و بازنشستگی Python صفر باقی است.
 [شواهد و کار باقی‌مانده](MIGRATION_HANDOFF.md)
+
+## نرمال‌سازی مقدارهای header بلوک کد — ۲۱ نوامبر ۲۰۲۶
+
+پرچم موجود و خاموش `ZULIP_RUST_CODE_HEADER` اکنون lowercase زبان ASCII و
+شماره‌خط ASCII با علامت و underscore معتبر در محدودهٔ signed 64-bit را
+در Rust انجام می‌دهد. Unicode، عدد بزرگ، token حداقل ۶۴۰ بایتی، helper
+سفارشی و wheel قدیمی مسیر Python دارند؛ ترتیب تغییر وضعیت و خطا حفظ است.
+۱٬۲۲۰٬۵۶۹ مقایسهٔ مستقیم بدون اختلاف، ۷۵۴ تست در هر دو حالت و هفت رندر
+کامل برابر با wheel تازه و قبلی ثبت شدند. وابستگی یا دانلود تازه و
+بازنشستگی فایل Python وجود ندارد. شمار HTTP همان ۲۸/۱۷۱ OpenAPI و
+۲۸/۱۹۰ وب است. جزئیات و محدودیت‌ها در آخرین بخش سند تحویل و
+[قرارداد](README.md#normalize-fenced-code-header-values-through-rust) آمده‌اند.
