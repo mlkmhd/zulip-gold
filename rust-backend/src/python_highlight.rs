@@ -5,6 +5,20 @@ use pyo3::types::{PyDict, PyList, PyString, PyTuple, PyType};
 
 use crate::{markdown_code, markdown_code_header};
 
+#[pyfunction]
+pub(crate) fn find_invalid_fenced_curl_line(lines: &Bound<'_, PyAny>) -> Option<isize> {
+    // None means delegate before any Python method or error is invoked.
+    // -1 means validation succeeded; other values identify the first error.
+    let lines = lines.cast_exact::<PyList>().ok()?;
+    for (index, line) in lines.iter().enumerate() {
+        let line = line.cast_exact::<PyString>().ok()?.to_str().ok()?;
+        if crate::markdown_fences::curl_line_is_invalid(line) {
+            return isize::try_from(index).ok();
+        }
+    }
+    Some(-1)
+}
+
 fn fenced_line_closes(handler: &Bound<'_, PyAny>, line: &Bound<'_, PyAny>) -> PyResult<bool> {
     let candidate = line.call_method0("rstrip")?;
     let fence = handler.getattr("fence")?;

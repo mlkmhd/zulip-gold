@@ -160,6 +160,8 @@ FENCE_RE = re.compile(
 CODE_WRAP = "<pre><code{}>{}\n</code></pre>"
 LANG_TAG = ' class="{}"'
 
+_original_curl_re_search = re.search
+
 
 def validate_curl_content(lines: list[str]) -> None:
     error_msg = """
@@ -167,6 +169,14 @@ Missing required -X argument in curl command:
 
 {command}
 """.strip()
+
+    find_invalid = getattr(_rust_markdown_fences, "find_invalid_fenced_curl_line", None)
+    if find_invalid is not None and re.search is _original_curl_re_search:
+        index = find_invalid(lines)
+        if index is not None:
+            if index >= 0:
+                raise MarkdownRenderingError(error_msg.format(command=lines[index].strip()))
+            return
 
     for line in lines:
         regex = r'curl [-](sS)?X "?(GET|DELETE|PATCH|POST)"?'

@@ -4124,3 +4124,18 @@ declines. Disabled flags and older wheels retain the Python loop.
 The parity script covers the real nested Markdown stack, successful and
 declined plans, iterator and callback failures, and line lifetime across
 iterator advances.
+
+## Validate fenced curl examples through Rust
+
+When the existing fenced Markdown opt-in is enabled and the installed
+extension supports this validator, Rust finds the first invalid curl line
+in an ordinary list of strings. It preserves the legacy substring rule,
+including the optional literal `sS` pair, not separate `s` or `S`.
+Python still constructs the exact original rendering error and trims the
+original line. Custom containers and strings, lone surrogates encountered
+before any error, a replaced regex search, old wheels, and the default
+configuration keep the Python validation path.
+
+The parity script compares the source validator across historical flag
+and quoting cases, 2,000 seeded input sets, and real Markdown fenced
+handler success and failure.

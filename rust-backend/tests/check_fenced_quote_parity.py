@@ -6,7 +6,7 @@ import ast
 import random
 import re
 import unittest
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
@@ -385,6 +385,7 @@ def load_fence_stack(backend: object) -> dict[str, object]:
     names = {
         "FENCE_RE",
         "_original_parse_fence_line",
+        "_original_curl_re_search",
         "CODE_VALIDATORS",
         "parse_fence_line",
         "check_for_new_fence",
@@ -444,6 +445,7 @@ class NestedFencedStackParity(unittest.TestCase):
             ["~~~quote", "```math", "α", "```", "never closed"],
             ["~~~quote", "```python", "str = 'فارسی'", "```", "~~~", "line\r"],
             ["~~~curl", "curl invalid", "~~~"],
+            ["~~~curl", 'curl -sSX "POST" https://example.test', "~~~"],
         ]
         old_wheel = SimpleNamespace(parse_markdown_fence=EXTENSION.parse_markdown_fence)
         for lines in cases:
@@ -740,6 +742,104 @@ class FencedInputDispatchParity(unittest.TestCase):
                 processor.handlers[-1].handle_line(line)
 
         self.assertEqual(exercise(EXTENSION.dispatch_fenced_input_lines), exercise(reference))
+
+
+class FencedCurlValidationParity(unittest.TestCase):
+    def test_native_reports_first_error_and_delegation(self) -> None:
+        find = EXTENSION.find_invalid_fenced_curl_line
+        self.assertEqual(find(["text", "curl -X GET", "curl -X PUT", "curl invalid"]), 2)
+        self.assertEqual(find(["text", "curl -sSX PATCH"]), -1)
+        self.assertEqual(find(["text", "curl -sX PATCH"]), 1)
+        self.assertEqual(find(["curl invalid", "\ud800"]), 0)
+        self.assertIsNone(find(["\ud800", "curl invalid"]))
+        self.assertIsNone(find(["curl -sSX PATCH", object()]))
+        self.assertIsNone(find(("curl -sX PATCH",)))
+
+    def test_original_validator_matches_native(self) -> None:
+        native = Mock(wraps=EXTENSION.find_invalid_fenced_curl_line)
+        validator = self.load(SimpleNamespace(find_invalid_fenced_curl_line=native))
+        original = self.load(None)
+        old = self.load(SimpleNamespace())
+        cases = [
+            [],
+            ["unrelated", " curl invalid", "CURL invalid", "\t", "خط", "😀"],
+            ["curl -X GET", "curl -sSX DELETE", 'curl -sSX "PATCH"', "curl -X POST"],
+            ["curl -X POSTfix", 'curling curl -X "GET', "curl -X GET\nand more"],
+            ["curl -X\tGET", "curl -X GET"],
+            ["curl -X PUT", "curl first error must win"],
+            ["curl -SsX GET"],
+            ["curl -sX GET"],
+            ["curl -SX GET"],
+            ["curl prefix\ncurl -X POST"],
+            ["curl -X post\x1c", "\ud800"],
+            ["\ud800", "curl \ud800"],
+        ]
+        rng = random.Random(904822)
+        words = [
+            "curl",
+            "curling",
+            "-X",
+            "-sX",
+            "-SX",
+            "-sSX",
+            "-SsX",
+            "GET",
+            "POST",
+            "PUT",
+            '"',
+            " ",
+            "\t",
+        ]
+        cases += [
+            ["".join(rng.choices(words, k=rng.randrange(9))) for _ in range(rng.randrange(5))]
+            for _ in range(2_000)
+        ]
+        for lines in cases:
+            expected = self.run_validator(original, lines)
+            self.assertEqual(self.run_validator(old, lines), expected)
+            self.assertEqual(self.run_validator(validator, lines), expected)
+        self.assertEqual(native.call_count, len(cases))
+
+    def test_custom_types_and_search_keep_python_behavior(self) -> None:
+        native = Mock(wraps=EXTENSION.find_invalid_fenced_curl_line)
+        validator = self.load(SimpleNamespace(find_invalid_fenced_curl_line=native))
+
+        class CustomLine(str):
+            __slots__ = ()
+
+            def startswith(self, prefix: str) -> bool:
+                self_test.assertEqual(prefix, "curl")
+                return False
+
+        class CustomLines(list):
+            def __iter__(self) -> Iterator[str]:
+                yield "curl custom list"
+
+        self_test = self
+        self.assertIsNone(self.run_validator(validator, [CustomLine("curl custom line")]))
+        self.assertEqual(
+            self.run_validator(validator, CustomLines()),
+            self.run_validator(self.load(None), CustomLines()),
+        )
+        self.assertEqual(native.call_count, 2)
+        namespace = load_fence_stack(SimpleNamespace(find_invalid_fenced_curl_line=native))
+        replacement = Mock(return_value=True)
+        namespace["re"] = SimpleNamespace(search=replacement)
+        cast(Callable[..., object], namespace["validate_curl_content"])(["curl without method"])
+        replacement.assert_called_once()
+        self.assertEqual(native.call_count, 2)
+
+    @staticmethod
+    def load(backend: object) -> Callable[..., object]:
+        scope = load_fence_stack(backend)
+        return cast(Callable[..., object], scope["validate_curl_content"])
+
+    @staticmethod
+    def run_validator(validator: Callable[..., object], lines: object) -> object:
+        try:
+            return validator(lines)
+        except ValueError as error:
+            return type(error), error.args
 
 
 if __name__ == "__main__":

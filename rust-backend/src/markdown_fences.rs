@@ -9,6 +9,18 @@ static FENCE: LazyLock<Regex> = LazyLock::new(|| {
     .expect("valid fenced block header pattern")
 });
 
+#[cfg(feature = "python")]
+static EXPLICIT_CURL_METHOD: LazyLock<Regex> = LazyLock::new(|| {
+    // Match the Python pattern exactly: optional "sS" is a pair, not a class.
+    Regex::new(r#"curl -(sS)?X "?(GET|DELETE|PATCH|POST)"?"#)
+        .expect("valid explicit curl method pattern")
+});
+
+#[cfg(feature = "python")]
+pub(crate) fn curl_line_is_invalid(line: &str) -> bool {
+    line.starts_with("curl") && !EXPLICIT_CURL_METHOD.is_match(line)
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct FenceHeader<'a> {
     pub fence: &'a str,
