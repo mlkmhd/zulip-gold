@@ -73,7 +73,9 @@ def main() -> None:
     parser.add_argument("--repeats", type=int, default=7)
     parser.add_argument("--samples", nargs="+", choices=list(samples))
     parser.add_argument("--highlight", choices=["off", "on", "both"], default="both")
-    parser.add_argument("--isolate-exports", action="store_true")
+    isolation = parser.add_mutually_exclusive_group()
+    isolation.add_argument("--isolate-exports", action="store_true")
+    isolation.add_argument("--isolate-parser-factory", action="store_true")
     parser.add_argument("--report", type=Path, help="also write paired measurements to a JSON file")
     args = parser.parse_args()
     if args.iterations < 1 or args.repeats < 1:
@@ -88,6 +90,17 @@ def main() -> None:
         if args.isolate_exports
         else {}
     )
+    python_parsers: set[str] = set()
+    if args.isolate_parser_factory:
+        without_lines = EXPORT_GROUPS["dispatch"] | EXPORT_GROUPS["line_callbacks"]
+        without_factory = without_lines | {"create_fenced_block_handler"}
+        omissions = {
+            "rust_no_lines": without_lines,
+            "rust_no_lines_or_parser": without_lines,
+            "rust_no_lines_or_factory": without_factory,
+            "rust_no_lines_parser_factory": without_factory,
+        }
+        python_parsers = {"rust_no_lines_or_parser", "rust_no_lines_parser_factory"}
     backends = {"python": None, "rust": EXTENSION} | {
         mode: omit_exports(omitted) for mode, omitted in omissions.items()
     }
@@ -102,13 +115,27 @@ def main() -> None:
                 ("rust_no_line_callbacks", "rust_no_both"),
             ]
         )
+    if args.isolate_parser_factory:
+        pairs.extend(
+            [
+                ("rust", "rust_no_lines"),
+                ("rust_no_lines", "rust_no_lines_or_parser"),
+                ("rust_no_lines", "rust_no_lines_or_factory"),
+                ("rust_no_lines", "rust_no_lines_parser_factory"),
+                ("rust_no_lines_or_parser", "rust_no_lines_parser_factory"),
+                ("rust_no_lines_or_factory", "rust_no_lines_parser_factory"),
+            ]
+        )
     highlighting = (False, True) if args.highlight == "both" else (args.highlight == "on",)
     modes = list(backends)
     results = []
     for highlight in highlighting:
         renderers = {
             mode: make_fenced_render_fixture(
-                backend, default_language="javascript", highlight=highlight
+                backend,
+                default_language="javascript",
+                highlight=highlight,
+                python_parser=mode in python_parsers,
             )
             for mode, backend in backends.items()
         }
@@ -153,6 +180,7 @@ def main() -> None:
             "repeats": args.repeats,
             "modes": modes,
             "omitted_exports": {mode: sorted(exports) for mode, exports in omissions.items()},
+            "python_parser_modes": sorted(python_parsers),
             "repeat_orders": [execution_order(modes, repeat) for repeat in range(args.repeats)],
             "results": results,
         },

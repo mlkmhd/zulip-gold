@@ -4179,3 +4179,25 @@ experiment. The [recorded sample](tests/fenced_markdown_export_omission_sample.j
 shows a net contribution for both omissions on the batched fixture, but
 does not measure individual call cost. Interactions and measurement noise
 remain; this is not a production performance or compatibility result.
+
+### Isolate the fenced parser and handler factory
+
+Use `--isolate-parser-factory` instead of `--isolate-exports` to
+compare six modes: all Python, all Rust, and four Rust modes with the
+line adapters held off. Those four switch the parser and handler factory
+independently between Rust and their source Python implementations.
+The new-block dispatcher stays Rust in all four: the Python parser
+override changes only the fixture's parser namespace and preserves the
+original-parser guard.
+
+```sh
+python rust-backend/tests/benchmark_fenced_markdown.py --isolate-parser-factory \
+  --samples plain code nested batch --highlight both --iterations 240 --repeats 12 \
+  --report fenced-parser-factory.json
+```
+
+Use a multiple of twelve repeats for equal timing-order position counts.
+The [recorded sample](tests/fenced_markdown_parser_factory_sample.json)
+shows no consistent stand-alone parser or factory improvement in the
+batch, and a residual Python/Rust gap after both omissions. There is no
+basis here to change the production dispatch or defaults.

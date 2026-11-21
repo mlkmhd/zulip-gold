@@ -11,7 +11,7 @@ import unittest
 from collections.abc import Callable, Iterable, Iterator
 from importlib import import_module
 from pathlib import Path
-from types import SimpleNamespace
+from types import FunctionType, SimpleNamespace
 from typing import cast
 from unittest.mock import Mock
 
@@ -866,7 +866,11 @@ class FencedFixtureMarkdown(Markdown):
 
 
 def make_fenced_render_fixture(
-    backend: object, *, default_language: str | None = None, highlight: bool = False
+    backend: object,
+    *,
+    default_language: str | None = None,
+    highlight: bool = False,
+    python_parser: bool = False,
 ) -> FencedFixtureMarkdown:
     def fixture_import(name: str, *args: object) -> object:
         # The source's run method imports only this renderer type; the real
@@ -898,6 +902,12 @@ def make_fenced_render_fixture(
             "parse_hl_lines": codehilite.parse_hl_lines,
         },
     )
+    if python_parser:
+        # Only the parser gets the Python backend; its callers and handler
+        # factory keep the fixture's Rust imports and original-parser guard.
+        parser = cast(FunctionType, scope["parse_fence_line"])
+        reference = FunctionType(parser.__code__, scope | {"_rust_markdown_fences": None})
+        scope.update(parse_fence_line=reference, _original_parse_fence_line=reference)
     extension = cast(type[Extension], scope["FencedCodeExtension"])
     extensions = [extension({"run_content_validators": True})]
     if highlight:
@@ -965,6 +975,24 @@ class FencedMarkdownRenderingParity(unittest.TestCase):
         sample = "~~~quote\nOriginal quote\n~~~"
         self.assertNotEqual(python.convert(sample), native.convert(sample))
         mutate.assert_called_once()
+
+    def test_python_parser_override_keeps_native_dispatch_and_factory(self) -> None:
+        backend = SimpleNamespace(**vars(EXTENSION))
+        parser = Mock(side_effect=AssertionError("the native parser must not be called"))
+        dispatch = Mock(wraps=EXTENSION.dispatch_new_fenced_block)
+        factory = Mock(wraps=EXTENSION.create_fenced_block_handler)
+        backend.parse_markdown_fence = parser
+        backend.dispatch_new_fenced_block = dispatch
+        backend.create_fenced_block_handler = factory
+        reference = make_fenced_render_fixture(None)
+        native = make_fenced_render_fixture(backend, python_parser=True)
+        sample = FENCED_RENDER_SAMPLES["code"]
+        self.assertEqual(
+            render_fenced_fixture(reference, sample), render_fenced_fixture(native, sample)
+        )
+        parser.assert_not_called()
+        self.assertGreater(dispatch.call_count, 0)
+        factory.assert_called_once()
 
 
 def render_fenced_fixture(md: FencedFixtureMarkdown, sample: str) -> tuple[object, ...]:
