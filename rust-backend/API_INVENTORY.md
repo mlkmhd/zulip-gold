@@ -1610,3 +1610,15 @@ trigger ربات، در هر حالت ۳۶ تست موفق داشت. Cargo می�
   بود و هیچ cache یا wheel قبلی حذف نشد. این یک renderer مستقل نیست؛
   شمار HTTP همان ۲۸/۱۷۱ OpenAPI و ۲۸/۱۹۰ وب و بازنشستگی Python صفر است.
   [قرارداد](README.md#orchestrate-fenced-code-highlighting-through-rust)
+
+## parser بومی header بلوک کد — ۲۰۲۶-۱۱-۲۱
+
+- کامیت `ad1071ff68` با `ZULIP_RUST_CODE_HEADER=1` و پیش‌فرض خاموش،
+  syntax خط اول و عادی‌سازی LF را در Rust انجام می‌دهد. lowercase و
+  تبدیل شمارهٔ خطوط هنوز Python هستند. ۳٬۴۹۴٬۱۶۹ مقایسه بدون اختلاف،
+  هشت تست تازه و ۴۵۴ تست در هر دو حالت موفق بودند؛ هر ۱۶ statement
+  تازه پوشش دارند. هفت رندر کامل و wheel قبلی با تمام metadata برابر
+  بودند. Cargo، Clippy، mypy و lint موفق بودند. ساخت و نصب آفلاین بود
+  و cacheها حفظ شدند. شمار HTTP همان ۲۸/۱۷۱ OpenAPI و ۲۸/۱۹۰ وب و
+  بازنشستگی Python صفر است.
+  [قرارداد](README.md#parse-fenced-code-headers-through-rust)
