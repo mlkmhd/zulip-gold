@@ -212,5 +212,89 @@ class FencedCompletionParity(unittest.TestCase):
             return seen, (type(caught), caught.args)
 
 
+class FencedLineParity(unittest.TestCase):
+    def test_plain_lines_and_closing_whitespace(self) -> None:
+        lines = ["  a\t", "தமிழ்\x00\r\n", "foo\u001c", "\ud800\u2003", "```\t\u0085"]
+        for backend in [None, SimpleNamespace(), EXTENSION]:
+            method = load_formatter(backend, "handle_line", owner="ZulipBaseHandler")
+            closed = Mock()
+            handler = SimpleNamespace(fence="```", lines=[], done=closed)
+            for line in lines:
+                method(handler, line)
+            self.assertEqual(handler.lines, ["  a", "தமிழ்\x00", "foo", "\ud800"])
+            closed.assert_called_once_with()
+
+    def test_rich_comparison_and_callback_order(self) -> None:
+        for stage in [
+            "closed",
+            "content",
+            "rstrip-first",
+            "compare",
+            "truth",
+            "done",
+            "resolve-append",
+            "rstrip-second",
+            "append",
+        ]:
+            with self.subTest(stage=stage):
+                expected = self.exercise(None, stage)
+                self.assertEqual(self.exercise(SimpleNamespace(), stage), expected)
+                native = Mock(wraps=EXTENSION.handle_fenced_block_line)
+                self.assertEqual(
+                    self.exercise(SimpleNamespace(handle_fenced_block_line=native), stage), expected
+                )
+                native.assert_called_once()
+
+    def exercise(self, backend: object, stage: str) -> tuple[list[str], object]:
+        method = load_formatter(backend, "handle_line", owner="ZulipBaseHandler")
+        seen: list[str] = []
+        error = ValueError(stage)
+
+        def record(name: str) -> None:
+            seen.append(name)
+            if stage == name:
+                raise error
+
+        class Truth:
+            def __bool__(self) -> bool:
+                record("truth")
+                return stage in {"closed", "done"}
+
+        class Fence:  # noqa: PLW1641 - test an effectful comparison, not hashing.
+            def __eq__(self, other: object) -> object:
+                record("compare")
+                return Truth()
+
+        fence = Fence()
+        handler = SimpleNamespace(fence=fence, done=lambda: record("done"))
+
+        def append(item: object) -> None:
+            self.assertTrue(item is fence)
+            record("append")
+
+        class Buffer:
+            @property
+            def append(self) -> Callable[[object], None]:
+                record("resolve-append")
+                return append
+
+        class Line:
+            calls = 0
+
+            def rstrip(self) -> object:
+                self.calls += 1
+                record("rstrip-first" if self.calls == 1 else "rstrip-second")
+                if self.calls > 1:
+                    handler.lines = None
+                return fence
+
+        handler.lines = Buffer()
+        try:
+            return seen, method(handler, Line())
+        except ValueError as caught:
+            self.assertIs(caught, error)
+            return seen, (type(caught), caught.args)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -5753,3 +5753,24 @@ OpenAPI (۱۶٫۴٪)، ۲۸/۱۹۰ مسیر وب (۱۴٫۷٪)، بدون حذف 
 این آمار درصد مهاجرت کل بک‌اند نیست. قدم بعد در حصارها، بررسی
 رفتار تشخیص پایان و پردازش خط است؛ checkpoint زندهٔ TeX همچنان
 به قرارداد و parity کامل نیاز دارد.
+
+## تشخیص سطر پایانی حصار در Rust
+
+`ZulipBaseHandler.handle_line` زیر پرچم موجود
+`ZULIP_RUST_MARKDOWN_FENCES=1` به Rust منتقل شد. `rstrip` و rich
+comparison پویا و نتیجهٔ truth آن همان رفتار Python را دارند.
+سطر پایانی از طریق متد زندهٔ `done` بسته می‌شود؛ برای سطر عادی
+ابتدا binding تابع append و سپس `rstrip` دوم انجام می‌شود.
+handlerهای تخصصی quote و spoiler و مسیر wheel قدیمی تغییر نکردند.
+[قرارداد رفتار](README.md#dispatch-fenced-block-lines-through-rust)
+
+۳۰ تست Python هدفمند، ۱۲۹ تست واحد و ۱۴۳ تست یکپارچه Rust،
+build آفلاین PyO3/HTTP، fmt، Clippy و Ruff محلی موفق بودند.
+یک تست نیازمند PostgreSQL و Memcached موقت اجرا نشد. هیچ دانلود،
+راه‌اندازی سرویس یا بررسی CI انجام نشد. parity شامل CRLF، Unicode،
+surrogate، خطای هر callback و ترتیب فراخوانی‌هاست.
+
+سهم مسیر مستقل Rust همچنان ۲۸/۱۷۱ OpenAPI (۱۶٫۴٪) و ۲۸/۱۹۰
+وب (۱۴٫۷٪) است. هیچ فایل Python بازنشسته یا رفتار پیش‌فرض عوض نشد.
+قدم بعد در این مسیر، پوشش ایزولهٔ handlerهای تودرتو پیش از تصمیم به
+بازنشستگی کد است.

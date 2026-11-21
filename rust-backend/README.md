@@ -4042,3 +4042,16 @@ run the existing Python implementation.
 
 The fenced-quote parity script exercises the source completion method
 with dynamic output replacements and a failure injected at each stage.
+
+## Dispatch fenced block lines through Rust
+
+With `ZULIP_RUST_MARKDOWN_FENCES=1`, a capable wheel can dispatch each
+line in the base fenced block handler. It preserves dynamic Python
+`rstrip` and rich comparison (including the comparison's truth test).
+On a closing marker it calls the live `done` method. Otherwise it resolves
+the live append method and only then performs the second `rstrip`,
+matching Python's evaluation order. Specialized quote and spoiler
+handlers and old wheels keep their existing behavior.
+
+The fenced-quote parity script tests Unicode whitespace, lone surrogates,
+dynamic equality and exact error propagation at each dispatch stage.

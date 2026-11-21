@@ -1,8 +1,26 @@
+use pyo3::class::basic::CompareOp;
 use pyo3::exceptions::PyNameError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyString, PyType};
 
 use crate::{markdown_code, markdown_code_header};
+
+#[pyfunction]
+pub(crate) fn handle_fenced_block_line(
+    handler: &Bound<'_, PyAny>,
+    line: &Bound<'_, PyAny>,
+) -> PyResult<()> {
+    let candidate = line.call_method0("rstrip")?;
+    let fence = handler.getattr("fence")?;
+    if candidate.rich_compare(fence, CompareOp::Eq)?.is_truthy()? {
+        handler.call_method0("done")?;
+    } else {
+        // Resolve the append callback before the second rstrip, as in Python.
+        let append = handler.getattr("lines")?.getattr("append")?;
+        append.call1((line.call_method0("rstrip")?,))?;
+    }
+    Ok(())
+}
 
 #[pyfunction]
 pub(crate) fn finish_fenced_block(handler: &Bound<'_, PyAny>) -> PyResult<()> {

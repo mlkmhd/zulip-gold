@@ -238,6 +238,10 @@ class ZulipBaseHandler:
         self.lines: list[str] = []
 
     def handle_line(self, line: str) -> None:
+        handle_native = getattr(_rust_markdown_fences, "handle_fenced_block_line", None)
+        if handle_native is not None:
+            handle_native(self, line)
+            return
         if line.rstrip() == self.fence:
             self.done()
         else:
