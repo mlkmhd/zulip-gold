@@ -286,6 +286,21 @@ def generic_handler(
     run_content_validators: bool = False,
     default_language: str | None = None,
 ) -> ZulipBaseHandler:
+    create = getattr(_rust_markdown_fences, "create_fenced_block_handler", None)
+    if create is not None and (lang is None or type(lang) is str):
+        return cast(
+            ZulipBaseHandler,
+            create(
+                processor,
+                output,
+                fence,
+                lang,
+                header,
+                run_content_validators,
+                default_language,
+                globals(),
+            ),
+        )
     if lang is not None:
         lang = lang.lower()
     if lang in ("quote", "quoted"):

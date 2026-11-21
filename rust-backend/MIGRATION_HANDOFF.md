@@ -5815,3 +5815,21 @@ deterministic برای code/math در چند ورودی تودرتو و حالت
 هیچ فایل Python بازنشسته و هیچ پیش‌فرض production تغییر نکرد.
 گام بعد، بررسی guardهای callback در مسیر یکپارچه یا انتخاب برش
 مستقل قابل‌آزمون بدون provision کامل Django است.
+
+## انتخاب handler حصار در Rust
+
+با پرچم اختیاری موجود، انتخاب quote/math/spoiler/code برای str
+دقیق یا None به Rust رفت. lower یونیکدی Python و مقدار زبان
+کد، حتی surrogate، حفظ می‌شود. factory زنده با همان آرگومان‌ها
+یک بار اجرا می‌شود و خطایش تکرار نمی‌شود. subclass و نوع سفارشی
+پیش از lower به Python می‌روند؛ رفتار wheel قدیمی و پیش‌فرض ثابت است.
+[قرارداد](README.md#select-fenced-block-handlers-through-rust)
+
+۱۰ حالت انتخاب، factory زنده و خطاها، subclass و stack تودرتو
+بررسی شدند. ۳۴ تست Python هدفمند، ۱۲۹ تست واحد و ۱۴۳ تست یکپارچه
+Rust، بیلد آفلاین PyO3/HTTP و fmt/Clippy/Ruff گذشتند؛ یک تست نیازمند
+سرویس موقت اجرا نشد. دانلود، تغییر سرویس و بررسی CI انجام نشد.
+
+سهم HTTP همان ۲۸/۱۷۱ OpenAPI (۱۶٫۴٪) و ۲۸/۱۹۰ وب (۱۴٫۷٪) است.
+هیچ فایل Python بازنشسته یا رفتار production فعال نشد. پیش از
+حذف fallback، رگرسیون رندر کامل در محیط ایزوله باید بررسی شود.

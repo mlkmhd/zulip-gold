@@ -493,5 +493,67 @@ class NestedFencedStackParity(unittest.TestCase):
         self.assertEqual(output, ["before", "after"])
 
 
+class FencedHandlerFactoryParity(unittest.TestCase):
+    def test_live_factories_and_unicode_normalization(self) -> None:
+        cases = [None, "", "QuOtE", "QUOTED", "MaTh", "SPoiLer", "PYTHON", "İ", "Σ", "\ud800"]
+        native = Mock(wraps=EXTENSION.create_fenced_block_handler)
+        backend = SimpleNamespace(create_fenced_block_handler=native)
+        for lang in cases:
+            with self.subTest(lang=lang):
+                disabled = self.exercise(None, lang)
+                self.assertEqual(self.exercise(SimpleNamespace(), lang), disabled)
+                self.assertEqual(self.exercise(backend, lang), disabled)
+        self.assertEqual(native.call_count, 2 * len(cases))
+        native.reset_mock()
+
+        class Language(str):
+            __slots__ = ()
+
+            def lower(self) -> str:
+                return "math"
+
+        self.assertEqual(self.exercise(backend, Language("quote"))[0], "TexHandler")
+        native.assert_not_called()
+
+    def exercise(self, backend: object, lang: str | None) -> tuple[str, tuple[object, ...]]:
+        namespace = load_fence_stack(backend)
+        processor = object()
+        output: list[str] = []
+        fence = b"~~~".decode()
+        header = b"header".decode()
+        default_language = b"default".decode()
+        validators = object()
+        select = cast(Callable[..., object], namespace["generic_handler"])
+
+        def factory(name: str) -> Callable[..., object]:
+            def create(*args: object, **kwargs: object) -> object:
+                self.assertEqual(kwargs, {})
+                self.assertIs(args[0], processor)
+                self.assertIs(args[1], output)
+                self.assertIs(args[2], fence)
+                if name == "QuoteHandler":
+                    self.assertIs(args[3], default_language)
+                if name == "SpoilerHandler":
+                    self.assertIs(args[3], header)
+                if name == "CodeHandler":
+                    self.assertIs(args[4], validators)
+                return (name, args[3:4])
+
+            return create
+
+        for name in ["QuoteHandler", "TexHandler", "SpoilerHandler", "CodeHandler"]:
+            namespace[name] = factory(name)
+        result = select(processor, output, fence, lang, header, validators, default_language)
+        error = RuntimeError("live factory failed")
+        selected = cast(tuple[str, tuple[object, ...]], result)[0]
+        failing = Mock(side_effect=error)
+        namespace[selected] = failing
+        with self.assertRaises(RuntimeError) as caught:
+            select(processor, output, fence, lang, header, validators, default_language)
+        self.assertIs(caught.exception, error)
+        failing.assert_called_once()
+        return cast(tuple[str, tuple[object, ...]], result)
+
+
 if __name__ == "__main__":
     unittest.main()

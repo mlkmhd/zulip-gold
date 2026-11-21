@@ -4084,3 +4084,17 @@ The fenced-quote parity script now runs the actual handler stack with
 a real Markdown HTML stash, deterministic code/math formatters, and no
 Django services. It checks nested quotes and spoilers, inherited
 languages, unfinished fences and validator errors.
+
+## Select fenced block handlers through Rust
+
+Under the same opt-in, a capable extension selects the quote, math,
+spoiler, or code handler for an exact Python string or `None`. It keeps
+Python Unicode lowercasing for the code language passed to the factory,
+including lone surrogates. Factories are resolved at the original call
+site, retain their original arguments and exceptions, and run only once.
+A string subclass or another custom language object is delegated
+before lowercasing; wheels without the new export use Python.
+
+The fenced-quote parity script tests live replacement factories, all
+four choices, Unicode lowercasing, and a subclass with an overridden
+`lower` method.

@@ -54,6 +54,48 @@ pub(crate) fn handle_nested_fenced_block_line(
 }
 
 #[pyfunction]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn create_fenced_block_handler<'py>(
+    processor: &Bound<'py, PyAny>,
+    output: &Bound<'py, PyAny>,
+    fence: &Bound<'py, PyAny>,
+    lang: &Bound<'py, PyAny>,
+    header: &Bound<'py, PyAny>,
+    run_validators: &Bound<'py, PyAny>,
+    default_language: &Bound<'py, PyAny>,
+    context: &Bound<'py, PyDict>,
+) -> PyResult<Bound<'py, PyAny>> {
+    // The caller delegates subclasses before entering, preserving overridden
+    // lower and comparison behavior. Keep Python's Unicode lower result for
+    // CodeHandler, including values that contain lone surrogate code points.
+    let language = if lang.is_none() {
+        lang.clone()
+    } else {
+        lang.call_method0("lower")?
+    };
+    let kind = language
+        .cast::<PyString>()
+        .ok()
+        .and_then(|lang| lang.to_str().ok());
+    match kind {
+        Some("quote" | "quoted") => {
+            global(context, "QuoteHandler")?.call1((processor, output, fence, default_language))
+        }
+        Some("math") => global(context, "TexHandler")?.call1((processor, output, fence)),
+        Some("spoiler") => {
+            global(context, "SpoilerHandler")?.call1((processor, output, fence, header))
+        }
+        _ => global(context, "CodeHandler")?.call1((
+            processor,
+            output,
+            fence,
+            language,
+            run_validators,
+        )),
+    }
+}
+
+#[pyfunction]
 pub(crate) fn dispatch_new_fenced_block<'py>(
     processor: &Bound<'py, PyAny>,
     output: &Bound<'py, PyAny>,
