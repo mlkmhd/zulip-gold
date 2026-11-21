@@ -244,6 +244,10 @@ class ZulipBaseHandler:
             self.lines.append(line.rstrip())
 
     def done(self) -> None:
+        finish_native = getattr(_rust_markdown_fences, "finish_fenced_block", None)
+        if finish_native is not None:
+            finish_native(self)
+            return
         if self.lines:
             text = "\n".join(self.lines)
             text = self.format_text(text)

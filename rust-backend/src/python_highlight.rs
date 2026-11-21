@@ -5,6 +5,30 @@ use pyo3::types::{PyDict, PyList, PyString, PyType};
 use crate::{markdown_code, markdown_code_header};
 
 #[pyfunction]
+pub(crate) fn finish_fenced_block(handler: &Bound<'_, PyAny>) -> PyResult<()> {
+    if handler.getattr("lines")?.is_truthy()? {
+        // Keep Python join/split for exact errors, string identity, subclasses,
+        // and lone surrogates returned by custom host formatters.
+        let text =
+            PyString::new(handler.py(), "\n").call_method1("join", (handler.getattr("lines")?,))?;
+        let mut text = handler.call_method1("format_text", (text,))?;
+        if !handler.getattr("process_contents")?.is_truthy()? {
+            text = handler
+                .getattr("processor")?
+                .call_method1("placeholder", (text,))?;
+        }
+        let lines = text.call_method1("split", ("\n",))?;
+        handler.getattr("output")?.call_method1("append", ("",))?;
+        handler
+            .getattr("output")?
+            .call_method1("extend", (lines,))?;
+        handler.getattr("output")?.call_method1("append", ("",))?;
+    }
+    handler.getattr("processor")?.call_method0("pop")?;
+    Ok(())
+}
+
+#[pyfunction]
 pub(crate) fn format_fenced_spoiler<'py>(
     processor: &Bound<'py, PyAny>,
     header: Bound<'py, PyAny>,

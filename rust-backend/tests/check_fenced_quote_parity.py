@@ -17,19 +17,19 @@ EXTENSION = import_module("_zulip_backend")
 SOURCE = ROOT / "zerver/lib/markdown/fenced_code.py"
 
 
-def load_formatter(backend: object, name: str = "format_quote") -> Callable[..., str]:
+def load_formatter(
+    backend: object, name: str = "format_quote", *, owner: str = "FencedBlockPreprocessor"
+) -> Callable[..., object]:
     module = ast.parse(SOURCE.read_text(encoding="utf-8"), filename=str(SOURCE))
     cls = next(
-        node
-        for node in module.body
-        if isinstance(node, ast.ClassDef) and node.name == "FencedBlockPreprocessor"
+        node for node in module.body if isinstance(node, ast.ClassDef) and node.name == owner
     )
     method = next(
         node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == name
     )
     namespace = {"_rust_markdown_fences": backend, "cast": cast}
     exec(compile(ast.Module(body=[method], type_ignores=[]), str(SOURCE), "exec"), namespace)  # noqa: S102
-    return cast(Callable[..., str], namespace[name])
+    return cast(Callable[..., object], namespace[name])
 
 
 class FencedQuoteParity(unittest.TestCase):
@@ -121,6 +121,95 @@ class FencedSpoilerParity(unittest.TestCase):
             self.assertEqual(len(seen), 3)
             result = (type(error), error.args)
         return result, seen
+
+
+class FencedCompletionParity(unittest.TestCase):
+    def test_completion_dispatch_and_failure_order(self) -> None:
+        for stage in [
+            "empty",
+            "code",
+            "nested",
+            "surrogate",
+            "bad-join",
+            "format",
+            "placeholder",
+            "split",
+            "first-append",
+            "extend",
+            "last-append",
+            "pop",
+        ]:
+            with self.subTest(stage=stage):
+                reference = self.exercise(None, stage)
+                self.assertEqual(self.exercise(SimpleNamespace(), stage), reference)
+                finish = Mock(wraps=EXTENSION.finish_fenced_block)
+                native = SimpleNamespace(finish_fenced_block=finish)
+                self.assertEqual(self.exercise(native, stage), reference)
+                finish.assert_called_once()
+
+    def exercise(self, backend: object, stage: str) -> tuple[list[object], object]:
+        done = load_formatter(backend, "done", owner="ZulipBaseHandler")
+        seen: list[object] = []
+        error = RuntimeError(stage)
+        original = b"original \x00 line".decode()
+        handler = SimpleNamespace(
+            lines=[] if stage == "empty" else [17] if stage == "bad-join" else [original],
+            process_contents=stage in {"nested", "surrogate"},
+        )
+
+        class Rendered(str):
+            __slots__ = ()
+
+            def split(self, sep: str, maxsplit: int = -1) -> list[str]:
+                seen.append(("split", sep, maxsplit))
+                if stage == "split":
+                    raise error
+                return super().split(sep, maxsplit)
+
+        def format_text(text: str) -> str:
+            seen.append(("format", text, text is original))
+            if stage == "format":
+                raise error
+            return Rendered("فارسی\ud800\n" if stage == "surrogate" else "formatted\n")
+
+        def placeholder(text: str) -> str:
+            seen.append(("placeholder", text))
+            if stage == "placeholder":
+                raise error
+            return Rendered("stash\n")
+
+        def pop() -> None:
+            seen.append("pop")
+            if stage == "pop":
+                raise error
+
+        class Output:
+            def __init__(self, number: int) -> None:
+                self.number = number
+
+            def append(self, item: str) -> None:
+                seen.append(("append", self.number, item))
+                if stage == ("first-append" if self.number == 1 else "last-append"):
+                    raise error
+                handler.output = Output(self.number + 1)
+
+            def extend(self, items: list[str]) -> None:
+                seen.append(("extend", self.number, items))
+                if stage == "extend":
+                    raise error
+                handler.output = Output(self.number + 1)
+
+        handler.format_text = format_text
+        handler.output = Output(1)
+        handler.processor = SimpleNamespace(placeholder=placeholder, pop=pop)
+        try:
+            return seen, done(handler)
+        except RuntimeError as caught:
+            self.assertIs(caught, error)
+            return seen, (type(caught), caught.args)
+        except TypeError as caught:
+            self.assertEqual(stage, "bad-join")
+            return seen, (type(caught), caught.args)
 
 
 if __name__ == "__main__":

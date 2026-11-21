@@ -4027,3 +4027,18 @@ This is a structural identity check, not a proof that a mutable handler
 or helper has retained its behavior. A live adapter still must certify
 the registry semantics, helpers, and callback effects before enabling
 the checkpoint path.
+
+## Finalize fenced blocks through Rust
+
+With `ZULIP_RUST_MARKDOWN_FENCES=1`, a wheel exporting
+`finish_fenced_block` can run the shared handler completion lifecycle in
+Rust. It still looks up the formatter, placeholder, output and pop
+callbacks at their original call positions. Python performs the string
+join and split so custom objects, lone surrogates, and errors retain
+their original behavior. A failure stops at the first unsuccessful
+operation and preserves any preceding writes without retry or fallback.
+An empty block only pops its handler. Disabled flags and older wheels
+run the existing Python implementation.
+
+The fenced-quote parity script exercises the source completion method
+with dynamic output replacements and a failure injected at each stage.
