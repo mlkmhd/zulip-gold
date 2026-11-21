@@ -3421,9 +3421,10 @@ all other whitespace are retained.
 mutation when Unicode differs from 15.0.0, UTF-8 conversion fails (including
 surrogates), or source exceeds 8 MiB. The adapter also delegates for runtimes
 other than CPython 3.12, string subclasses and older wheels without the export.
-Python still lowercases the language and calls the existing `parse_hl_lines`
-helper, preserving Unicode integers, arbitrary precision, digit limits and
-custom helper failures. Language, line-number and highlight-line assignments
+The optional [header value exports](#normalize-fenced-code-header-values-through-rust)
+normalize ASCII language names and bounded ASCII line numbers. Other values
+retain Python Unicode lowercase, arbitrary precision, digit limits and custom
+helper failures. Language, line-number and highlight-line assignments
 retain their original order; a failure does not normalize the source or retry.
 Pygments, lxml and exception logging remain in their existing paths.
 
@@ -3563,3 +3564,38 @@ covers nested fences, default languages, whitespace and size boundaries.
 corpus, not exhaustive testing or a performance benchmark. Whole-graph TeX
 preflight, deferred rendering effects and full renderer/listener orchestration
 remain separate work.
+
+## Normalize fenced code header values through Rust
+
+The existing default-off `ZULIP_RUST_CODE_HEADER=1` bridge also uses
+`normalize_fenced_code_language` and `parse_fenced_highlight_lines` when
+available. Rebuild the wheel to enable these exports. ASCII language names
+use ASCII lowercase; non-ASCII names retain Python's contextual Unicode
+lowercase. Line numbers accept signed ASCII decimal integers and Python's
+underscore separators, preserving duplicates, order, zero and negative values.
+Invalid accepted syntax produces an empty list, including a valid prefix
+followed by an invalid token.
+
+Non-ASCII expressions, numbers outside signed 64-bit range, tokens of 640 or
+more bytes, surrogates and expressions above 8 MiB delegate to Python. The token
+limit preserves CPython's configurable decimal conversion limit, including long
+runs of leading zeros. A replaced `parse_hl_lines` helper always runs in Python.
+Missing exports in older wheels delegate independently. Language assignment,
+line-number options, highlight options and source assignment retain their
+existing order, including partial state on an exception. Native exceptions
+propagate without retrying the Python parser.
+
+```bash
+ZULIP_RUST_CODE_HEADER=1 ./tools/test-backend zerver.tests.test_code_header_rust
+python rust-backend/tests/check_code_header_values_parity.py \
+  --report /tmp/code-header-values-parity.json
+```
+
+The deterministic oracle compares actual extension results with Python-Markdown,
+including short syntax combinations, random signed integers, every Unicode
+scalar and surrogate in separator position, and size/digit boundaries. Delegated
+cases are counted separately. `--mutant-drop-sign` must reject a deliberately
+incorrect sign conversion. The existing header oracle additionally compares
+complete highlighter states and exceptions. Neither oracle is a benchmark or an
+exhaustive test of all strings. Pygments, lxml and the fallback header methods
+remain Python dependencies; this bridge does not retire a Python module.

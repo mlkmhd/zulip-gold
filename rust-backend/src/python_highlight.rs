@@ -34,6 +34,22 @@ pub(crate) fn parse_fenced_code_header(
     Some((source.trim_matches('\n').to_owned(), header))
 }
 
+#[pyfunction]
+pub(crate) fn normalize_fenced_code_language(language: &Bound<'_, PyString>) -> Option<String> {
+    markdown_code_header::normalize_language(language.to_str().ok()?)
+}
+
+#[pyfunction]
+pub(crate) fn parse_fenced_highlight_lines(
+    expression: Option<&Bound<'_, PyString>>,
+) -> Option<Vec<i64>> {
+    let expression = match expression {
+        Some(value) => Some(value.to_str().ok()?),
+        None => None,
+    };
+    markdown_code_header::parse_highlight_lines(expression)
+}
+
 fn global<'py>(context: &Bound<'py, PyDict>, name: &str) -> PyResult<Bound<'py, PyAny>> {
     context
         .get_item(name)?

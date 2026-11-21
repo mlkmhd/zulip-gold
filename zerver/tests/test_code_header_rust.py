@@ -117,6 +117,55 @@ class CodeHeaderRustTest(SimpleTestCase):
         parser.assert_not_called()
         self.assertEqual(highlighter.lang, "python")
 
+    def test_native_line_numbers_preserve_integer_and_fallback_semantics(self) -> None:
+        for expression, expected in [
+            (None, []),
+            ("+1 -2 3_0\x1c0", [1, -2, 30, 0]),
+            ("1 bad 2", []),
+            ("1__0", []),
+            ("9223372036854775807 -9223372036854775808", [2**63 - 1, -(2**63)]),
+            ("9223372036854775808", None),
+            ("۱ ٢", None),
+            ("0" * 640, None),
+            ("\ud800", None),
+        ]:
+            with self.subTest(expression=expression):
+                self.assertEqual(self.extension.parse_fenced_highlight_lines(expression), expected)
+        self.assertEqual(self.extension.normalize_fenced_code_language("PYTHON"), "python")
+        self.assertIsNone(self.extension.normalize_fenced_code_language("İΣ"))
+
+    def test_native_semantics_and_previous_header_wheel_match(self) -> None:
+        previous = SimpleNamespace(parse_fenced_code_header=self.extension.parse_fenced_code_header)
+        for expression in ["1 2", "۱ ٢", str(2**100), "0" * 640, "1__0", ""]:
+            states = []
+            for native in [None, previous, self.extension]:
+                with patch.object(fenced_code, "_rust_code_header", native):
+                    highlighter = fenced_code.CodeHilite(
+                        f"#!PYTHON hl_lines='{expression}'\nbody\n"
+                    )
+                    highlighter._parseHeader()
+                states.append((highlighter.src, highlighter.lang, highlighter.options))
+            self.assertEqual(states[0], states[1])
+            self.assertEqual(states[0], states[2])
+
+    def test_native_line_parser_errors_are_not_retried(self) -> None:
+        parser = Mock(side_effect=RuntimeError("native lines"))
+        module = SimpleNamespace(
+            parse_fenced_code_header=self.extension.parse_fenced_code_header,
+            normalize_fenced_code_language=self.extension.normalize_fenced_code_language,
+            parse_fenced_highlight_lines=parser,
+        )
+        highlighter = fenced_code.CodeHilite("#!PYTHON hl_lines='1'\n")
+        with (
+            patch.object(fenced_code, "_rust_code_header", module),
+            self.assertRaisesRegex(RuntimeError, "native lines"),
+        ):
+            highlighter._parseHeader()
+        parser.assert_called_once_with("1")
+        self.assertEqual(highlighter.lang, "python")
+        self.assertIs(highlighter.options["linenos"], True)
+        self.assertEqual(highlighter.src, "#!PYTHON hl_lines='1'\n")
+
     def test_complete_fenced_render_matches_with_highlight_bridge(self) -> None:
         for text in [
             "```\n#!/usr/bin/python\nprint('<script>&')\n```",

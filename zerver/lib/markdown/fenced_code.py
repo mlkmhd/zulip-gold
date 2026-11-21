@@ -101,6 +101,8 @@ from zerver.lib.markdown.whitespace import ZulipNormalizeWhitespace
 from zerver.lib.tex import render_tex
 from zerver.models.realm_playgrounds import PLAYGROUND_LANGUAGE_REGEX
 
+_native_parse_hl_lines = parse_hl_lines
+
 _rust_code_header = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_CODE_HEADER") == "1" else None
 )
@@ -436,10 +438,20 @@ class CodeHilite(codehilite.CodeHilite):
                 source, header = result
                 if header is not None:
                     language, shebang, highlight_lines = header
-                    self.lang = language.lower()
+                    normalizer = getattr(_rust_code_header, "normalize_fenced_code_language", None)
+                    normalized = None if normalizer is None else normalizer(language)
+                    self.lang = language.lower() if normalized is None else normalized
                     if self.options["linenos"] is None and shebang:
                         self.options["linenos"] = True
-                    self.options["hl_lines"] = parse_hl_lines(highlight_lines)
+                    line_parser = getattr(_rust_code_header, "parse_fenced_highlight_lines", None)
+                    lines = (
+                        line_parser(highlight_lines)
+                        if line_parser is not None and parse_hl_lines is _native_parse_hl_lines
+                        else None
+                    )
+                    self.options["hl_lines"] = (
+                        parse_hl_lines(highlight_lines) if lines is None else lines
+                    )
                 self.src = source
                 return
 

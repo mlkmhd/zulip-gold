@@ -39,9 +39,76 @@ pub fn parse_header(source: &str) -> Option<Header<'_>> {
     })
 }
 
+pub fn normalize_language(language: &str) -> Option<String> {
+    language.is_ascii().then(|| language.to_ascii_lowercase())
+}
+
+/// None delegates arbitrary-precision integers and non-ASCII syntax to the host.
+pub fn parse_highlight_lines(expression: Option<&str>) -> Option<Vec<i64>> {
+    let Some(expression) = expression else {
+        return Some(Vec::new());
+    };
+    if !expression.is_ascii() || expression.len() > 8 * 1024 * 1024 {
+        return None;
+    }
+    let mut lines = Vec::new();
+    for token in expression.split(crate::draft_text::is_python_whitespace) {
+        if token.is_empty() {
+            continue;
+        }
+        // CPython permits a configurable integer digit limit of at least 640.
+        if token.len() >= 640 {
+            return None;
+        }
+        let digits = token.strip_prefix(['+', '-']).unwrap_or(token);
+        if digits.is_empty()
+            || !digits.as_bytes()[0].is_ascii_digit()
+            || !digits.as_bytes()[digits.len() - 1].is_ascii_digit()
+            || digits.contains("__")
+            || !digits
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || byte == b'_')
+        {
+            return Some(Vec::new());
+        }
+        lines.push(token.replace('_', "").parse().ok()?);
+    }
+    Some(lines)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn normalizes_ascii_languages_only() {
+        assert_eq!(
+            normalize_language("C++PYTHON"),
+            Some("c++python".to_owned())
+        );
+        assert_eq!(normalize_language("İΣ"), None);
+    }
+
+    #[test]
+    fn parses_bounded_ascii_line_numbers() {
+        assert_eq!(parse_highlight_lines(None), Some(vec![]));
+        assert_eq!(parse_highlight_lines(Some("")), Some(vec![]));
+        assert_eq!(
+            parse_highlight_lines(Some("+1 -2 3_0\x1c0 -0 0002")),
+            Some(vec![1, -2, 30, 0, 0, 2])
+        );
+        for expression in ["1 bad 3", "1__0", "_1", "1_", "+", "0x10", "1.0"] {
+            assert_eq!(parse_highlight_lines(Some(expression)), Some(vec![]));
+        }
+        for expression in ["۱ ٢", "9223372036854775808", "-9223372036854775809"] {
+            assert_eq!(parse_highlight_lines(Some(expression)), None);
+        }
+        assert_eq!(
+            parse_highlight_lines(Some("9223372036854775807 -9223372036854775808")),
+            Some(vec![i64::MAX, i64::MIN])
+        );
+        assert_eq!(parse_highlight_lines(Some(&"0".repeat(640))), None);
+    }
 
     #[test]
     fn preserves_shebang_path_and_first_line() {
