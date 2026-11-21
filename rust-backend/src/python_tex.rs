@@ -111,10 +111,18 @@ pub(crate) fn render_katex_response<'py>(
     context: &Bound<'py, PyDict>,
 ) -> PyResult<Bound<'py, PyAny>> {
     if response.getattr("status_code")?.eq(200)? {
-        return response
-            .getattr("content")?
-            .call_method0("decode")?
-            .call_method0("strip");
+        let content = response.getattr("content")?;
+        if content.is_exact_instance_of::<PyBytes>()
+            && let Ok(decoded) = std::str::from_utf8(content.cast::<PyBytes>()?.as_bytes())
+        {
+            return Ok(PyString::new(
+                context.py(),
+                decoded.trim_matches(crate::draft_text::is_python_whitespace),
+            )
+            .into_any());
+        }
+        // Preserve custom decoders and CPython's exact UnicodeDecodeError.
+        return content.call_method0("decode")?.call_method0("strip");
     }
     if !response.getattr("status_code")?.eq(400)? {
         let logging = context

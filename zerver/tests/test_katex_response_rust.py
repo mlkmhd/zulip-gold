@@ -65,6 +65,53 @@ class KatexResponseRustTest(SimpleTestCase):
             self.assertIsNone(tex.render_tex("bad syntax"))
         warning.assert_not_called()
 
+    def test_success_preserves_internal_newlines_and_controls(self) -> None:
+        for native in [None, self.extension]:
+            for body in ["\x1c\u2003a\r\nb\rc\x00\u0085", "\ufeff x \ufeff", "\x1f\n"]:
+                with self.subTest(native=native, body=body):
+                    session = Mock()
+                    session.post.return_value = SimpleNamespace(
+                        status_code=200, content=body.encode()
+                    )
+                    with (
+                        patch.object(tex, "_rust_katex_response", native),
+                        patch.object(tex, "KatexSession", return_value=session),
+                    ):
+                        self.assertEqual(tex.render_tex("x"), body.strip())
+                    session.post.assert_called_once()
+
+    def test_success_uses_custom_decode_and_strip_once(self) -> None:
+        class Content(bytes):
+            decode = Mock(return_value=SimpleNamespace(strip=Mock(return_value="custom")))
+
+        for content in [Content(b"ignored"), bytearray(b" custom "), Mock()]:
+            with self.subTest(content=content):
+                if isinstance(content, Mock):
+                    content.decode.return_value.strip.return_value = "custom"
+                response = SimpleNamespace(status_code=200, content=content)
+                self.assertEqual(
+                    self.extension.render_katex_response(response, vars(tex)), "custom"
+                )
+        Content.decode.assert_called_once_with()
+        Content.decode.return_value.strip.assert_called_once_with()
+
+    def test_custom_decoder_failure_propagates_without_retry(self) -> None:
+        for operation in ["decode", "strip"]:
+            with self.subTest(operation=operation):
+                failure = RuntimeError(operation)
+                content = Mock()
+                if operation == "decode":
+                    content.decode.side_effect = failure
+                else:
+                    content.decode.return_value.strip.side_effect = failure
+                response = SimpleNamespace(status_code=200, content=content)
+                with self.assertRaises(RuntimeError) as error:
+                    self.extension.render_katex_response(response, vars(tex))
+                self.assertIs(error.exception, failure)
+                content.decode.assert_called_once_with()
+                if operation == "strip":
+                    content.decode.return_value.strip.assert_called_once_with()
+
     def test_failure_logs_unstripped_body_once(self) -> None:
         session = Mock()
         session.post.return_value = SimpleNamespace(status_code=503, content="\n فارسی \n".encode())

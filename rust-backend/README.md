@@ -3687,3 +3687,37 @@ selection, independent wheel capabilities, custom encoders and fallback/error
 boundaries. These checks do not exhaust all strings or benchmark encoding.
 Python codec fallbacks, CLI selection and exception handling remain dependencies;
 this bridge does not retire `tex.py` or activate standalone HTTP routes.
+
+## Decode successful KaTeX HTTP responses through Rust
+
+With the existing default-off `ZULIP_RUST_KATEX_RESPONSE=1`, successful
+responses containing exact `bytes` with valid UTF-8 now decode and strip in
+Rust. The shared Python whitespace predicate includes U+001C through U+001F.
+Internal CRLF, CR, NUL and other characters remain unchanged; HTTP responses
+do not use the CLI's universal newline conversion. Empty bodies and bodies
+larger than 8 MiB keep the original behavior.
+
+Invalid UTF-8 delegates to the original decoder to preserve the complete
+`UnicodeDecodeError`. Bytes subclasses, bytearrays and custom content objects
+retain their live `decode().strip()` methods, including their exceptions.
+Response attributes are read at the same decision points. Error statuses,
+request handling, logging, the disabled flag and older wheels keep their
+existing behavior. No request or renderer callback is retried.
+
+After an offline wheel build and installation into `var/katex-http-text-python`:
+
+```bash
+PYTHONPATH="$PWD/var/katex-http-text-python:$PWD" \
+    ./tools/test-backend zerver.tests.test_katex_response_rust
+PYTHONPATH="$PWD/var/katex-http-text-python:$PWD" \
+    python rust-backend/tests/check_katex_http_text_parity.py \
+    --report /tmp/katex-http-text-parity.json
+```
+
+The differential checks every Unicode scalar at the boundaries and inside a
+fixed body, all byte strings of length zero through two, seeded random bytes,
+and size boundaries. It compares exception types and full arguments. The
+`--mutant-ascii-strip` control must fail on Unicode whitespace. This is a
+finite corpus, not exhaustive string coverage or a performance benchmark.
+This computation remains a PyO3 bridge; HTTP transport, renderer orchestration
+and Python module retirement remain separate migration work.
