@@ -245,6 +245,8 @@ mod _zulip_backend {
     use super::*;
 
     #[pymodule_export]
+    use crate::python_highlight::{finish_fenced_highlight, prepare_fenced_highlight};
+    #[pymodule_export]
     use crate::python_tex::{
         change_katex_to_raw_latex, find_markdown_tex, finish_katex_cli, render_katex_response,
         run_katex_cli,

@@ -166,6 +166,8 @@ mod python;
 mod python_media;
 
 #[cfg(feature = "python")]
+mod python_highlight;
+#[cfg(feature = "python")]
 mod python_tex;
 
 #[cfg(feature = "python")]

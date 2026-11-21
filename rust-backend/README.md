@@ -3368,3 +3368,38 @@ random bytes across six codecs and focused codec cases. It compares complete
 results and exception arguments. This is not an exhaustive test of all byte
 strings or a performance benchmark. The renderer, locale boundary and HTTP
 transport still prevent retiring `zerver/lib/tex.py`.
+
+## Orchestrate fenced code highlighting through Rust
+
+`ZULIP_RUST_CODE_HIGHLIGHT=1` opts into PyO3 configuration discovery,
+`CodeHilite` construction and language metadata serialization. It is off by
+default and independent of the block planner. The first `CodeHiliteExtension`
+configuration is cached on the preprocessor, including a missing extension.
+Constructor options retain their evaluation order and PHP `startinline=True`.
+Language aliases use the current Pygments lexer name; unknown languages retain
+the requested name for custom playgrounds.
+
+Pygments tokenization, header parsing, lxml parsing/serialization and HTML escaping
+still use Python libraries. Highlight execution and its exception handler stay in
+Python to retain the active exception context in logs. Constructor, lexer and HTML
+errors propagate at their original boundaries without retry. Both native exports
+must be present; an older or partially upgraded wheel uses the Python path before
+any work. This does not retire a Python file or replace the complete renderer.
+
+```sh
+maturin build --manifest-path rust-backend/Cargo.toml --release --locked --offline \
+    --out var/code-highlight-wheels
+python -m pip install --no-index --no-deps --target var/code-highlight-python \
+    var/code-highlight-wheels/*.whl
+PYTHONPATH="$PWD/var/code-highlight-python:$PWD" ZULIP_RUST_CODE_HIGHLIGHT=1 \
+    ./tools/test-backend zerver.tests.test_code_highlight_rust zerver.tests.test_markdown
+PYTHONPATH="$PWD/var/code-highlight-python:$PWD" DJANGO_SETTINGS_MODULE=zproject.test_settings \
+    python rust-backend/tests/check_code_highlight_parity.py \
+    --report var/code-highlight-parity.json
+```
+
+Use a fresh target directory when installing a newly built wheel. pip leaves an
+existing target package unchanged unless explicitly asked to upgrade it. The
+seeded offline differential compares real Pygments output, complete exception
+arguments and cached configuration, including disabled highlighting, aliases,
+Unicode, malformed text and custom languages. It is not exhaustive or a benchmark.

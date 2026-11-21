@@ -99,6 +99,10 @@ from zerver.lib.markdown.whitespace import ZulipNormalizeWhitespace
 from zerver.lib.tex import render_tex
 from zerver.models.realm_playgrounds import PLAYGROUND_LANGUAGE_REGEX
 
+_rust_code_highlight = (
+    import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_CODE_HIGHLIGHT") == "1" else None
+)
+
 _rust_tex_handlers = (
     import_module("_zulip_backend")
     if os.environ.get("ZULIP_RUST_MARKDOWN_TEX_HANDLERS") == "1"
@@ -534,6 +538,20 @@ class FencedBlockPreprocessor(Preprocessor):
             langclass = LANG_TAG.format(lang)
         else:
             langclass = ""
+
+        prepare = getattr(_rust_code_highlight, "prepare_fenced_highlight", None)
+        finish = getattr(_rust_code_highlight, "finish_fenced_highlight", None)
+        if prepare is not None and finish is not None:
+            enabled, highliter = prepare(self, lang, text, globals())
+            if enabled:
+                try:
+                    code = highliter.hilite().rstrip("\n")
+                except Exception:
+                    logging.exception("Failed to highlight fenced code block")
+                    code = CODE_WRAP.format(langclass, self._escape(text))
+            else:
+                code = CODE_WRAP.format(langclass, self._escape(text))
+            return cast(str, finish(code, lang, globals()))
 
         # Check for code hilite extension
         if not self.checked_for_codehilite:
