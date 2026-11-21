@@ -103,12 +103,16 @@ def render_tex(tex: str, is_inline: bool = True) -> str | None:
         logging.error("Cannot find KaTeX for latex rendering!")
         return None
     rust_render = getattr(_rust_markdown_tex, "run_katex_cli", None)
-    if (
-        rust_render is not None
-        and sys.platform == "linux"
-        and not sys.flags.warn_default_encoding
-        and subprocess.check_output is _subprocess_check_output
-        and subprocess.Popen is _subprocess_popen
+    native_cli_allowed = getattr(_rust_markdown_tex, "katex_native_cli_allowed", None)
+    if rust_render is not None and (
+        native_cli_allowed(globals())
+        if native_cli_allowed is not None
+        else (
+            sys.platform == "linux"
+            and not sys.flags.warn_default_encoding
+            and subprocess.check_output is _subprocess_check_output
+            and subprocess.Popen is _subprocess_popen
+        )
     ):
         select_encoding = getattr(_rust_markdown_tex, "select_katex_encoding", None)
         encoding = (

@@ -63,6 +63,64 @@ class CliLocationParity(unittest.TestCase):
                     ):
                         self.assertEqual(tex.render_tex("  فارسی α  "), "فارسی α")
 
+    def test_cli_guard_matches_python_short_circuit(self) -> None:
+        for blocked in [None, "platform", "warn", "check_output", "Popen"]:
+            with self.subTest(blocked=blocked):
+                expected = self.exercise_guard(blocked, native=False)
+                self.assertEqual(self.exercise_guard(blocked, native=True), expected)
+
+    def exercise_guard(self, blocked: str | None, *, native: bool) -> tuple[object, list[str]]:
+        tex = load_tex()
+        seen: list[str] = []
+
+        class Flags:
+            @property
+            def warn_default_encoding(self) -> bool:
+                seen.append("warn")
+                return blocked == "warn"
+
+        class Runtime:
+            flags = Flags()
+
+            @property
+            def platform(self) -> str:
+                seen.append("platform")
+                return "darwin" if blocked == "platform" else "linux"
+
+        def fallback(*args: object, **kwargs: object) -> str:
+            return "python"
+
+        class Subprocess:
+            DEVNULL = None
+
+            @property
+            def check_output(self) -> object:
+                seen.append("check_output")
+                return (lambda *args, **kwargs: "python") if blocked == "check_output" else fallback
+
+            @property
+            def Popen(self) -> object:
+                seen.append("Popen")
+                return object() if blocked == "Popen" else tex._subprocess_popen
+
+        backend = SimpleNamespace(
+            locate_katex_cli=lambda context: (True, "fake-katex.js"),
+            run_katex_cli=lambda *args: (True, b"rust"),
+            select_katex_encoding=lambda context: "utf-8",
+        )
+        if native:
+            backend.katex_native_cli_allowed = EXTENSION.katex_native_cli_allowed
+        with (
+            patch.object(tex, "_rust_markdown_tex", backend),
+            patch.object(tex, "settings", SimpleNamespace(KATEX_SERVER=False)),
+            patch.object(tex, "sys", Runtime()),
+            patch.object(tex, "_subprocess_check_output", fallback),
+            patch.object(tex, "subprocess", Subprocess()),
+        ):
+            result = tex.render_tex("input")
+        self.assertEqual(result, "rust" if blocked is None else "python")
+        return result, seen
+
     def exercise(
         self, production: bool, stage: str, backend: object
     ) -> tuple[object, list[object]]:

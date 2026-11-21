@@ -69,6 +69,24 @@ pub(crate) fn locate_katex_cli<'py>(
 }
 
 #[pyfunction]
+pub(crate) fn katex_native_cli_allowed(context: &Bound<'_, PyDict>) -> PyResult<bool> {
+    if !global(context, "sys")?.getattr("platform")?.eq("linux")?
+        || global(context, "sys")?
+            .getattr("flags")?
+            .getattr("warn_default_encoding")?
+            .is_truthy()?
+        || !global(context, "subprocess")?
+            .getattr("check_output")?
+            .is(&global(context, "_subprocess_check_output")?)
+    {
+        return Ok(false);
+    }
+    Ok(global(context, "subprocess")?
+        .getattr("Popen")?
+        .is(&global(context, "_subprocess_popen")?))
+}
+
+#[pyfunction]
 pub(crate) fn select_katex_encoding<'py>(
     context: &Bound<'py, PyDict>,
 ) -> PyResult<Bound<'py, PyAny>> {

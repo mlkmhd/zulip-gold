@@ -5597,3 +5597,18 @@ workerها، مهاجرت‌ها، رندر و ابزارهای عملیاتی �
 گام بعدی TeX همچنان بستن قراردادهای هویت immutable، تغییرات callback
 و guardهای renderer زنده پیش از اتصال checkpoint است. حذف `tex.py`
 تا وجود مسیر جایگزین کامل و تأیید production موجه نیست.
+
+## انتقال guard اجرای CLI کاتک به Rust
+
+در همان مسیر opt-in، تصمیم اجرای بومی بر مبنای Linux، هشدار encoding
+و هویت `subprocess.check_output` و `subprocess.Popen` به Rust منتقل
+شد. ترتیب و توقف بررسی‌ها پس از اولین شرط ناموفق حفظ می‌شود. نبود
+این export به guard پایتون برمی‌گردد، حتی اگر export انتخاب مسیر حاضر
+باشد. هیچ شرطی حذف نشده و مسیر HTTP، مدیریت exception و default
+تغییر نکرده‌اند.
+
+مقایسهٔ dispatch واقعی با extension تازه پنج وضعیت را پوشش داد:
+موفقیت، پلتفرم دیگر، warning، جایگزینی check_output و جایگزینی Popen.
+هر سه تست Python متمرکز، ۱۲۹ تست library Rust با ویژگی‌های Python و
+HTTP، و build آفلاین قفل‌شدهٔ باینری HTTP موفق بودند. package تازه
+دانلود نشد. سنجه‌های HTTP و بازنشستگی Python همان مقادیر بخش قبل‌اند.

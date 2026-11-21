@@ -3910,9 +3910,13 @@ With the existing opt-in `ZULIP_RUST_MARKDOWN_TEX=1`, wheels exporting
 script in Rust. The resolver calls the live Python path helpers and
 returns the original path object after its file check, preserving
 platform behavior, exceptions, and evaluation order. Missing scripts
-still log once and return without spawning a process. The HTTP service,
-encoding, subprocess guards, and fallback policies are unchanged;
-disabled flags and older wheels use the original Python resolver.
+still log once and return without spawning a process. Wheels exporting
+`katex_native_cli_allowed` also evaluate the Linux, encoding warning,
+and subprocess identity guards in Rust. Guard evaluation still short
+circuits in the original order, and replacing either subprocess hook
+still selects the Python runner. Older wheels can support either
+capability independently. The HTTP service, encoding, and fallback
+policies are unchanged.
 
 A targeted check uses the actual Python dispatch and a fresh extension
 with controlled settings and storage resolution. It covers the two
