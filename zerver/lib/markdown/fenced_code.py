@@ -313,6 +313,9 @@ def parse_fence_line(line: str) -> tuple[str, str | None, str | None] | None:
     return match.group("fence"), match.group("lang"), match.group("header")
 
 
+_original_parse_fence_line = parse_fence_line
+
+
 def check_for_new_fence(
     processor: "FencedBlockPreprocessor",
     output: MutableSequence[str],
@@ -320,7 +323,14 @@ def check_for_new_fence(
     run_content_validators: bool = False,
     default_language: str | None = None,
 ) -> None:
-    parsed_fence = parse_fence_line(line)
+    dispatch = getattr(_rust_markdown_fences, "dispatch_new_fenced_block", None)
+    parser = parse_fence_line
+    if dispatch is not None and parser is _original_parse_fence_line:
+        dispatch(
+            processor, output, line, run_content_validators, default_language, parser, globals()
+        )
+        return
+    parsed_fence = parser(line)
     if parsed_fence is not None:
         fence, lang, header = parsed_fence
         if not lang and default_language:

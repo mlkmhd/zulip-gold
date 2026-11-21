@@ -4070,3 +4070,17 @@ and disabled flags keep the Python handlers.
 The fenced-quote parity script exercises both source methods, the
 specialized language behavior, and callback failures without starting a
 Django test database.
+
+## Dispatch new fenced blocks through Rust
+
+With `ZULIP_RUST_MARKDOWN_FENCES=1`, Rust handles the result from the
+original fence parser: it appends an unmatched line unchanged, or
+selects the default language, calls the live handler factory, and pushes
+the handler. Python overrides of the parser stay on the Python path
+before parsing begins, preserving custom return values and exceptions.
+Wheels without this export and disabled flags keep the legacy dispatch.
+
+The fenced-quote parity script now runs the actual handler stack with
+a real Markdown HTML stash, deterministic code/math formatters, and no
+Django services. It checks nested quotes and spoilers, inherited
+languages, unfinished fences and validator errors.

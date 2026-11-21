@@ -5794,3 +5794,24 @@ fmt/Clippy/Ruff موفق بودند. یک تست Rust نیازمند سرویس 
 هیچ فایل Python بازنشسته یا رفتار پیش‌فرض تغییر نکرد. گام بعد
 برای مسیر حصار، پوشش stack واقعی با تست محلی ایزوله و سپس بررسی
 قرارداد `check_for_new_fence` است.
+
+## dispatch حصار تازه و تست stack تودرتو
+
+با همان پرچم اختیاری، Rust نتیجهٔ parser اصلی را می‌خواند و سطر
+بدون حصار را بدون تغییر append می‌کند یا زبان پیش‌فرض، factory زنده
+و push را پردازش می‌کند. اگر parser جایگزین شده باشد، پیش از اولین
+فراخوانی به Python واگذار می‌شود. wheel قدیمی، پیش‌فرض Python و خطای
+callback دست‌نخورده‌اند.
+[قرارداد و تست](README.md#dispatch-new-fenced-blocks-through-rust)
+
+stack واقعی handlerها با stash واقعی Markdown و formatterهای
+deterministic برای code/math در چند ورودی تودرتو و حالت validator
+بررسی شد؛ full Django اجرا نشد. ۳۳ تست Python هدفمند، ۱۲۹ تست واحد و
+۱۴۳ تست یکپارچهٔ Rust، بیلد آفلاین PyO3/HTTP و fmt/Clippy/Ruff گذشتند.
+یک تست نیازمند سرویس موقت اجرا نشد. وابستگی جدید دانلود نشد و CI
+بررسی نشد.
+
+پوشش HTTP همان ۲۸/۱۷۱ OpenAPI (۱۶٫۴٪) و ۲۸/۱۹۰ وب (۱۴٫۷٪) است.
+هیچ فایل Python بازنشسته و هیچ پیش‌فرض production تغییر نکرد.
+گام بعد، بررسی guardهای callback در مسیر یکپارچه یا انتخاب برش
+مستقل قابل‌آزمون بدون provision کامل Django است.

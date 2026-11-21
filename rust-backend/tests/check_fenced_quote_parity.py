@@ -4,6 +4,7 @@
 
 import ast
 import random
+import re
 import unittest
 from collections.abc import Callable
 from importlib import import_module
@@ -12,6 +13,8 @@ from types import SimpleNamespace
 from typing import cast
 from unittest.mock import Mock
 
+from markdown import Markdown
+from markdown.preprocessors import Preprocessor
 from typing_extensions import override
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -374,6 +377,120 @@ class NestedFencedLineParity(unittest.TestCase):
         except RuntimeError as caught:
             self.assertIs(caught, error)
             return seen, (type(caught), caught.args)
+
+
+def load_fence_stack(backend: object) -> dict[str, object]:
+    source = ast.parse(SOURCE.read_text(encoding="utf-8"), filename=str(SOURCE))
+    future = ast.parse("from __future__ import annotations").body
+    names = {
+        "FENCE_RE",
+        "_original_parse_fence_line",
+        "CODE_VALIDATORS",
+        "parse_fence_line",
+        "check_for_new_fence",
+        "generic_handler",
+        "validate_curl_content",
+        "ZulipBaseHandler",
+        "OuterHandler",
+        "QuoteHandler",
+        "SpoilerHandler",
+        "CodeHandler",
+        "TexHandler",
+        "FencedBlockPreprocessor",
+    }
+    body = []
+    for node in source.body:
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef)):
+            name = node.name
+        elif isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
+            name = node.targets[0].id
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            name = node.target.id
+        else:
+            continue
+        if name in names:
+            body.append(node)
+
+    models_source = ast.parse(
+        (ROOT / "zerver/models/realm_playgrounds.py").read_text(encoding="utf-8")
+    )
+    language = next(
+        ast.literal_eval(item.value)
+        for item in models_source.body
+        if isinstance(item, ast.Assign)
+        and isinstance(item.targets[0], ast.Name)
+        and item.targets[0].id == "PLAYGROUND_LANGUAGE_REGEX"
+    )
+    namespace = {
+        "_rust_markdown_fences": backend,
+        "_rust_markdown_blocks": None,
+        "cast": cast,
+        "override": override,
+        "re": re,
+        "Preprocessor": Preprocessor,
+        "PLAYGROUND_LANGUAGE_REGEX": language,
+        "MarkdownRenderingError": ValueError,
+    }
+    exec(compile(ast.Module(body=future + body, type_ignores=[]), str(SOURCE), "exec"), namespace)  # noqa: S102
+    return namespace
+
+
+class NestedFencedStackParity(unittest.TestCase):
+    def test_real_nested_stack_matches_disabled_and_old_wheel(self) -> None:
+        cases = [
+            ["plain", "~~~quote", "before", "```spoiler", "secret", "```", "after", "~~~"],
+            ["~~~quote", "```", "nested default code", "```", "~~~", "after"],
+            ["~~~spoiler Summary", "```", "nested no-language code", "```", "~~~"],
+            ["~~~quote", "```math", "α", "```", "never closed"],
+            ["~~~quote", "```python", "str = 'فارسی'", "```", "~~~", "line\r"],
+            ["~~~curl", "curl invalid", "~~~"],
+        ]
+        old_wheel = SimpleNamespace(parse_markdown_fence=EXTENSION.parse_markdown_fence)
+        for lines in cases:
+            with self.subTest(lines=lines):
+                expected = self.run_stack(None, lines)
+                self.assertEqual(self.run_stack(old_wheel, lines), expected)
+                self.assertEqual(self.run_stack(EXTENSION, lines), expected)
+
+    def run_stack(self, backend: object, lines: list[str]) -> tuple[object, ...]:
+        namespace = load_fence_stack(backend)
+        base = cast(type, namespace["FencedBlockPreprocessor"])
+
+        class Processor(base):
+            def format_code(self, lang: str | None, text: str) -> str:
+                return f"code({lang}:{text})"
+
+            def format_tex(self, text: str) -> str:
+                return f"math({text})"
+
+        md = Markdown()
+        processor = Processor(md, run_content_validators=True)
+        output: list[str] = []
+        error: object = None
+        try:
+            processor.handle_lines(lines, output, "python")
+            while processor.handlers:
+                processor.handlers[-1].done()
+        except ValueError as caught:
+            error = (type(caught), caught.args)
+        return output, md.htmlStash.rawHtmlBlocks, md.htmlStash.html_counter, error
+
+    def test_override_delegates_before_parsing(self) -> None:
+        native = Mock(wraps=EXTENSION.dispatch_new_fenced_block)
+        backend = SimpleNamespace(
+            parse_markdown_fence=EXTENSION.parse_markdown_fence, dispatch_new_fenced_block=native
+        )
+        scope = load_fence_stack(backend)
+        output: list[str] = []
+        call = cast(Callable[..., object], scope["check_for_new_fence"])
+        call(SimpleNamespace(), output, "before")
+        native.assert_called_once()
+        parser = Mock(return_value=None)
+        scope["parse_fence_line"] = parser
+        call(SimpleNamespace(), output, "after")
+        parser.assert_called_once_with("after")
+        native.assert_called_once()
+        self.assertEqual(output, ["before", "after"])
 
 
 if __name__ == "__main__":

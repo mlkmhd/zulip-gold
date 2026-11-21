@@ -1,7 +1,7 @@
 use pyo3::class::basic::CompareOp;
 use pyo3::exceptions::PyNameError;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PyString, PyType};
+use pyo3::types::{PyDict, PyList, PyString, PyTuple, PyType};
 
 use crate::{markdown_code, markdown_code_header};
 
@@ -50,6 +50,44 @@ pub(crate) fn handle_nested_fenced_block_line(
             check.call1((processor, output, line))?;
         }
     }
+    Ok(())
+}
+
+#[pyfunction]
+pub(crate) fn dispatch_new_fenced_block<'py>(
+    processor: &Bound<'py, PyAny>,
+    output: &Bound<'py, PyAny>,
+    line: &Bound<'py, PyAny>,
+    run_validators: &Bound<'py, PyAny>,
+    default_language: &Bound<'py, PyAny>,
+    parser: &Bound<'py, PyAny>,
+    context: &Bound<'py, PyDict>,
+) -> PyResult<()> {
+    let parsed = parser.call1((line,))?;
+    if parsed.is_none() {
+        output.call_method1("append", (line,))?;
+        return Ok(());
+    }
+
+    // The Python adapter only selects this path for its original parser, which
+    // returns an ordinary three-item tuple, or None, including on old wheels.
+    let parsed = parsed.cast::<PyTuple>()?;
+    let fence = parsed.get_item(0)?;
+    let mut language = parsed.get_item(1)?;
+    let header = parsed.get_item(2)?;
+    if !language.is_truthy()? && default_language.is_truthy()? {
+        language = default_language.clone();
+    }
+    let handler = global(context, "generic_handler")?.call1((
+        processor,
+        output,
+        fence,
+        language,
+        header,
+        run_validators,
+        default_language,
+    ))?;
+    processor.call_method1("push", (handler,))?;
     Ok(())
 }
 
