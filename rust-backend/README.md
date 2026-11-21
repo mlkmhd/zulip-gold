@@ -3744,10 +3744,10 @@ does not run handlers, reparse rendered HTML or retry an unsupported plan.
 A result-count mismatch is a caller protocol error and must propagate.
 
 This API is **not connected to the Python adapter**. The default and opt-in
-native planners still delegate matching TeX before rendering. Host state at
-each callback and when a renderer raises must be preserved before enabling a
-deferred commit path. A final-state certificate alone does not solve that
-exception protocol or retire any Python module.
+native planners still delegate matching TeX before rendering. The prefix
+checkpoints below prepare exception-state handling. Applying them to the host
+and measuring enumeration cost remain prerequisites for a separate opt-in
+adapter; a final-state certificate alone cannot retire any Python module.
 
 With the existing cached Rust dependencies and provisioned Python environment:
 
@@ -3767,3 +3767,54 @@ Python handlers. It varies registry precedence, nested nodes, tails, atomic
 input and mixed normal outcomes. `--mutant-error-class` must reject a changed
 error-span class. These finite checks do not cover renderer exceptions or
 benchmark the branch enumeration; no runtime activation or speedup is claimed.
+
+## Checkpoint deferred TeX before each renderer call
+
+`TexPreflight::begin()` returns the certified state immediately before the
+first renderer call and a single-use `TexPending` continuation. Apply that state
+before invoking the renderer with `body()` and `is_inline=True`. On a normal
+return, `complete(Some(html))` or `complete(None)` consumes the continuation and
+selects the next checkpoint, or the final state with no pending call. Empty
+successful HTML remains distinct from failure. Selection neither invokes guards
+nor searches Markdown, and renderer HTML stays raw. A continuation cannot be
+cloned or completed twice.
+
+If rendering raises, retain the applied state and any changes made by that
+callback, drop the continuation and propagate the original exception. Never
+complete it, fall back, or render again after an exception. Preflight retains
+one checkpoint for each distinct prefix of normal outcomes, under the same
+100,000-item and 8 MiB budgets as the final plans. Rejection still occurs before
+any renderer effect. Original tails remain present while their inline handlers
+run; paragraph text has already been cleared. Detached stash nodes, ancestor
+stacks, parent order, preceding entities and successful HTML all reflect the
+original callback position.
+
+Checkpoint metadata contains cumulative effects **only up to that call**.
+Host integration must preserve arena identities across checkpoints, apply
+attachment suffixes once, union mention sets, reconcile raw HTML counters and
+preserve existing metadata. It must also guard the live registry and helpers
+and account for renderer mutations before replacing subsequent host state.
+This pure Rust protocol does not apply host checkpoints or catch exceptions.
+It has no Python adapter, new flag, default routing change or Python retirement.
+
+The existing oracle can raise a sentinel exception at every possible callback
+position, after mixtures of normal success and failure:
+
+```bash
+python rust-backend/tests/check_tex_preflight_parity.py \
+    --probe rust-backend/target/debug/examples/tex_preflight \
+    --seed 962857 --cases 2000 --checkpoints \
+    --report /tmp/tex-checkpoint-parity.json
+python rust-backend/tests/check_tex_preflight_parity.py \
+    --probe rust-backend/target/debug/examples/tex_preflight \
+    --cases 0 --checkpoints --mutant-clear-tail \
+    --report /tmp/tex-checkpoint-mutant.json
+```
+
+The mutant command must fail. The oracle compares exception arguments, partial
+graphs, stash and parent identities, atomic text, ancestors, HTML blocks and
+counters, registry sorting and preservation of seeded rendering metadata.
+Rust tests also exercise every outcome prefix through six formulas and check
+that later attachment and mention effects have not been committed early.
+These finite comparisons do not test a live Python commit adapter, arbitrary
+callback mutations or production performance.

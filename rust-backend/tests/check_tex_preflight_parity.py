@@ -1,6 +1,8 @@
 # ruff: noqa: INP001
 import argparse
+import copy
 import hashlib
+import inspect
 import itertools
 import json
 import os
@@ -10,12 +12,17 @@ import subprocess
 import sys
 from collections.abc import Iterator
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 from xml.etree.ElementTree import Element, SubElement
 
 from check_media_plan_parity import decode_plan, snapshot
 from markdown import util
 from markdown.treeprocessors import InlineProcessor
+
+
+class RendererError(Exception):
+    pass
 
 
 def cases(seed: int, count: int) -> Iterator[str]:
@@ -87,6 +94,8 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=962856)
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--mutant-error-class", action="store_true")
+    parser.add_argument("--checkpoints", action="store_true")
+    parser.add_argument("--mutant-clear-tail", action="store_true")
     args = parser.parse_args()
     if args.cases < 0:
         parser.error("--cases must be nonnegative")
@@ -102,14 +111,18 @@ def main() -> None:
     from django.conf import settings
 
     from zerver.lib import markdown as reference
+    from zerver.lib.markdown.native_inline import RegistryInternals
 
     assert reference._rust_tex_handlers is None
     settings.ENABLE_FILE_LINKS = False
     source = list(cases(args.seed, args.cases))
     differences: list[dict[str, object]] = []
-    checked = accepted = delegated = rendered = 0
-    for registry, shape, mask in itertools.product(
-        ["normal", "reverse", "last"], range(4), [0, 63, 21, 42]
+    checked = accepted = delegated = rendered = no_checkpoint = 0
+    for registry, shape, mask, prefix in itertools.product(
+        ["normal", "reverse", "last"],
+        range(5),
+        [0, 63, 21, 42],
+        range(6) if args.checkpoints else [None],
     ):
         order = {
             "normal": [
@@ -155,7 +168,9 @@ def main() -> None:
             completed = subprocess.run(
                 [str(args.probe.resolve())],
                 input="".join(
-                    f"{data.encode().hex()}\t{registry}\t{shape}\t{counter}\t{mask}\n"
+                    f"{data.encode().hex()}\t{registry}\t{shape}\t{counter}\t{mask}"
+                    + (f"\t{prefix}" if prefix is not None else "")
+                    + "\n"
                     for data in batch
                 ),
                 text=True,
@@ -166,6 +181,9 @@ def main() -> None:
             assert len(lines) == len(batch), completed.stderr
             for data, line in zip(batch, lines, strict=True):
                 checked += 1
+                if line == "no-checkpoint":
+                    no_checkpoint += 1
+                    continue
                 if line == "delegate":
                     delegated += 1
                     assert data not in {"", "plain فارسی", "$$x$$ $$x$$ $$α$$"}
@@ -181,10 +199,31 @@ def main() -> None:
                 blocks = decode_list(blocks_text)
                 if args.mutant_error_class:
                     graph = graph.replace(b"tex-error".hex(), b"tex_error".hex())
+                if args.mutant_clear_tail:
+                    fields = graph.split("\t")
+                    for index in range(6, len(fields)):
+                        node = fields[index].split(",")
+                        node[3] = "-"
+                        fields[index] = ",".join(node)
+                    graph = "\t".join(fields)
                 actual, paths, has_image = decode_plan(graph)
                 assert not paths and not has_image
                 md = reference.ZulipMarkdown(linkifiers=[], linkifiers_key=0, email_gateway=False)
                 md.zulip_db_data = None
+                md.zulip_rendering_result = reference.MessageRenderingResult(
+                    rendered_content="sentinel",
+                    mentions_topic_wildcard=True,
+                    mentions_stream_wildcard=False,
+                    mentions_user_ids={1},
+                    mentions_user_group_ids={2},
+                    alert_words={"word"},
+                    links_for_preview={"url"},
+                    user_ids_with_alert_words={3},
+                    potential_attachment_path_ids=["a", "a"],
+                    thumbnail_spinners={"spinner"},
+                    has_image=True,
+                    has_link=True,
+                )
                 original = md.inlinePatterns
                 md.inlinePatterns = util.Registry()
                 for priority, name in enumerate(order):
@@ -205,7 +244,15 @@ def main() -> None:
                     child.tail = "$$tail$$"
                 elif shape == 3:
                     paragraph.text = util.AtomicString(data)
+                elif shape == 4:
+                    shared = SubElement(paragraph, "span")
+                    shared.text = "$$shared$$"
+                    shared.tail = "$$shared-tail$$"
+                    other = SubElement(tree, "p")
+                    other.text = "$$other$$"
+                    other.append(shared)
                 invoked: list[str] = []
+                metadata = copy.deepcopy(md.zulip_rendering_result)
 
                 def render(
                     body: str,
@@ -213,10 +260,13 @@ def main() -> None:
                     is_inline: bool,
                     invoked: list[str] = invoked,
                     mask: int = mask,
+                    prefix: int | None = prefix,
                 ) -> str | None:
                     assert is_inline
                     index = len(invoked)
                     invoked.append(body)
+                    if index == prefix:
+                        raise RendererError(index, body)
                     return (
                         ("" if index == 0 else f"<math>{index} &amp; $$raw$$</math>")
                         if mask & (1 << index)
@@ -227,7 +277,19 @@ def main() -> None:
                     patch.object(reference, "render_tex", render),
                     patch.object(reference, "allowed_schemes", ["http", "https", "mailto"]),
                 ):
-                    processor.run(tree, ["outer"])
+                    try:
+                        processor.run(tree, ["outer"])
+                    except RendererError as error:
+                        assert prefix is not None
+                        assert error.args == (prefix, invoked[-1])
+                        assert len(invoked) == prefix + 1
+                    else:
+                        assert prefix is None
+                if prefix is not None:
+                    registry_state = cast(RegistryInternals, md.inlinePatterns)
+                    assert registry_state._is_sorted is True
+                    assert [name for name, _priority in registry_state._priority] == order
+                assert md.zulip_rendering_result == metadata
                 rendered += len(invoked)
                 expected = snapshot(
                     tree, processor.stashed_nodes, processor.parent_map, processor.ancestors
@@ -244,6 +306,7 @@ def main() -> None:
                             "registry": registry,
                             "shape": shape,
                             "mask": mask,
+                            "prefix": prefix,
                             "actual": repr(actual),
                             "expected": repr(expected),
                             "calls": calls,
@@ -269,6 +332,7 @@ def main() -> None:
         root / "zerver/lib/markdown/inline_code.py",
         Path(__file__).with_name("check_media_plan_parity.py"),
         Path(util.__file__),
+        Path(inspect.getfile(InlineProcessor)),
     ]
     report = {
         "seed": args.seed,
@@ -276,6 +340,8 @@ def main() -> None:
         "checked": checked,
         "accepted": accepted,
         "delegated": delegated,
+        "no_checkpoint": no_checkpoint,
+        "checkpoints": args.checkpoints,
         "reference_renderer_calls": rendered,
         "differences": differences,
         "sha256": {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in hashed},

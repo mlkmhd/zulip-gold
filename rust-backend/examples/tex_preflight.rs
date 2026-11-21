@@ -58,6 +58,17 @@ fn plan(fields: &[&str]) {
             nodes.push(child);
         }
         "3" => nodes[1].text.as_mut().unwrap().atomic = true,
+        "4" => {
+            nodes[1].children.push(2);
+            let mut shared = node("span", Some("$$shared$$"), vec![]);
+            shared.tail = Some(Text {
+                value: "$$shared-tail$$".into(),
+                atomic: false,
+            });
+            nodes.push(shared);
+            nodes[0].children.push(3);
+            nodes.push(node("p", Some("$$other$$"), vec![2]));
+        }
         _ => {}
     }
     let kinds: &[u8] = match fields[1] {
@@ -102,7 +113,22 @@ fn plan(fields: &[&str]) {
         .collect::<Vec<_>>()
         .join(",");
     let mask: usize = fields[4].parse().unwrap();
+    let prefix = fields.get(5).map(|field| field.parse::<usize>().unwrap());
+    if prefix.is_some_and(|prefix| prefix >= checked.calls().len()) {
+        println!("no-checkpoint");
+        return;
+    }
+    let calls = if let Some(prefix) = prefix {
+        calls
+            .split(',')
+            .take(prefix + 1)
+            .collect::<Vec<_>>()
+            .join(",")
+    } else {
+        calls
+    };
     let results = (0..checked.calls().len())
+        .take(prefix.unwrap_or(checked.calls().len()))
         .map(|index| {
             (mask & (1 << index) != 0).then(|| {
                 if index == 0 {
@@ -113,7 +139,17 @@ fn plan(fields: &[&str]) {
             })
         })
         .collect();
-    let result = checked.into_plan(results).unwrap();
+    let result = if prefix.is_some() {
+        let mut progress = checked.begin();
+        for result in results {
+            progress = progress.next_call.unwrap().complete(result);
+        }
+        assert!(progress.next_call.is_some());
+        assert!(progress.state.registry_used);
+        progress.state
+    } else {
+        checked.into_plan(results).unwrap()
+    };
     let text = |value: Option<&Text>| {
         value.map_or("-".into(), |value| {
             format!("{}{}", u8::from(value.atomic), encode(&value.value))
@@ -175,7 +211,7 @@ fn main() {
     for line in io::stdin().lock().lines() {
         let line = line.unwrap();
         let fields: Vec<_> = line.split('\t').collect();
-        assert_eq!(fields.len(), 5);
+        assert!(matches!(fields.len(), 5 | 6));
         plan(&fields);
     }
 }

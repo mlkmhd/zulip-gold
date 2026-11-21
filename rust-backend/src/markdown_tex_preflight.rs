@@ -1,7 +1,7 @@
 //! Certify every normal TeX outcome before a caller can start rendering.
 //!
 //! This is preparation for a deferred-effect commit protocol. It does not call
-//! renderers, validate the host registry, or restore host state on exceptions.
+//! renderers, validate the host registry, or apply checkpoints to the host.
 //! The Python adapter must continue delegating TeX until that protocol exists.
 
 use crate::markdown_native_inline::{Inputs, Node, Pattern, Stashed, State, run_with_tex_outcomes};
@@ -13,6 +13,38 @@ const MAX_ITEMS: usize = 100_000;
 pub struct TexPreflight {
     calls: Vec<String>,
     plans: Vec<State>,
+    checkpoints: Vec<Option<State>>,
+}
+
+/// State immediately before the next renderer call, or the completed run.
+///
+/// The caller must apply this state before invoking `next_call`, preserving
+/// any mutations and exception from the renderer itself. This is not a
+/// checkpoint of a suspended Rust stack and cannot resume the inline engine.
+pub struct TexProgress {
+    pub state: State,
+    pub next_call: Option<TexPending>,
+}
+
+/// A single-use continuation for one renderer result, including ordinary failure.
+///
+/// Drop this continuation when the renderer raises. Completing it must never be
+/// used to recover from an exception, retry rendering, or select a new registry.
+pub struct TexPending {
+    body: String,
+    checked: TexPreflight,
+    results: Vec<Option<String>>,
+}
+
+impl TexPending {
+    pub fn body(&self) -> &str {
+        &self.body
+    }
+
+    pub fn complete(mut self, result: Option<String>) -> TexProgress {
+        self.results.push(result);
+        self.checked.into_progress(self.results)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -40,17 +72,45 @@ impl TexPreflight {
                 actual: results.len(),
             });
         }
+        Ok(self.into_progress(results).state)
+    }
+
+    /// Begin a sequence of single-use continuations without running a renderer.
+    ///
+    /// Apply each progress state before invoking its pending call. Complete the
+    /// pending call only for a normal result, preserving `None` versus an empty
+    /// successful string. The next state contains only effects up to its call.
+    /// HTML blocks include preceding entities and successful results; the host
+    /// counter is its original counter plus the block count. A completed run
+    /// has no pending call. No step invokes guards or reparses renderer output.
+    pub fn begin(self) -> TexProgress {
+        self.into_progress(Vec::new())
+    }
+
+    fn into_progress(mut self, results: Vec<Option<String>>) -> TexProgress {
         let mask = results.iter().enumerate().fold(0, |mask, (index, value)| {
             mask | (usize::from(value.is_some()) << index)
         });
-        let mut plans = self.plans;
-        let mut plan = plans.swap_remove(mask);
-        for (call, result) in plan.tex.iter().zip(results) {
+        let next_call = self.calls.get(results.len()).cloned();
+        let mut plan = if next_call.is_some() {
+            let index = (1 << results.len()) - 1 + mask;
+            self.checkpoints[index].take().unwrap()
+        } else {
+            self.plans.swap_remove(mask)
+        };
+        for (call, result) in plan.tex.iter().zip(&results) {
             if let Some(block) = call.html_block {
-                plan.html_blocks[block] = result.unwrap();
+                plan.html_blocks[block] = result.as_ref().unwrap().clone();
             }
         }
-        Ok(plan)
+        TexProgress {
+            state: plan,
+            next_call: next_call.map(|body| TexPending {
+                body,
+                checked: self,
+                results,
+            }),
+        }
     }
 }
 
@@ -108,6 +168,32 @@ fn charge_plan(plan: &State, bytes: &mut usize, items: &mut usize) -> Option<()>
     Some(())
 }
 
+struct Checkpoints {
+    states: Vec<Option<State>>,
+    bytes: usize,
+    items: usize,
+}
+
+impl Checkpoints {
+    fn record(&mut self, state: &State) -> Option<()> {
+        if state.tex.len() >= MAX_CALLS {
+            return None;
+        }
+        let mask = state.tex.iter().enumerate().fold(0, |mask, (index, call)| {
+            mask | (usize::from(call.html_block.is_some()) << index)
+        });
+        let index = (1 << state.tex.len()) - 1 + mask;
+        if self.states.len() <= index {
+            self.states.resize_with(index + 1, || None);
+        }
+        if self.states[index].is_none() {
+            charge_plan(state, &mut self.bytes, &mut self.items)?;
+            self.states[index] = Some(state.clone());
+        }
+        Some(())
+    }
+}
+
 /// Check the whole graph for every combination of successful and failed TeX.
 ///
 /// Pattern 22 is the guarded native TeX syntax. Supply the same immutable
@@ -118,8 +204,9 @@ fn charge_plan(plan: &State, bytes: &mut usize, items: &mut usize) -> Option<()>
 /// rejects the entire preflight before any rendering.
 ///
 /// At most six calls (64 combinations plus one discovery pass), 100,000 stored
-/// graph items and 8 MiB of stored text are accepted. Each pass also has the
-/// inline engine's existing work/depth limits. Larger graphs delegate.
+/// graph items and 8 MiB of stored text are accepted, including checkpoints.
+/// Each pass also has the inline engine's existing work/depth limits. Larger
+/// graphs delegate.
 pub fn preflight(
     nodes: Vec<Node>,
     patterns: &[Pattern],
@@ -140,6 +227,11 @@ pub fn preflight(
     for node in &nodes {
         input_items = input_items.checked_sub(node.children.len() + node.attributes.len())?;
     }
+    let mut checkpoints = Checkpoints {
+        states: Vec::new(),
+        bytes: MAX_BYTES,
+        items: MAX_ITEMS,
+    };
     let discovery = run_with_tex_outcomes(
         nodes.clone(),
         patterns,
@@ -147,13 +239,12 @@ pub fn preflight(
         inputs,
         Some(&[true; MAX_CALLS]),
         &mut guard,
+        |state| checkpoints.record(state),
     )?;
     let calls: Vec<_> = discovery.tex.iter().map(|call| call.body.clone()).collect();
-    let mut bytes = MAX_BYTES;
     for call in &calls {
-        bytes = bytes.checked_sub(call.len())?;
+        checkpoints.bytes = checkpoints.bytes.checked_sub(call.len())?;
     }
-    let mut items = MAX_ITEMS;
     let mut plans = Vec::new();
     let combinations = 1_usize << calls.len();
     let mut discovery = Some(discovery);
@@ -169,13 +260,18 @@ pub fn preflight(
                 inputs,
                 Some(&outcomes),
                 &mut guard,
+                |state| checkpoints.record(state),
             )?
         };
         if !plan.tex.iter().map(|call| &call.body).eq(&calls) {
             return None;
         }
-        charge_plan(&plan, &mut bytes, &mut items)?;
+        charge_plan(&plan, &mut checkpoints.bytes, &mut checkpoints.items)?;
         plans.push(plan);
     }
-    Some(TexPreflight { calls, plans })
+    Some(TexPreflight {
+        calls,
+        plans,
+        checkpoints: checkpoints.states,
+    })
 }

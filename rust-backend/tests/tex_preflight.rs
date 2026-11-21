@@ -340,3 +340,273 @@ fn bounds_retained_text_and_graph_items_across_all_outcomes() {
     }
     assert!(preflight(nodes, &[pattern(22)], vec![], inputs(), |_, _| None).is_none());
 }
+
+#[test]
+fn selects_every_prefix_of_six_results_without_reinvoking_guards() {
+    let bodies = ["a", "a", "α", "<&>", "fifth", "last"];
+    for prefix in 0..=6 {
+        for mask in 0..1 << prefix {
+            let mut visits = 0;
+            let checked = preflight(
+                paragraph("&amp; $$a$$ $$a$$ $$α$$ $$<&>$$ $$fifth$$ $$last$$"),
+                &[pattern(20), pattern(22), pattern(0)],
+                vec!["outer".into()],
+                inputs(),
+                |_, _| {
+                    visits += 1;
+                    Some(())
+                },
+            )
+            .unwrap();
+            let visited = visits;
+            let results: Vec<_> = (0..prefix)
+                .map(|index| (mask & (1 << index) != 0).then(|| format!("<math>{index}</math>")))
+                .collect();
+            let mut expected = vec!["&amp;".to_owned()];
+            expected.extend(results.iter().flatten().cloned());
+            let mut progress = checked.begin();
+            for result in results {
+                progress = progress.next_call.unwrap().complete(result);
+            }
+            assert_eq!(visits, visited);
+            assert_eq!(
+                progress.next_call.as_ref().map(|pending| pending.body()),
+                bodies.get(prefix).copied()
+            );
+            assert_eq!(progress.state.tex.len(), prefix);
+            assert_eq!(progress.state.html_blocks, expected);
+            for (index, call) in progress.state.tex.iter().enumerate() {
+                assert_eq!(call.body, bodies[index]);
+                assert_eq!(call.html_block.is_some(), mask & (1 << index) != 0);
+            }
+        }
+    }
+}
+
+#[test]
+fn first_checkpoint_keeps_detached_code_entity_and_cleared_paragraph_text() {
+    let checked = preflight(
+        paragraph("`code` &amp; $$first$$"),
+        &[pattern(1), pattern(20), pattern(22)],
+        vec!["outer".into()],
+        inputs(),
+        |_, _| panic!("native"),
+    )
+    .unwrap();
+    let progress = checked.begin();
+    let state = progress.state;
+    assert_eq!(
+        progress.next_call.as_ref().map(|pending| pending.body()),
+        Some("first")
+    );
+    assert!(state.registry_used);
+    assert!(state.nodes[1].text.is_none());
+    assert!(state.nodes[1].children.is_empty());
+    assert_eq!(state.parent_order, [1]);
+    assert_eq!(state.parents, [None, Some(0), None]);
+    assert_eq!(state.ancestors, ["outer", "div", "p"]);
+    assert_eq!(state.html_blocks, ["&amp;"]);
+    assert!(matches!(state.stash[0], Stashed::Node(2)));
+    assert_eq!(state.nodes[2].text.as_ref().unwrap().value, "code");
+    assert!(state.nodes[2].text.as_ref().unwrap().atomic);
+    let Stashed::Text(entity) = &state.stash[1] else {
+        panic!("entity placeholder");
+    };
+    assert_eq!(entity.value, "\u{2}wzxhzdk:7\u{3}");
+    assert!(!entity.atomic);
+}
+
+#[test]
+fn tail_checkpoint_retains_original_tail_and_completed_text_effects() {
+    let mut nodes = paragraph("$$first$$ &amp;");
+    nodes[1].tail = Some(Text {
+        value: "original $$tail$$ &lt;".into(),
+        atomic: false,
+    });
+    let checked = preflight(
+        nodes,
+        &[pattern(22), pattern(20)],
+        vec!["outer".into()],
+        inputs(),
+        |_, _| None,
+    )
+    .unwrap();
+    let progress = checked
+        .begin()
+        .next_call
+        .unwrap()
+        .complete(Some(String::new()));
+    let state = progress.state;
+    assert_eq!(
+        progress.next_call.as_ref().map(|pending| pending.body()),
+        Some("tail")
+    );
+    assert_eq!(
+        state.nodes[1].tail.as_ref().unwrap().value,
+        "original $$tail$$ &lt;"
+    );
+    assert_eq!(
+        state.nodes[1].text.as_ref().unwrap().value,
+        "\u{2}wzxhzdk:7\u{3} \u{2}wzxhzdk:8\u{3}"
+    );
+    assert_eq!(state.ancestors, ["outer", "div"]);
+    assert_eq!(state.html_blocks, ["", "&amp;"]);
+    assert_eq!(state.stash.len(), 2);
+    assert_eq!(state.tex.len(), 1);
+}
+
+#[test]
+fn recursive_checkpoint_keeps_ancestor_and_unstashed_node_state() {
+    let checked = preflight(
+        paragraph("**$$nested$$** $$outer$$"),
+        &[pattern(3), pattern(22)],
+        vec!["outer".into()],
+        inputs(),
+        |_, _| None,
+    )
+    .unwrap();
+    let progress = checked.begin();
+    assert_eq!(
+        progress.next_call.as_ref().map(|pending| pending.body()),
+        Some("nested")
+    );
+    let state = progress.state;
+    assert_eq!(state.ancestors, ["outer", "div", "p", "strong"]);
+    assert!(state.nodes[1].text.is_none());
+    assert!(state.stash.is_empty());
+    assert!(state.nodes[1].children.is_empty());
+    assert_eq!(state.nodes[2].tag, "strong");
+    assert_eq!(state.nodes[2].text.as_ref().unwrap().value, "$$nested$$");
+    assert!(state.parents[2].is_none());
+}
+
+#[test]
+fn no_tex_progress_completes_and_excess_results_are_protocol_errors() {
+    let checked = preflight(
+        paragraph("&amp;"),
+        &[pattern(20)],
+        vec![],
+        inputs(),
+        |_, _| None,
+    )
+    .unwrap();
+    let progress = checked.begin();
+    assert!(progress.next_call.is_none());
+    assert_eq!(progress.state.html_blocks, ["&amp;"]);
+    let checked = preflight(
+        paragraph("$$x$$"),
+        &[pattern(22)],
+        vec![],
+        inputs(),
+        |_, _| None,
+    )
+    .unwrap();
+    assert_eq!(
+        checked.into_plan(vec![None, None]).err(),
+        Some(TexResultCountError {
+            expected: 1,
+            actual: 2
+        })
+    );
+}
+
+#[test]
+fn checkpoints_include_only_prior_notifications_and_ordered_attachment_effects() {
+    use _zulip_backend::markdown_inline_mentions::UserPolicy;
+    use _zulip_backend::markdown_media::{AudioPolicy, ImageMetadata, MimePolicy};
+    use _zulip_backend::markdown_native_inline::{
+        Media, MentionData, MentionUserSnapshot, Mentions,
+    };
+
+    let mut nodes =
+        paragraph("@**first** ![one](/user_uploads/1/first) ![again](/user_uploads/1/first)");
+    nodes[0].children.extend([2, 3]);
+    nodes.push(node("p", Some("$$between$$"), vec![]));
+    nodes.push(node(
+        "p",
+        Some("@**last** ![last](/user_uploads/1/last)"),
+        vec![],
+    ));
+    let user = |id, name: &str| MentionUserSnapshot {
+        id,
+        full_name: name.into(),
+        is_active: true,
+    };
+    let mentions = Mentions {
+        data: Some(MentionData {
+            users_by_name: [
+                ("first".into(), Some(user(42, "first"))),
+                ("last".into(), Some(user(43, "last"))),
+            ]
+            .into(),
+            users_by_id: [(42, user(42, "first")), (43, user(43, "last"))].into(),
+            groups_by_name: Default::default(),
+        }),
+        user_policy: UserPolicy {
+            unicode_decimal: Default::default(),
+            max_id_digits: 4300,
+        },
+    };
+    let media = Media {
+        realm_host: None,
+        audio_previews: None,
+        image_previews: Some(
+            ["1/first", "1/last"]
+                .into_iter()
+                .map(|path| {
+                    (
+                        path.into(),
+                        ImageMetadata {
+                            width: "1".into(),
+                            height: "2".into(),
+                            content_type: None,
+                        },
+                    )
+                })
+                .collect(),
+        ),
+        audio_policy: AudioPolicy {
+            mime: MimePolicy::default(),
+            static_url: "/static/".into(),
+            external_uri_scheme: "https://".into(),
+            public_upload_root: None,
+            camo_uri: String::new(),
+            camo_key: None,
+        },
+    };
+    let mut image = link();
+    image.kind = 13;
+    let checked = preflight(
+        nodes,
+        &[pattern(17), image, pattern(22)],
+        vec![],
+        Inputs {
+            mentions: Some(&mentions),
+            media: Some(&media),
+            ..inputs()
+        },
+        |_, _| None,
+    )
+    .unwrap();
+    let progress = checked.begin();
+    assert_eq!(progress.state.mentions.users, [42].into());
+    assert_eq!(progress.state.attachment_paths, ["1/first", "1/first"]);
+    assert!(progress.state.has_image);
+    assert!(progress.state.html_blocks.is_empty());
+    let complete = progress.next_call.unwrap().complete(Some("raw".into()));
+    assert!(complete.next_call.is_none());
+    assert_eq!(complete.state.mentions.users, [42, 43].into());
+    assert_eq!(
+        complete.state.attachment_paths,
+        ["1/first", "1/first", "1/last"]
+    );
+    assert_eq!(complete.state.html_blocks, ["raw"]);
+}
+
+#[test]
+fn retained_checkpoints_share_the_whole_certificate_memory_budget() {
+    let mut nodes = paragraph("$$a$$ $$b$$ $$c$$ $$d$$ $$e$$ $$f$$");
+    nodes[0].children.push(2);
+    nodes.push(node("p", Some(&"x".repeat(80_000)), vec![]));
+    assert!(preflight(nodes, &[pattern(22)], vec![], inputs(), |_, _| None).is_none());
+}

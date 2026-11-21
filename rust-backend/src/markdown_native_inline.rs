@@ -63,7 +63,7 @@ impl Node {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Stashed {
     Node(usize),
     Text(Text),
@@ -96,6 +96,7 @@ pub struct NamedEmoji {
     pub realm: HashMap<String, String>,
 }
 
+#[derive(Clone)]
 pub struct State {
     pub nodes: Vec<Node>,
     pub parents: Vec<Option<usize>>,
@@ -116,7 +117,7 @@ pub struct State {
     pub tex: Vec<TexCall>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TexCall {
     pub body: String,
     pub html_block: Option<usize>,
@@ -172,7 +173,7 @@ pub struct Mentions {
     pub user_policy: UserPolicy,
 }
 
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MentionEffects {
     pub users: HashSet<i32>,
     pub groups: HashSet<i32>,
@@ -260,13 +261,14 @@ pub fn snapshot_text_stash(nodes: &[Node], stash: &[Stashed]) -> Option<TextStas
     Some(result)
 }
 
-struct Engine<'a, G> {
+struct Engine<'a, G, C> {
     state: State,
     patterns: &'a [Pattern],
     media: Option<&'a Media>,
     channels: Option<&'a Channels>,
     mentions: Option<&'a Mentions>,
     guard: G,
+    checkpoint: C,
     remaining: usize,
     remaining_link_bytes: usize,
     remaining_media_bytes: usize,
@@ -281,7 +283,7 @@ struct Engine<'a, G> {
     remaining_tex_bytes: usize,
 }
 
-impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
+impl<G: FnMut(usize, &str) -> Option<()>, C: FnMut(&State) -> Option<()>> Engine<'_, G, C> {
     fn step(&mut self, depth: usize) -> Option<()> {
         if depth > 64 || self.remaining == 0 || self.state.nodes.len() > 20_000 {
             return None;
@@ -905,6 +907,7 @@ impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
                         let Some(matched) = markdown_tex_syntax::find_tex(&data) else {
                             break;
                         };
+                        (self.checkpoint)(&self.state)?;
                         let success = *self.tex_outcomes?.get(self.state.tex.len())?;
                         let body = matched.body.to_owned();
                         let before = matched.before.to_owned();
@@ -1141,8 +1144,9 @@ impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
                     .as_ref()
                     .is_some_and(|t| !t.value.is_empty())
                 {
-                    let tail = self.state.nodes[child].tail.take()?;
+                    let tail = self.state.nodes[child].tail.clone()?;
                     let tail = self.handle(tail, 0, 0)?;
+                    self.state.nodes[child].tail = None;
                     let dummy = self.add_node("d");
                     let children = self.placeholders(Some(tail), dummy, false, 0)?;
                     self.state.nodes[child].tail = self.state.nodes[dummy].tail.take();
@@ -1307,7 +1311,15 @@ pub fn run_with_inputs(
     inputs: Inputs<'_>,
     guard: impl FnMut(usize, &str) -> Option<()>,
 ) -> Option<State> {
-    run_with_tex_outcomes(nodes, patterns, ancestors, inputs, None, guard)
+    run_with_tex_outcomes(
+        nodes,
+        patterns,
+        ancestors,
+        inputs,
+        None,
+        guard,
+        |_| Some(()),
+    )
 }
 
 pub(super) fn run_with_tex_outcomes(
@@ -1317,6 +1329,7 @@ pub(super) fn run_with_tex_outcomes(
     inputs: Inputs<'_>,
     tex_outcomes: Option<&[bool]>,
     guard: impl FnMut(usize, &str) -> Option<()>,
+    checkpoint: impl FnMut(&State) -> Option<()>,
 ) -> Option<State> {
     if nodes.is_empty()
         || nodes.len() > 20_000
@@ -1349,6 +1362,7 @@ pub(super) fn run_with_tex_outcomes(
         channels: inputs.channels,
         mentions: inputs.mentions,
         guard,
+        checkpoint,
         remaining: 100_000,
         remaining_link_bytes: 8 * 1024 * 1024,
         remaining_media_bytes: 8 * 1024 * 1024,
