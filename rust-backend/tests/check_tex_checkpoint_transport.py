@@ -187,6 +187,52 @@ class TexCheckpointTransportTest(unittest.TestCase):
         self.assertIs(root.text, replacement)
         self.assertEqual((paragraph.text, list(md.htmlStash.rawHtmlBlocks)), before)
 
+    def test_guard_detects_live_registry_changes_before_next_write(self) -> None:
+        for changed in ["registry", "handler", "order", "sorted", "none"]:
+            with self.subTest(changed=changed):
+                root = Element("div")
+                paragraph = SubElement(root, "p")
+                paragraph.text = "$$first$$ $$later$$"
+                md = Markdown()
+                registry = Registry()
+                registry.register(object(), "tex", 20)
+                registry.register(object(), "entity", 30)
+                processor = SimpleNamespace(md=md, inlinePatterns=registry)
+                nodes = [
+                    ("div", "div", None, None, [1], []),
+                    ("p", "p", (paragraph.text, False), None, [], []),
+                ]
+                first = EXTENSION.preflight_markdown_tex_checkpoint(
+                    nodes, [(20, []), (22, [])], [], 0
+                )
+                self.assertFalse(registry._is_sorted)
+                ordered = sorted(registry._priority, key=lambda item: item.priority, reverse=True)
+                committer = EXTENSION.MarkdownInlineCheckpoint(
+                    processor, [root, paragraph], ordered
+                )
+                committer.protect_registry()
+                plan, history, protected = first.take_checkpoint_with_text()
+                committer.apply(*plan, history, protected)
+                self.assertTrue(registry._is_sorted)
+                self.assertEqual(registry._priority, ordered)
+                if changed == "registry":
+                    processor.inlinePatterns = Registry()
+                elif changed == "handler":
+                    registry._data["tex"] = object()
+                elif changed == "order":
+                    registry._priority.reverse()
+                elif changed == "sorted":
+                    registry._is_sorted = False
+                second = first.complete("<b>output</b>")
+                plan, history, protected = second.take_checkpoint_with_text()
+                if changed == "none":
+                    committer.apply(*plan, history, protected)
+                    self.assertEqual(md.htmlStash.rawHtmlBlocks, ["<b>output</b>"])
+                else:
+                    with self.assertRaisesRegex(ValueError, "inconsistent inline checkpoint"):
+                        committer.apply(*plan, history, protected)
+                    self.assertEqual(md.htmlStash.rawHtmlBlocks, [])
+
     def test_unknown_registry_and_over_budget_defer(self) -> None:
         for patterns, data in [
             ([(21, [])], "$$first$$"),

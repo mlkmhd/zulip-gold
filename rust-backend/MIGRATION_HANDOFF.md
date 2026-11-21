@@ -5705,3 +5705,26 @@ Python-Markdown و بقای دادهٔ تغییر داده‌شده، گذشتن
 registry/helper و تست کامل در محیط آزمون ایزوله پیش از اتصال زنده
 است. مسیرهای مستقل ۲۸/۱۷۱ OpenAPI (۱۶٫۴٪) و ۲۸/۱۹۰ وب (۱۴٫۷٪)
 هستند؛ پیش‌فرض production و بازنشستگی فایل Python تغییری نکرد.
+
+## تشخیص تغییر registry میان checkpointهای TeX
+
+روش داخلی `protect_registry()` به caller آزمایشی اجازه می‌دهد
+پیش از planning و پیش از نخستین apply، registry را ثبت کند. قبل
+از هر apply، هویت registry، جدول handlerها و اعضایش، فهرست priority
+و ترتیب آن و پرچم sorted بازبینی می‌شوند. sort عادی committer بخشی
+از وضعیت مورد انتظار است. در تغییر ناسازگار، checkpoint بعدی پیش
+از اثر تازه رد می‌شود؛ اثر callback قبلی برگردانده نمی‌شود و retry
+یا fallback پس از آن مجاز نیست.
+[قرارداد guard](README.md#detect-stale-python-registries-between-tex-checkpoints)
+
+آزمون روی Registry واقعی Python-Markdown، sort عادی و تغییر
+registry، handler، ترتیب و sorted را مقایسه کرد. ۷ تست transport،
+۱۴ تست committer، ۶ تست renderer هدفمند، ۱۲۹ تست واحد و ۱۴۳ تست
+یکپارچه Rust با یک skip نیازمند سرویس، buildهای PyO3 و HTTP، و
+Clippy و Ruff آفلاین موفق بودند؛ دانلود صفر بود.
+
+این guard هویت و ساختار را بررسی می‌کند، نه دادهٔ داخلی handler یا
+قرارداد helper/renderer. برای اتصال زنده، پیش از نخستین callback
+snapshotهای واقعی را با guardهای adapter تطبیق دهید، mutationهای
+دیگر را پوشش دهید و parity کامل Django را ایزوله اجرا کنید. مسیر
+پیش‌فرض، تعداد مسیر HTTP مستقل و بازنشستگی فایل Python عوض نشد.

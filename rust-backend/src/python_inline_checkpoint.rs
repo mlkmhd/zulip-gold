@@ -9,11 +9,99 @@ use std::collections::HashSet;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::pyclass::{PyTraverseError, PyVisit};
-use pyo3::types::{PyDict, PyList, PySlice, PyString};
+use pyo3::types::{PyBool, PyDict, PyList, PySlice, PyString};
 
 use crate::python::NativeInlineResult;
 
 type ProtectedText = (Option<Py<PyAny>>, Option<Py<PyAny>>);
+
+struct RegistryGuard {
+    registry: Py<PyAny>,
+    data: Py<PyDict>,
+    entries: Vec<(Py<PyAny>, Py<PyAny>)>,
+    priority: Py<PyList>,
+    order: Vec<Py<PyAny>>,
+    sorted: bool,
+}
+
+impl RegistryGuard {
+    fn capture(processor: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let registry = processor.getattr("inlinePatterns")?;
+        if !registry.get_type().is(&processor
+            .py()
+            .import("markdown.util")?
+            .getattr("Registry")?)
+        {
+            return Err(invalid());
+        }
+        let data = registry.getattr("_data")?.cast_into_exact::<PyDict>()?;
+        let priority = registry.getattr("_priority")?.cast_into_exact::<PyList>()?;
+        let sorted = registry
+            .getattr("_is_sorted")?
+            .cast_into_exact::<PyBool>()?
+            .is_true();
+        let entries = data
+            .iter()
+            .map(|(key, value)| (key.unbind(), value.unbind()))
+            .collect();
+        let order = priority.iter().map(Bound::unbind).collect();
+        Ok(Self {
+            registry: registry.unbind(),
+            data: data.unbind(),
+            entries,
+            priority: priority.unbind(),
+            order,
+            sorted,
+        })
+    }
+
+    fn check(&self, processor: &Bound<'_, PyAny>) -> PyResult<()> {
+        let py = processor.py();
+        let registry = processor.getattr("inlinePatterns")?;
+        if !registry.is(self.registry.bind(py)) {
+            return Err(invalid());
+        }
+        let data = registry.getattr("_data")?;
+        let priority = registry.getattr("_priority")?;
+        let is_sorted = registry.getattr("_is_sorted")?;
+        let data_original = self.data.bind(py);
+        let priority_original = self.priority.bind(py);
+        if !data.is(data_original)
+            || !priority.is(priority_original)
+            || !is_sorted.is_exact_instance_of::<PyBool>()
+            || is_sorted.cast::<PyBool>()?.is_true() != self.sorted
+            || data_original.len() != self.entries.len()
+            || priority_original.len() != self.order.len()
+            || data_original
+                .iter()
+                .zip(&self.entries)
+                .any(|((key, value), expected)| {
+                    !key.is(expected.0.bind(py)) || !value.is(expected.1.bind(py))
+                })
+            || priority_original
+                .iter()
+                .zip(&self.order)
+                .any(|(item, expected)| !item.is(expected.bind(py)))
+        {
+            return Err(invalid());
+        }
+        Ok(())
+    }
+
+    fn traverse(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.registry)?;
+        visit.call(&self.data)?;
+        visit.call(&self.priority)?;
+        for (key, value) in &self.entries {
+            visit.call(key)?;
+            visit.call(value)?;
+        }
+        for item in &self.order {
+            visit.call(item)?;
+        }
+        Ok(())
+    }
+}
 
 #[pyclass]
 pub struct MarkdownInlineCheckpoint {
@@ -22,6 +110,7 @@ pub struct MarkdownInlineCheckpoint {
     originals: usize,
     created: Vec<(String, Vec<(String, String)>)>,
     ordered: Option<Py<PyList>>,
+    registry_guard: Option<RegistryGuard>,
     ancestor_lists: Vec<Py<PyList>>,
     ancestor_history: Option<Vec<Vec<String>>>,
     protected_text: Option<Vec<ProtectedText>>,
@@ -63,6 +152,7 @@ impl MarkdownInlineCheckpoint {
                     .cast_into::<PyList>()?
                     .unbind(),
             ),
+            registry_guard: None,
             created: Vec::new(),
             ancestor_lists: Vec::new(),
             ancestor_history: None,
@@ -77,6 +167,16 @@ impl MarkdownInlineCheckpoint {
             applied: false,
             failed: false,
         })
+    }
+
+    fn protect_registry(&mut self, py: Python<'_>) -> PyResult<()> {
+        if self.applied || self.failed || self.registry_guard.is_some() {
+            return Err(invalid());
+        }
+        self.registry_guard = Some(RegistryGuard::capture(
+            self.processor.as_ref().unwrap().bind(py),
+        )?);
+        Ok(())
     }
 
     #[pyo3(signature = (plan, paths, has_image, html_blocks, ancestor_history=None, untouched_text=None))]
@@ -137,6 +237,9 @@ impl MarkdownInlineCheckpoint {
             return Err(invalid());
         }
         let processor = self.processor.as_ref().unwrap().bind(py);
+        if let Some(guard) = &self.registry_guard {
+            guard.check(processor)?;
+        }
         let html = processor.getattr("md")?.getattr("htmlStash")?;
         let blocks = html.getattr("rawHtmlBlocks")?;
         let counter = self
@@ -370,6 +473,17 @@ impl MarkdownInlineCheckpoint {
         self.ancestor_lists = ancestor_lists;
         self.ancestor_history = ancestor_history;
         self.protected_text = protected_text;
+        if registry_used && let Some(guard) = &mut self.registry_guard {
+            guard.order = self
+                .ordered
+                .as_ref()
+                .unwrap()
+                .bind(py)
+                .iter()
+                .map(Bound::unbind)
+                .collect();
+            guard.sorted = true;
+        }
         self.failed = false;
         Ok(())
     }
@@ -377,6 +491,9 @@ impl MarkdownInlineCheckpoint {
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         visit.call(&self.processor)?;
         visit.call(&self.ordered)?;
+        if let Some(guard) = &self.registry_guard {
+            guard.traverse(&visit)?;
+        }
         for element in &self.elements {
             visit.call(element)?;
         }
@@ -396,6 +513,7 @@ impl MarkdownInlineCheckpoint {
         self.failed = true;
         self.processor = None;
         self.ordered = None;
+        self.registry_guard = None;
         self.elements.clear();
         self.ancestor_lists.clear();
         self.protected_text = None;

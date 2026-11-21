@@ -4012,3 +4012,18 @@ snapshot detection, not recovery from arbitrary callback mutations:
 after a renderer effect, do not switch to the legacy renderer or retry.
 The older two-item transport and existing callers without provenance
 continue to work. The live renderer and its feature flags are unchanged.
+
+## Detect stale Python registries between TeX checkpoints
+
+An experimental caller can call `protect_registry()` before planning and
+before applying any checkpoints. The committer then checks the exact
+Python-Markdown registry, its handler mapping, priority list and
+entries, and sorted flag before each apply. Its own successful
+in-place sort updates the expected order. A later change is rejected
+before additional host writes, without undoing the earlier renderer
+callback. Callers must not retry or switch the renderer after effects.
+
+This is a structural identity check, not a proof that a mutable handler
+or helper has retained its behavior. A live adapter still must certify
+the registry semantics, helpers, and callback effects before enabling
+the checkpoint path.
