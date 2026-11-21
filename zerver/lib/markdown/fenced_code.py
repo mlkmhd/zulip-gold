@@ -686,6 +686,11 @@ class FencedBlockPreprocessor(Preprocessor):
 
     def _escape(self, txt: str) -> str:
         """basic html escaping"""
+        escape_code = getattr(_rust_code_highlight, "escape_fenced_code", None)
+        if escape_code is not None and type(txt) is str:
+            result = escape_code(txt)
+            if result is not None:
+                return cast(str, result)
         txt = txt.replace("&", "&amp;")
         txt = txt.replace("<", "&lt;")
         txt = txt.replace(">", "&gt;")

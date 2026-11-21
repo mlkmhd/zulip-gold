@@ -47,6 +47,11 @@ pub(crate) fn escape_code(code: &str) -> String {
         .replace('>', "&gt;")
 }
 
+#[cfg(any(feature = "python", test))]
+pub(crate) fn escape_fenced_code(code: &str) -> String {
+    escape_code(code).replace('"', "&quot;")
+}
+
 pub(crate) fn find_inline_code(data: &str, position: usize) -> Option<CodeMatch<'_>> {
     let start = data.char_indices().nth(position)?.0;
     let bytes = data.as_bytes();
@@ -120,6 +125,16 @@ pub(crate) fn find_inline_code(data: &str, position: usize) -> Option<CodeMatch<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fenced_code_escapes_quotes_without_reescaping_entities() {
+        assert_eq!(
+            escape_fenced_code("<&>\"' &amp; فارسی 😀\n\r"),
+            "&lt;&amp;&gt;&quot;' &amp;amp; فارسی 😀\n\r"
+        );
+        assert_eq!(escape_fenced_code(""), "");
+        assert_eq!(escape_code("\"'"), "\"'");
+    }
 
     #[test]
     fn preserves_code_whitespace_and_unicode_offsets() {

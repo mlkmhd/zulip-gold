@@ -246,7 +246,8 @@ mod _zulip_backend {
 
     #[pymodule_export]
     use crate::python_highlight::{
-        finish_fenced_highlight, parse_fenced_code_header, prepare_fenced_highlight,
+        escape_fenced_code, finish_fenced_highlight, parse_fenced_code_header,
+        prepare_fenced_highlight,
     };
     #[pymodule_export]
     use crate::python_tex::{

@@ -3450,3 +3450,40 @@ It checks that every supported input actually used the native parser. The
 and must produce differences. This is a compatibility corpus, not exhaustive
 string coverage or a performance benchmark. Full renderer and TeX deferred
 planner effects still need migration before Python files can be retired.
+
+## Escape fenced code HTML through Rust
+
+The existing default-off `ZULIP_RUST_CODE_HIGHLIGHT=1` also opts into
+`escape_fenced_code(source)` when the installed wheel exports it. The native
+helper reuses inline code escaping, then escapes double quotes, matching the
+original four replacements in order. Apostrophes, line endings, NUL and Unicode
+text stay unchanged; existing entities have their ampersand escaped once.
+Both disabled highlighting and the existing logged highlighter-error fallback
+use this path. There is no additional flag, dependency or HTML parsing step.
+
+The adapter accepts exact strings. String subclasses keep their `replace`
+behavior in Python. Invalid UTF-8 conversion (including surrogates) and sources
+over 8 MiB return `None` before effects and use the original implementation.
+Older wheels fall back independently of their highlighting exports. Native
+exceptions propagate without a retry; highlighter exceptions retain the
+original Python logging context. Pygments and lxml are still external Python
+runtime dependencies; this does not retire the fenced-code module.
+
+With a fresh cached wheel installed into a separate target:
+
+```bash
+PYTHONPATH="$PWD/var/code-escape-python:$PWD" ZULIP_RUST_CODE_HIGHLIGHT=1 \
+    ./tools/test-backend zerver.tests.test_code_escape_rust \
+    zerver.tests.test_code_highlight_rust zerver.tests.test_markdown
+PYTHONPATH="$PWD/var/code-escape-python:$PWD" DJANGO_SETTINGS_MODULE=zproject.test_settings \
+    python rust-backend/tests/check_code_escape_parity.py --unicode \
+    --report var/code-escape-parity.json
+```
+
+Build with `maturin build --release --locked --offline` and install with
+`pip --no-index --no-deps` as above, retaining earlier wheel targets. The oracle
+uses the unchanged Python fallback as its reference, checks every Unicode
+scalar in a fixed HTML context, enumerates short strings, randomizes bodies
+and exercises both sides of the byte-size limit. It verifies actual native
+acceptance and explicit delegation. `--mutant-unescaped-quotes` must report
+differences. This is neither exhaustive string testing nor a benchmark.

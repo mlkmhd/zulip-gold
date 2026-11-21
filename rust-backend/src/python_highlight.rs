@@ -2,7 +2,16 @@ use pyo3::exceptions::PyNameError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString, PyType};
 
-use crate::markdown_code_header;
+use crate::{markdown_code, markdown_code_header};
+
+#[pyfunction]
+pub(crate) fn escape_fenced_code(source: &Bound<'_, PyString>) -> Option<String> {
+    let source = source.to_str().ok()?;
+    if source.len() > 8 * 1024 * 1024 {
+        return None;
+    }
+    Some(markdown_code::escape_fenced_code(source))
+}
 
 type CodeHeader = (String, Option<(String, bool, Option<String>)>);
 
