@@ -36,6 +36,12 @@ fn node(tag: &str, text: Option<&str>, children: Vec<usize>) -> Node {
 }
 
 fn plan(fields: &[&str]) {
+    let history = fields.last() == Some(&"history");
+    let fields = if history {
+        &fields[..fields.len() - 1]
+    } else {
+        fields
+    };
     let data = decode(fields[0]);
     let mut nodes = vec![node("div", None, vec![1]), node("p", Some(&data), vec![])];
     match fields[2] {
@@ -204,14 +210,33 @@ fn plan(fields: &[&str]) {
         .map(|block| format!("x{}", encode(block)))
         .collect::<Vec<_>>()
         .join(",");
-    println!("\ttex\t{calls}\t{blocks}");
+    print!("\ttex\t{calls}\t{blocks}");
+    if history {
+        let history = result
+            .ancestor_history
+            .iter()
+            .map(|values| {
+                format!(
+                    "x{}",
+                    values
+                        .iter()
+                        .map(|value| encode(value))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(";");
+        print!("\tancestors\t{history}");
+    }
+    println!();
 }
 
 fn main() {
     for line in io::stdin().lock().lines() {
         let line = line.unwrap();
         let fields: Vec<_> = line.split('\t').collect();
-        assert!(matches!(fields.len(), 5 | 6));
+        assert!(matches!(fields.len(), 5 | 6) || (fields.len() == 7 && fields[6] == "history"));
         plan(&fields);
     }
 }

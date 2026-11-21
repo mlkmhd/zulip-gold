@@ -104,6 +104,9 @@ pub struct State {
     pub parent_order: Vec<usize>,
     pub registry_used: bool,
     pub ancestors: Vec<String>,
+    /// Final values of earlier traversal lists, in identity order. Only TeX
+    /// preflight retains these; the current list is `ancestors`.
+    pub ancestor_history: Vec<Vec<String>>,
     /// Pending effects, committed with the entire graph; duplicates are meaningful.
     pub attachment_paths: Vec<String>,
     /// Set the host's has_image when true; false never clears an existing value.
@@ -281,6 +284,8 @@ struct Engine<'a, G, C> {
     autolinks: Option<&'a markdown_autolinks::Matcher>,
     tex_outcomes: Option<&'a [bool]>,
     remaining_tex_bytes: usize,
+    remaining_ancestor_bytes: usize,
+    remaining_ancestor_items: usize,
 }
 
 impl<G: FnMut(usize, &str) -> Option<()>, C: FnMut(&State) -> Option<()>> Engine<'_, G, C> {
@@ -1105,8 +1110,23 @@ impl<G: FnMut(usize, &str) -> Option<()>, C: FnMut(&State) -> Option<()>> Engine
             pending.extend(children.into_iter().rev().map(|child| (child, depth + 1)));
         }
         let mut stack = VecDeque::from([(0, ancestors)]);
+        let mut visited = false;
         while let Some((current, parents)) = stack.pop_front() {
             self.step(0)?;
+            if self.tex_outcomes.is_some() && visited {
+                let previous = &self.state.ancestors;
+                self.remaining_ancestor_items = self
+                    .remaining_ancestor_items
+                    .checked_sub(1 + previous.len())?;
+                for tag in previous {
+                    self.remaining_ancestor_bytes =
+                        self.remaining_ancestor_bytes.checked_sub(tag.len())?;
+                }
+                self.state
+                    .ancestor_history
+                    .push(std::mem::take(&mut self.state.ancestors));
+            }
+            visited = true;
             self.state.ancestors = parents;
             let mut ancestors = Vec::new();
             let mut node = Some(current);
@@ -1351,6 +1371,7 @@ pub(super) fn run_with_tex_outcomes(
             parent_order: Vec::new(),
             registry_used: false,
             ancestors: Vec::new(),
+            ancestor_history: Vec::new(),
             attachment_paths: Vec::new(),
             has_image: false,
             mentions: MentionEffects::default(),
@@ -1375,6 +1396,8 @@ pub(super) fn run_with_tex_outcomes(
         autolinks: inputs.autolinks,
         tex_outcomes,
         remaining_tex_bytes: 8 * 1024 * 1024,
+        remaining_ancestor_bytes: 8 * 1024 * 1024,
+        remaining_ancestor_items: 100_000,
     }
     .run(ancestors)
 }

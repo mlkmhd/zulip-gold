@@ -135,6 +135,7 @@ fn charge_plan(plan: &State, bytes: &mut usize, items: &mut usize) -> Option<()>
         plan.stash.len(),
         plan.parent_order.len(),
         plan.ancestors.len(),
+        plan.ancestor_history.len(),
         plan.attachment_paths.len(),
         plan.html_blocks.len(),
         plan.tex.len(),
@@ -144,6 +145,12 @@ fn charge_plan(plan: &State, bytes: &mut usize, items: &mut usize) -> Option<()>
         *items = items.checked_sub(length)?;
     }
     charge_nodes(&plan.nodes, bytes)?;
+    for ancestors in &plan.ancestor_history {
+        *items = items.checked_sub(ancestors.len())?;
+        for tag in ancestors {
+            *bytes = bytes.checked_sub(tag.len())?;
+        }
+    }
     for value in plan
         .nodes
         .iter()

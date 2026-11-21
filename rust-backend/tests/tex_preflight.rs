@@ -610,3 +610,59 @@ fn retained_checkpoints_share_the_whole_certificate_memory_budget() {
     nodes.push(node("p", Some(&"x".repeat(80_000)), vec![]));
     assert!(preflight(nodes, &[pattern(22)], vec![], inputs(), |_, _| None).is_none());
 }
+
+#[test]
+fn ancestor_history_finishes_old_lists_and_keeps_nested_calls_on_the_same_list() {
+    let mut nodes = paragraph("**$$nested$$** $$outer$$");
+    nodes[0].children.push(2);
+    nodes.push(node("p", None, vec![3]));
+    nodes.push(node("span", Some("$$child$$"), vec![]));
+    let checked = preflight(
+        nodes,
+        &[pattern(3), pattern(22)],
+        vec!["outer".into()],
+        inputs(),
+        |_, _| None,
+    )
+    .unwrap();
+    let first = checked.begin();
+    assert!(first.state.ancestor_history.is_empty());
+    assert_eq!(first.state.ancestors, ["outer", "div", "p", "strong"]);
+    let second = first.next_call.unwrap().complete(None);
+    assert!(second.state.ancestor_history.is_empty());
+    assert_eq!(second.state.ancestors, ["outer", "div", "p"]);
+    let third = second.next_call.unwrap().complete(None);
+    assert_eq!(third.next_call.as_ref().unwrap().body(), "child");
+    assert_eq!(third.state.ancestor_history[0], ["outer", "div"]);
+    assert_eq!(third.state.ancestor_history.len(), 3);
+    assert_eq!(third.state.ancestors, ["outer", "div", "div", "p", "span"]);
+    let history = third.state.ancestor_history;
+    let final_state = third.next_call.unwrap().complete(None).state;
+    assert!(final_state.ancestor_history.starts_with(&history));
+}
+
+#[test]
+fn ordinary_plans_do_not_retain_ancestor_lists() {
+    let mut nodes = paragraph("**first**");
+    nodes[1].children.push(2);
+    nodes.push(node("span", Some("second"), vec![]));
+    let state = run_with_inputs(nodes, &[pattern(3)], vec![], inputs(), |_, _| None).unwrap();
+    assert!(state.ancestor_history.is_empty());
+}
+
+#[test]
+fn retained_ancestor_aliases_count_toward_certificate_limits() {
+    let mut nodes = paragraph("$$one$$");
+    nodes[1].children.push(2);
+    nodes.push(node("span", Some("$$two$$"), vec![]));
+    assert!(
+        preflight(
+            nodes,
+            &[pattern(22)],
+            vec!["parent".into(); 30_000],
+            inputs(),
+            |_, _| None,
+        )
+        .is_none()
+    );
+}

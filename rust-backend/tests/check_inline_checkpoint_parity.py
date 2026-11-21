@@ -22,7 +22,8 @@ if TYPE_CHECKING:
     from zerver.lib.markdown import ZulipMarkdown
 
 
-def decode(line: str, registry_used: bool) -> tuple[NativeResult, list[str]]:
+def decode(line: str, registry_used: bool) -> tuple[NativeResult, list[str], list[list[str]]]:
+    line, history = line.split("\tancestors\t")
     graph, extra = line.split("\ttex\t")
     _, blocks = extra.split("\t")
     fields = graph.split("\t")
@@ -65,6 +66,11 @@ def decode(line: str, registry_used: bool) -> tuple[NativeResult, list[str]]:
             ([], [], False, False),
         ),
         [bytes.fromhex(value[1:]).decode() for value in blocks.split(",") if value],
+        [
+            [bytes.fromhex(tag).decode() for tag in values[1:].split(",") if tag]
+            for values in history.split(";")
+            if values
+        ],
     )
 
 
@@ -107,6 +113,14 @@ def capture(root: Element, processor: InlineProcessor, md: "ZulipMarkdown") -> o
     )
 
 
+def capture_aliases(current: list[str], aliases: list[list[str]]) -> object:
+    return (
+        copy.deepcopy(aliases),
+        [alias is current for alias in aliases],
+        [[first is second for second in aliases] for first in aliases],
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Apply every certified TeX prefix to live Python objects"
@@ -116,6 +130,7 @@ def main() -> None:
     parser.add_argument("--seed", default=962858, type=int)
     parser.add_argument("--report", required=True, type=Path)
     parser.add_argument("--mutant-duplicate-html", action="store_true")
+    parser.add_argument("--mutant-replace-ancestors", action="store_true")
     args = parser.parse_args()
     assert args.cases >= 0
     assert not any(
@@ -185,7 +200,7 @@ def main() -> None:
                 input="".join(
                     f"{data.encode().hex()}\t{registry}\t{shape}\t{counter}\t{mask}"
                     + ("" if prefix is None else f"\t{prefix}")
-                    + "\n"
+                    + "\thistory\n"
                     for data in batch
                     for prefix in [*range(6), None]
                 ),
@@ -230,6 +245,8 @@ def main() -> None:
                 md.htmlStash.html_counter = counter
                 md.htmlStash.rawHtmlBlocks.append("seed")
                 expected: list[object] = []
+                aliases: list[list[str]] = []
+                expected_aliases: list[object] = []
 
                 def render(
                     body: str,
@@ -240,10 +257,14 @@ def main() -> None:
                     root: Element = originals[0],
                     md: "ZulipMarkdown" = md,
                     mask: int = mask,
+                    aliases: list[list[str]] = aliases,
+                    expected_aliases: list[object] = expected_aliases,
                 ) -> str | None:
                     assert is_inline
                     call = len(expected)
                     expected.append(capture(root, processor, md))
+                    aliases.append(processor.ancestors)
+                    expected_aliases.append(capture_aliases(processor.ancestors, aliases))
                     return (
                         ("" if call == 0 else f"<math>{call} &amp; $$raw$$</math>")
                         if mask & (1 << call)
@@ -256,6 +277,7 @@ def main() -> None:
                 ):
                     processor.run(originals[0], ["outer"])
                 expected.append(capture(originals[0], processor, md))
+                expected_aliases.append(capture_aliases(processor.ancestors, aliases))
                 assert md.zulip_rendering_result == initial_metadata
                 calls += len(expected) - 1
                 assert len(chain) == len(expected)
@@ -271,11 +293,16 @@ def main() -> None:
                 registry_state._is_sorted = False
                 committer = constructor(processor, originals, ordered)
                 stash_identity = parent_identity = None
+                aliases = []
                 for step, (line, wanted) in enumerate(zip(chain, expected, strict=True)):
                     # The diagnostic transport omits the registry-used bit; its
                     # decision is checked by the existing pure-Rust oracle.
-                    plan, blocks = decode(line, sorted_state)
-                    committer.apply(plan, [], False, blocks)
+                    plan, blocks, history = decode(line, sorted_state)
+                    committer.apply(plan, [], False, blocks, history)
+                    if args.mutant_replace_ancestors:
+                        processor.ancestors = processor.ancestors[:]
+                    if step + 1 < len(chain):
+                        aliases.append(processor.ancestors)
                     if args.mutant_duplicate_html:
                         md.htmlStash.rawHtmlBlocks.extend(blocks)
                     states += 1
@@ -287,7 +314,8 @@ def main() -> None:
                     parent_identity = id(processor.parent_map)
                     assert identities == [(id(node), id(node.attrib)) for node in originals]
                     assert md.zulip_rendering_result == initial_metadata
-                    if actual != wanted:
+                    actual_aliases = capture_aliases(processor.ancestors, aliases)
+                    if actual != wanted or actual_aliases != expected_aliases[step]:
                         differences.append(
                             {
                                 "data": data,
@@ -297,6 +325,8 @@ def main() -> None:
                                 "step": step,
                                 "actual": repr(actual),
                                 "expected": repr(wanted),
+                                "actual_aliases": repr(actual_aliases),
+                                "expected_aliases": repr(expected_aliases[step]),
                             }
                         )
                         break

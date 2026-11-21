@@ -20,6 +20,8 @@ pub struct MarkdownInlineCheckpoint {
     originals: usize,
     created: Vec<(String, Vec<(String, String)>)>,
     ordered: Option<Py<PyList>>,
+    ancestor_lists: Vec<Py<PyList>>,
+    ancestor_history: Option<Vec<Vec<String>>>,
     html_counter: usize,
     html_length: usize,
     blocks: Vec<String>,
@@ -59,6 +61,8 @@ impl MarkdownInlineCheckpoint {
                     .unbind(),
             ),
             created: Vec::new(),
+            ancestor_lists: Vec::new(),
+            ancestor_history: None,
             blocks: Vec::new(),
             paths: Vec::new(),
             users: HashSet::new(),
@@ -71,6 +75,7 @@ impl MarkdownInlineCheckpoint {
         })
     }
 
+    #[pyo3(signature = (plan, paths, has_image, html_blocks, ancestor_history=None))]
     fn apply(
         &mut self,
         py: Python<'_>,
@@ -78,6 +83,7 @@ impl MarkdownInlineCheckpoint {
         paths: Vec<String>,
         has_image: bool,
         html_blocks: Vec<String>,
+        ancestor_history: Option<Vec<Vec<String>>>,
     ) -> PyResult<()> {
         if self.failed {
             return Err(PyRuntimeError::new_err(
@@ -97,6 +103,12 @@ impl MarkdownInlineCheckpoint {
             || (self.channel && !channel)
             || (self.topic && !topic)
             || (self.has_image && !has_image)
+            || (self.applied && self.ancestor_history.is_some() != ancestor_history.is_some())
+            || self.ancestor_history.as_ref().is_some_and(|previous| {
+                !ancestor_history
+                    .as_ref()
+                    .is_some_and(|history| history.starts_with(previous))
+            })
             || nodes
                 .iter()
                 .any(|node| node.4.iter().any(|&child| child >= count))
@@ -171,6 +183,20 @@ impl MarkdownInlineCheckpoint {
         for (child, parent) in parents {
             parent_map.set_item(elements[child].bind(py), elements[parent].bind(py))?;
         }
+        let mut ancestor_lists: Vec<_> = self
+            .ancestor_lists
+            .iter()
+            .map(|value| value.clone_ref(py))
+            .collect();
+        if let Some(history) = &ancestor_history {
+            for values in history
+                .iter()
+                .chain(std::iter::once(&ancestors))
+                .skip(ancestor_lists.len())
+            {
+                ancestor_lists.push(PyList::new(py, values)?.unbind());
+            }
+        }
         // An exception after host mutation leaves its partial state observable.
         // Poison the committer rather than permitting a retry of those effects.
         self.failed = true;
@@ -197,7 +223,23 @@ impl MarkdownInlineCheckpoint {
             processor.setattr("stashed_nodes", stashed)?;
             processor.setattr("parent_map", parent_map)?;
         }
-        processor.setattr("ancestors", ancestors)?;
+        if let Some(history) = &ancestor_history {
+            // Earlier lists may still be held by callbacks after traversal has
+            // moved on. Finish those lists before selecting the current one.
+            let first = self.ancestor_history.as_ref().map_or(0, Vec::len);
+            for (target, values) in ancestor_lists[first..]
+                .iter()
+                .zip(history[first..].iter().chain(std::iter::once(&ancestors)))
+            {
+                target
+                    .bind(py)
+                    .as_any()
+                    .set_item(PySlice::full(py), values)?;
+            }
+            processor.setattr("ancestors", ancestor_lists.last().unwrap().bind(py))?;
+        } else {
+            processor.setattr("ancestors", ancestors)?;
+        }
         if !users.is_empty()
             || !groups.is_empty()
             || channel
@@ -242,6 +284,8 @@ impl MarkdownInlineCheckpoint {
         self.topic = topic;
         self.has_image = has_image;
         self.applied = true;
+        self.ancestor_lists = ancestor_lists;
+        self.ancestor_history = ancestor_history;
         self.failed = false;
         Ok(())
     }
@@ -252,6 +296,9 @@ impl MarkdownInlineCheckpoint {
         for element in &self.elements {
             visit.call(element)?;
         }
+        for ancestors in &self.ancestor_lists {
+            visit.call(ancestors)?;
+        }
         Ok(())
     }
 
@@ -260,5 +307,6 @@ impl MarkdownInlineCheckpoint {
         self.processor = None;
         self.ordered = None;
         self.elements.clear();
+        self.ancestor_lists.clear();
     }
 }

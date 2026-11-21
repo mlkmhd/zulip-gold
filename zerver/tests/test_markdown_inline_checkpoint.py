@@ -15,7 +15,12 @@ if TYPE_CHECKING:
 
 class Checkpoint(Protocol):
     def apply(
-        self, plan: "Plan", paths: list[str], has_image: bool, html_blocks: list[str]
+        self,
+        plan: "Plan",
+        paths: list[str],
+        has_image: bool,
+        html_blocks: list[str],
+        ancestor_history: list[list[str]] | None = None,
     ) -> None: ...
 
 
@@ -125,6 +130,55 @@ class MarkdownInlineCheckpointTest(TestCase):
         self.committer.apply(self.plan, [], False, [])
         self.assertIsNone(self.paragraph.text)
 
+    def test_ancestor_alias_tracks_push_pop_and_traversal_replacement(self) -> None:
+        original = self.processor.ancestors
+        self.committer.apply(self.plan, [], False, [], [])
+        first = self.processor.ancestors
+        self.assertIsNot(first, original)
+        self.assertEqual(original, ["old"])
+        next_plan = copy.deepcopy(self.plan)
+        next_plan[3].pop()
+        self.committer.apply(next_plan, [], False, [], [])
+        self.assertIs(self.processor.ancestors, first)
+        self.assertEqual(first, ["outer", "div"])
+        self.committer.apply(next_plan, [], False, [], [["outer", "div"]])
+        second = self.processor.ancestors
+        self.assertIsNot(second, first)
+        self.assertEqual(second, first)
+        self.committer.apply(self.plan, [], False, [], [["outer", "div"], ["finished"]])
+        self.assertIsNot(self.processor.ancestors, second)
+        self.assertEqual(first, ["outer", "div"])
+        self.assertEqual(second, ["finished"])
+        self.assertEqual(self.processor.ancestors, ["outer", "div", "p"])
+
+    def test_skipped_traversal_lists_finish_prior_callback_alias(self) -> None:
+        self.committer.apply(self.plan, [], False, [], [])
+        alias = self.processor.ancestors
+        self.committer.apply(self.plan, [], False, [], [["finished"], [], ["intermediate"]])
+        self.assertEqual(alias, ["finished"])
+        self.assertIsNot(self.processor.ancestors, alias)
+        self.assertEqual(self.processor.ancestors, self.plan[3])
+
+    def test_ancestor_history_rejection_precedes_graph_mutation(self) -> None:
+        self.committer.apply(self.plan, [], False, [], [["retired"]])
+        alias = self.processor.ancestors
+        next_plan = copy.deepcopy(self.plan)
+        next_plan[0][1] = ("p", "p", ("must not appear", False), None, [], [])
+        for history in [None, [], [["rewritten"]]]:
+            with (
+                self.subTest(history=history),
+                self.assertRaisesRegex(ValueError, "inconsistent inline checkpoint"),
+            ):
+                self.committer.apply(next_plan, [], False, [], history)
+            self.assertIsNone(self.paragraph.text)
+            self.assertIs(self.processor.ancestors, alias)
+        self.committer.apply(self.plan, [], False, [], [["retired"]])
+
+    def test_ancestor_history_cannot_start_after_legacy_application(self) -> None:
+        self.committer.apply(self.plan, [], False, [])
+        with self.assertRaisesRegex(ValueError, "inconsistent inline checkpoint"):
+            self.committer.apply(self.plan, [], False, [], [])
+
     def test_rewritten_prefix_is_rejected(self) -> None:
         self.committer.apply(self.plan, ["first"], False, ["first"])
         for paths, blocks in [([], ["first"]), (["other"], ["first"]), (["first"], ["other"])]:
@@ -201,12 +255,14 @@ class MarkdownInlineCheckpointTest(TestCase):
         class RendererError(Exception):
             pass
 
-        self.committer.apply(self.plan, [], False, ["&amp;"])
+        self.committer.apply(self.plan, [], False, ["&amp;"], [])
         created = self.paragraph[0]
+        ancestors = self.processor.ancestors
         error = RendererError("sentinel")
 
         def render() -> None:
             created.set("callback", "retained")
+            ancestors.append("from-renderer")
             self.metadata.links_for_preview.add("from-renderer")
             raise error
 
@@ -215,6 +271,8 @@ class MarkdownInlineCheckpointTest(TestCase):
         self.assertIs(caught.exception, error)
         self.assertIs(self.processor.stashed_nodes["0000"], created)
         self.assertEqual(created.get("callback"), "retained")
+        self.assertIs(self.processor.ancestors, ancestors)
+        self.assertEqual(ancestors, ["outer", "div", "p", "from-renderer"])
         self.assertEqual(self.metadata.links_for_preview, {"sentinel", "from-renderer"})
         self.assertEqual(self.html.rawHtmlBlocks, ["old", "&amp;"])
 
@@ -226,6 +284,11 @@ class MarkdownInlineCheckpointTest(TestCase):
         reference = weakref.ref(marker)
         self.processor.marker = marker
         self.processor.checkpoint = self.committer
+        self.committer.apply(self.plan, [], False, [], [])
+        retired = self.processor.ancestors
+        self.committer.apply(self.plan, [], False, [], [self.plan[3]])
+        retired.append(self.committer)
+        del retired
         del marker, self.processor, self.committer
         gc.collect()
         self.assertIsNone(reference())
