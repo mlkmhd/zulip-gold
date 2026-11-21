@@ -84,9 +84,52 @@ pub(crate) fn plan_lines<'a>(
     steps
 }
 
+pub(crate) fn close_unclosed_fences(content: &str, default_language: Option<&str>) -> String {
+    let lines = crate::markdown_whitespace::normalize_whitespace(&[content], 4);
+    let lines: Vec<_> = lines.iter().map(String::as_str).collect();
+    let mut fences = Vec::new();
+    for step in plan_lines(&lines, default_language) {
+        match step {
+            BlockStep::Open { fence, .. } => fences.push(fence),
+            BlockStep::Close => {
+                fences.pop();
+            }
+            BlockStep::Line(_) => {}
+        }
+    }
+    let mut result = content.to_owned();
+    for fence in fences.into_iter().rev() {
+        result.push('\n');
+        result.push_str(fence);
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn closes_normalized_fences_without_changing_source() {
+        for (source, language, suffix) in [
+            ("hello", None, ""),
+            ("\x02```\x03\r\ncode", None, "\n```"),
+            ("```\tpy\ncode", None, "\n```"),
+            (
+                "````quote\n~~~spoiler title\n```math\nx",
+                None,
+                "\n```\n~~~\n````",
+            ),
+            ("```\n~~~py\ncode", Some("QuOtEd"), "\n~~~\n```"),
+            ("~~~spoiler\n```\n~~~quote", Some("quote"), "\n```\n~~~"),
+            ("```py\nx\n```\u{3000}", None, ""),
+        ] {
+            assert_eq!(
+                close_unclosed_fences(source, language),
+                format!("{source}{suffix}")
+            );
+        }
+    }
 
     #[test]
     fn code_and_math_do_not_nest() {

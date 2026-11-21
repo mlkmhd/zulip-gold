@@ -3526,3 +3526,40 @@ and includes both sides of the size limit. `--mutant-short-fence` must report
 differences. This is a compatibility corpus rather than exhaustive testing or
 a performance benchmark. Deferred TeX, previews and complete renderer/listener
 orchestration remain separate migration work.
+
+## Close unclosed quote fences through Rust
+
+`ZULIP_RUST_MARKDOWN_BLOCKS=1` additionally opts `close_unclosed_fences` into
+`close_unclosed_markdown_fences(content, default_language=None)` when exported
+by the wheel. It composes the existing whitespace normalizer (tab width four)
+and block planner, then appends the remaining fences in reverse nesting order.
+The original source is preserved byte for byte. CR/CRLF, tabs and stripped
+Markdown control characters affect fence detection only. Quotes inherit the
+default language, spoilers reset it, and code/math blocks do not nest.
+
+This bypasses construction of Python Markdown handlers for supported inputs.
+It does not render code, TeX or spoilers. The existing flag stays off by default.
+Older wheels, string subclasses, surrogate-containing source, source over 8 MiB
+and non-ASCII default languages use the Python path before native effects.
+Native exceptions propagate without retry. No dependencies, HTTP routes or
+Python file retirements are added.
+
+Build with the existing `--locked --offline` wheel commands and install with
+`--no-index --no-deps` into a fresh `var/close-fences-python` target:
+
+```bash
+PYTHONPATH="$PWD/var/close-fences-python:$PWD" ZULIP_RUST_MARKDOWN_BLOCKS=1 \
+    ./tools/test-backend zerver.tests.test_close_fences_rust \
+    zerver.tests.test_compose_reply zerver.tests.test_markdown
+PYTHONPATH="$PWD/var/close-fences-python:$PWD" DJANGO_SETTINGS_MODULE=zproject.test_settings \
+    python rust-backend/tests/check_close_fences_parity.py \
+    --report var/close-fences-parity.json
+```
+
+The seeded differential disables the reference's Rust block/fence/whitespace
+bridges. It compares complete strings, verifies acceptance and delegation, and
+covers nested fences, default languages, whitespace and size boundaries.
+`--mutant-reverse-order` must report differences. This is a compatibility
+corpus, not exhaustive testing or a performance benchmark. Whole-graph TeX
+preflight, deferred rendering effects and full renderer/listener orchestration
+remain separate work.

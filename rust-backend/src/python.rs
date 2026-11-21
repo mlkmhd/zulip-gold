@@ -731,6 +731,32 @@ mod _zulip_backend {
     }
 
     #[pyfunction]
+    #[pyo3(signature = (content, default_language=None))]
+    fn close_unclosed_markdown_fences(
+        content: &Bound<'_, PyString>,
+        default_language: Option<&Bound<'_, PyString>>,
+    ) -> Option<String> {
+        let content = content.to_str().ok()?;
+        if content.len() > 8 * 1024 * 1024 {
+            return None;
+        }
+        let default_language = match default_language {
+            Some(language) => {
+                let language = language.to_str().ok()?;
+                if !language.is_ascii() {
+                    return None;
+                }
+                Some(language)
+            }
+            None => None,
+        };
+        Some(markdown_blocks::close_unclosed_fences(
+            content,
+            default_language,
+        ))
+    }
+
+    #[pyfunction]
     fn get_unused_markdown_fence(content: &Bound<'_, PyString>) -> Option<String> {
         let content = content.to_str().ok()?;
         if content.len() > 8 * 1024 * 1024 {

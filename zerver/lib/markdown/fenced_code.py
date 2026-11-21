@@ -732,6 +732,15 @@ def close_unclosed_fences(content: str, default_language: str | None = None) -> 
     default_language is the realm's default code block language, used
     for fences that don't name a language.
     """
+    close_fences = getattr(_rust_markdown_blocks, "close_unclosed_markdown_fences", None)
+    if (
+        close_fences is not None
+        and type(content) is str
+        and (default_language is None or type(default_language) is str)
+    ):
+        result = close_fences(content, default_language)
+        if result is not None:
+            return cast(str, result)
     unclosed_fences = UnclosedFenceFinder(Markdown()).get_unclosed_fences(content, default_language)
     return "\n".join([content, *unclosed_fences])
 
