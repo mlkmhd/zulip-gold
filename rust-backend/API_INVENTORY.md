@@ -1762,3 +1762,18 @@ README موفق بودند؛ کل integrationهای Cargo اجرا نشدند. �
   OpenAPI، ۲۸/۱۹۰ وب و صفر فایل Python بازنشسته.
   [قرارداد](README.md#apply-cumulative-inline-checkpoints-to-python-objects)
   [شواهد و گام بعد](MIGRATION_HANDOFF.md)
+
+## حفظ هویت ancestorها در checkpoint — ۲۰۲۶-۱۱-۲۱
+
+- `27c615d986` تاریخچهٔ محدودِ فهرست‌های بازنشستهٔ ancestor را به
+  preflight و به‌روزرسانی aliasهای زنده را به committer اضافه می‌کند.
+  حالت معمول planner تغییر نمی‌کند و فراخوانی قدیمی بدون history سازگار است.
+- چهار تست Python و سه تست Rust تازه؛ ۱۴ تست متمرکز، ۳۳۴ تست در هر
+  حالت، library و integrationهای منتخب Rust، Clippy و lint موفق‌اند.
+  ۱۲۱٬۰۸۰ زنجیره شامل ۱۰۱٬۲۱۶ پذیرفته‌شده و ۲۹۶٬۸۶۸ وضعیت بدون اختلاف
+  بودند؛ دو mutant رد شدند. دانلود package و وابستگی تازه صفر است.
+- هنوز اتصال به renderer واقعی، هویت متن immutable و guard تغییرات
+  callback باقی است. HTTP مستقل همان ۲۸/۱۷۱ OpenAPI و ۲۸/۱۹۰ وب و
+  بازنشستگی Python صفر است.
+  [قرارداد](README.md#apply-cumulative-inline-checkpoints-to-python-objects)
+  [شواهد و گام بعد](MIGRATION_HANDOFF.md)
