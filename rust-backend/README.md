@@ -3994,3 +3994,21 @@ A missing export selects the original implementation.
 
 The fenced-quote parity script also tests these contracts, including
 all three throwing positions and an invalid fragment discovered at join.
+
+## Preserve untouched Python text identities at TeX checkpoints
+
+The experimental `take_checkpoint_with_text()` path also transfers the
+planner's original text/tail provenance bits. Pass them as the optional
+`untouched_text` argument of `MarkdownInlineCheckpoint.apply` after the
+ancestor history. Only slots that have never been rewritten in the plan
+can retain their original Python object; equal text is not evidence of
+provenance. A slot still visible at a renderer boundary keeps its exact
+string or `AtomicString` identity even when another slot has changed.
+
+The committer rejects an inconsistent slot or a replacement of a
+previously protected object before performing any new host writes.
+This includes an equal-valued replacement by a callback. This is stale
+snapshot detection, not recovery from arbitrary callback mutations:
+after a renderer effect, do not switch to the legacy renderer or retry.
+The older two-item transport and existing callers without provenance
+continue to work. The live renderer and its feature flags are unchanged.

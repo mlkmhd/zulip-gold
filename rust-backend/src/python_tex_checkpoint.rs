@@ -10,6 +10,8 @@ use crate::markdown_native_inline::{Inputs, Node, Pattern, State, Text};
 use crate::markdown_tex_preflight::{TexPending, TexProgress, preflight};
 use crate::python::{NativeInlinePlan, NativeInlinePlannedNode, serialize_inline_plan};
 
+type ProvenanceCheckpoint = (NativeInlinePlan, Vec<Vec<String>>, Vec<(bool, bool)>);
+
 #[pyclass]
 pub(crate) struct MarkdownTexCheckpoint {
     state: Option<State>,
@@ -39,6 +41,16 @@ impl MarkdownTexCheckpoint {
             .ok_or_else(|| PyRuntimeError::new_err("TeX checkpoint already taken"))?;
         let history = std::mem::take(&mut state.ancestor_history);
         Ok((serialize_inline_plan(state), history))
+    }
+
+    fn take_checkpoint_with_text(&mut self) -> PyResult<ProvenanceCheckpoint> {
+        let mut state = self
+            .state
+            .take()
+            .ok_or_else(|| PyRuntimeError::new_err("TeX checkpoint already taken"))?;
+        let history = std::mem::take(&mut state.ancestor_history);
+        let untouched = std::mem::take(&mut state.untouched_text);
+        Ok((serialize_inline_plan(state), history, untouched))
     }
 
     fn complete(&mut self, rendered: Option<String>) -> PyResult<Self> {

@@ -5680,3 +5680,28 @@ credential یا دادهٔ پروژه‌های دیگر را کپی نکنید.
 حالت پیش‌فرض production، ۲۸/۱۷۱ OpenAPI (۱۶٫۴٪)، ۲۸/۱۹۰ مسیر وب
 (۱۴٫۷٪) و شمار فایل Python بازنشسته بدون تغییر است. این عددها
 اندازهٔ کل مهاجرت backend نیستند. TeX checkpoint آزمایشی روشن نشده است.
+
+## حفظ هویت رشته‌های دست‌نخورده در checkpointهای TeX
+
+planner آزمایشی برای slotهای text و tail اولیه صریحاً ثبت می‌کند که
+آیا نوشته شده‌اند. برابری مقدار به معنی هویت قبلی نیست. در
+`take_checkpoint_with_text()` این provenance به committer منتقل
+می‌شود تا برای slot دست‌نخورده همان شیء str یا AtomicString حفظ شود.
+اگر callback حتی رشته‌ای با مقدار برابر ولی identity متفاوت بگذارد،
+checkpoint بعدی قبل از نوشتن host رد می‌شود. این کنترل، قرارداد
+mutation کامل یا مجوز retry/fallback بعد از callback نیست. روش قدیمی
+transport و مسیر زنده تغییر نکرده‌اند.
+[قرارداد هویت](README.md#preserve-untouched-python-text-identities-at-tex-checkpoints)
+
+شش تست transport، از جمله مقایسهٔ مشاهدهٔ هویت پیش از callback با
+Python-Markdown و بقای دادهٔ تغییر داده‌شده، گذشتند. ۱۴ تست committer،
+شش تست CLI و formatter، ۱۲۹ تست واحد و ۱۴۳ تست یکپارچهٔ Rust و
+ساخت آفلاین PyO3 و HTTP موفق بودند. یک تست Rust نیازمند PostgreSQL
+و Memcached موقت طبق طراحی اجرا نشد. Clippy و Ruff هدفمند گذشتند.
+هیچ وابستگی دانلود نشد. تنظیمات واقعی Django در این checkout همچنان
+با خطای secret آزمایشی `secret_key` بارگذاری نمی‌شوند.
+
+گام بعد، قرارداد تغییر در slotهای دیگر، هویت خروجی‌های تازه، guard
+registry/helper و تست کامل در محیط آزمون ایزوله پیش از اتصال زنده
+است. مسیرهای مستقل ۲۸/۱۷۱ OpenAPI (۱۶٫۴٪) و ۲۸/۱۹۰ وب (۱۴٫۷٪)
+هستند؛ پیش‌فرض production و بازنشستگی فایل Python تغییری نکرد.

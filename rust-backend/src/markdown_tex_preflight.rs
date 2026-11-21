@@ -136,6 +136,7 @@ fn charge_plan(plan: &State, bytes: &mut usize, items: &mut usize) -> Option<()>
         plan.parent_order.len(),
         plan.ancestors.len(),
         plan.ancestor_history.len(),
+        plan.untouched_text.len(),
         plan.attachment_paths.len(),
         plan.html_blocks.len(),
         plan.tex.len(),

@@ -9,9 +9,11 @@ use std::collections::HashSet;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::pyclass::{PyTraverseError, PyVisit};
-use pyo3::types::{PyDict, PyList, PySlice};
+use pyo3::types::{PyDict, PyList, PySlice, PyString};
 
 use crate::python::NativeInlineResult;
+
+type ProtectedText = (Option<Py<PyAny>>, Option<Py<PyAny>>);
 
 #[pyclass]
 pub struct MarkdownInlineCheckpoint {
@@ -22,6 +24,7 @@ pub struct MarkdownInlineCheckpoint {
     ordered: Option<Py<PyList>>,
     ancestor_lists: Vec<Py<PyList>>,
     ancestor_history: Option<Vec<Vec<String>>>,
+    protected_text: Option<Vec<ProtectedText>>,
     html_counter: usize,
     html_length: usize,
     blocks: Vec<String>,
@@ -63,6 +66,7 @@ impl MarkdownInlineCheckpoint {
             created: Vec::new(),
             ancestor_lists: Vec::new(),
             ancestor_history: None,
+            protected_text: None,
             blocks: Vec::new(),
             paths: Vec::new(),
             users: HashSet::new(),
@@ -75,7 +79,8 @@ impl MarkdownInlineCheckpoint {
         })
     }
 
-    #[pyo3(signature = (plan, paths, has_image, html_blocks, ancestor_history=None))]
+    #[pyo3(signature = (plan, paths, has_image, html_blocks, ancestor_history=None, untouched_text=None))]
+    #[allow(clippy::too_many_arguments)]
     fn apply(
         &mut self,
         py: Python<'_>,
@@ -84,6 +89,7 @@ impl MarkdownInlineCheckpoint {
         has_image: bool,
         html_blocks: Vec<String>,
         ancestor_history: Option<Vec<Vec<String>>>,
+        untouched_text: Option<Vec<(bool, bool)>>,
     ) -> PyResult<()> {
         if self.failed {
             return Err(PyRuntimeError::new_err(
@@ -104,6 +110,10 @@ impl MarkdownInlineCheckpoint {
             || (self.topic && !topic)
             || (self.has_image && !has_image)
             || (self.applied && self.ancestor_history.is_some() != ancestor_history.is_some())
+            || (self.applied && self.protected_text.is_some() != untouched_text.is_some())
+            || untouched_text
+                .as_ref()
+                .is_some_and(|slots| slots.len() != self.originals)
             || self.ancestor_history.as_ref().is_some_and(|previous| {
                 !ancestor_history
                     .as_ref()
@@ -146,6 +156,64 @@ impl MarkdownInlineCheckpoint {
         }
         let element = py.import("xml.etree.ElementTree")?.getattr("Element")?;
         let atomic = py.import("markdown.util")?.getattr("AtomicString")?;
+        let protected_text: Option<Vec<ProtectedText>> = untouched_text
+            .map(|slots| {
+                slots
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, (keep_text, keep_tail))| {
+                        let target = self.elements[index].bind(py);
+                        let prior = self.protected_text.as_ref().map(|values| &values[index]);
+                        let keep =
+                            |name,
+                             preserve: bool,
+                             value: &Option<(String, bool)>,
+                             previous: Option<&Py<PyAny>>| {
+                                if !preserve && previous.is_none() {
+                                    return Ok(None);
+                                }
+                                let current = target.getattr(name)?;
+                                if previous.is_some_and(|previous| !current.is(previous.bind(py))) {
+                                    return Err(invalid());
+                                }
+                                if !preserve {
+                                    return Ok(None);
+                                }
+                                if prior.is_some() && previous.is_none() {
+                                    return Err(invalid());
+                                }
+                                let (text, is_atomic) = value.as_ref().ok_or_else(invalid)?;
+                                let exact = if *is_atomic {
+                                    current.get_type().is(&atomic)
+                                } else {
+                                    current.is_exact_instance_of::<PyString>()
+                                };
+                                if !exact
+                                    || current.cast::<PyString>()?.to_str().ok()
+                                        != Some(text.as_str())
+                                {
+                                    return Err(invalid());
+                                }
+                                Ok(Some(current.unbind()))
+                            };
+                        Ok((
+                            keep(
+                                "text",
+                                keep_text,
+                                &nodes[index].2,
+                                prior.and_then(|pair| pair.0.as_ref()),
+                            )?,
+                            keep(
+                                "tail",
+                                keep_tail,
+                                &nodes[index].3,
+                                prior.and_then(|pair| pair.1.as_ref()),
+                            )?,
+                        ))
+                    })
+                    .collect::<PyResult<Vec<_>>>()
+            })
+            .transpose()?;
         let restore = |text: &Option<(String, bool)>| -> PyResult<Py<PyAny>> {
             match text {
                 None => Ok(py.None()),
@@ -166,9 +234,20 @@ impl MarkdownInlineCheckpoint {
             elements.push(element.call1((&node.0, attrs))?.unbind());
         }
         let mut updates = Vec::new();
-        for node in &nodes {
+        for (index, node) in nodes.iter().enumerate() {
             let children = PyList::new(py, node.4.iter().map(|&child| elements[child].bind(py)))?;
-            updates.push((restore(&node.2)?, restore(&node.3)?, children));
+            let keep = protected_text.as_ref().and_then(|values| values.get(index));
+            let text = if keep.is_some_and(|pair| pair.0.is_some()) {
+                None
+            } else {
+                Some(restore(&node.2)?)
+            };
+            let tail = if keep.is_some_and(|pair| pair.1.is_some()) {
+                None
+            } else {
+                Some(restore(&node.3)?)
+            };
+            updates.push((text, tail, children));
         }
         let stashed = PyDict::new(py);
         for (index, (node, text)) in stash.iter().enumerate() {
@@ -202,8 +281,12 @@ impl MarkdownInlineCheckpoint {
         self.failed = true;
         for (target, (text, tail, children)) in elements.iter().zip(updates) {
             let target = target.bind(py);
-            target.setattr("text", text)?;
-            target.setattr("tail", tail)?;
+            if let Some(text) = text {
+                target.setattr("text", text)?;
+            }
+            if let Some(tail) = tail {
+                target.setattr("tail", tail)?;
+            }
             target.set_item(PySlice::full(py), children)?;
         }
         if registry_used {
@@ -286,6 +369,7 @@ impl MarkdownInlineCheckpoint {
         self.applied = true;
         self.ancestor_lists = ancestor_lists;
         self.ancestor_history = ancestor_history;
+        self.protected_text = protected_text;
         self.failed = false;
         Ok(())
     }
@@ -299,6 +383,12 @@ impl MarkdownInlineCheckpoint {
         for ancestors in &self.ancestor_lists {
             visit.call(ancestors)?;
         }
+        if let Some(slots) = &self.protected_text {
+            for (text, tail) in slots {
+                visit.call(text)?;
+                visit.call(tail)?;
+            }
+        }
         Ok(())
     }
 
@@ -308,5 +398,6 @@ impl MarkdownInlineCheckpoint {
         self.ordered = None;
         self.elements.clear();
         self.ancestor_lists.clear();
+        self.protected_text = None;
     }
 }

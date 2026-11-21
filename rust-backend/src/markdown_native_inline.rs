@@ -107,6 +107,9 @@ pub struct State {
     /// Final values of earlier traversal lists, in identity order. Only TeX
     /// preflight retains these; the current list is `ancestors`.
     pub ancestor_history: Vec<Vec<String>>,
+    /// Which original text and tail slots have never been written by the plan.
+    /// Empty for the ordinary planner, where intermediate identity is unobserved.
+    pub untouched_text: Vec<(bool, bool)>,
     /// Pending effects, committed with the entire graph; duplicates are meaningful.
     pub attachment_paths: Vec<String>,
     /// Set the host's has_image when true; false never clears an existing value.
@@ -306,6 +309,21 @@ impl<G: FnMut(usize, &str) -> Option<()>, C: FnMut(&State) -> Option<()>> Engine
         Some(())
     }
 
+    fn text_slot(&mut self, node: usize, is_text: bool) -> &mut Option<Text> {
+        if let Some((text, tail)) = self.state.untouched_text.get_mut(node) {
+            if is_text {
+                *text = false;
+            } else {
+                *tail = false;
+            }
+        }
+        if is_text {
+            &mut self.state.nodes[node].text
+        } else {
+            &mut self.state.nodes[node].tail
+        }
+    }
+
     fn add_node(&mut self, tag: &str) -> usize {
         let index = self.state.nodes.len();
         self.state.nodes.push(Node::new(tag));
@@ -322,7 +340,7 @@ impl<G: FnMut(usize, &str) -> Option<()>, C: FnMut(&State) -> Option<()>> Engine
             ("role".to_owned(), "img".to_owned()),
             ("aria-label".to_owned(), title),
         ];
-        self.state.nodes[node].text = Some(Text {
+        *self.text_slot(node, true) = Some(Text {
             value: syntax.to_owned(),
             atomic: true,
         });
@@ -364,7 +382,7 @@ impl<G: FnMut(usize, &str) -> Option<()>, C: FnMut(&State) -> Option<()>> Engine
                         let value = matched.rendered_text();
                         let stashed = if matched.code.is_some() {
                             let node = self.add_node("code");
-                            self.state.nodes[node].text = Some(Text {
+                            *self.text_slot(node, true) = Some(Text {
                                 value,
                                 atomic: true,
                             });
@@ -392,7 +410,7 @@ impl<G: FnMut(usize, &str) -> Option<()>, C: FnMut(&State) -> Option<()>> Engine
                         } else {
                             node
                         };
-                        self.state.nodes[text_node].text = Some(Text::plain(matched.text));
+                        *self.text_slot(text_node, true) = Some(Text::plain(matched.text));
                         (
                             matched.before.to_owned(),
                             matched.after.to_owned(),
@@ -519,7 +537,7 @@ impl<G: FnMut(usize, &str) -> Option<()>, C: FnMut(&State) -> Option<()>> Engine
                                 .attributes
                                 .push(("class".to_owned(), "message-reply-link".to_owned()));
                         }
-                        self.state.nodes[node].text = Some(Text {
+                        *self.text_slot(node, true) = Some(Text {
                             value: link.text,
                             atomic: link.reply_parts.is_none(),
                         });
@@ -533,7 +551,7 @@ impl<G: FnMut(usize, &str) -> Option<()>, C: FnMut(&State) -> Option<()>> Engine
                                     ("class".to_owned(), class.to_owned()),
                                     ("dir".to_owned(), "auto".to_owned()),
                                 ];
-                                self.state.nodes[child].text = Some(Text {
+                                *self.text_slot(child, true) = Some(Text {
                                     value,
                                     atomic: true,
                                 });
@@ -691,15 +709,15 @@ impl<G: FnMut(usize, &str) -> Option<()>, C: FnMut(&State) -> Option<()>> Engine
                             .into_iter()
                             .map(|(key, value)| (key.to_owned(), value))
                             .collect();
-                        self.state.nodes[node].text = Some(Text {
+                        *self.text_slot(node, true) = Some(Text {
                             value: link.text,
                             atomic: true,
                         });
                         if link.empty_topic {
                             let child = self.add_node("em");
-                            self.state.nodes[child].text =
+                            *self.text_slot(child, true) =
                                 Some(Text::plain(&channels.empty_topic_name));
-                            self.state.nodes[child].tail = link.tail.map(|tail| Text {
+                            *self.text_slot(child, false) = link.tail.map(|tail| Text {
                                 value: tail.to_owned(),
                                 atomic: true,
                             });
@@ -813,7 +831,7 @@ impl<G: FnMut(usize, &str) -> Option<()>, C: FnMut(&State) -> Option<()>> Engine
                             .into_iter()
                             .map(|(key, value)| (key.to_owned(), value))
                             .collect();
-                        self.state.nodes[node].text = Some(Text {
+                        *self.text_slot(node, true) = Some(Text {
                             value: span.text,
                             atomic: true,
                         });
@@ -843,7 +861,7 @@ impl<G: FnMut(usize, &str) -> Option<()>, C: FnMut(&State) -> Option<()>> Engine
                                 let node = self.add_node("time");
                                 self.state.nodes[node].attributes =
                                     vec![("datetime".to_owned(), value)];
-                                self.state.nodes[node].text = Some(Text {
+                                *self.text_slot(node, true) = Some(Text {
                                     value: source.to_owned(),
                                     atomic: true,
                                 });
@@ -893,7 +911,7 @@ impl<G: FnMut(usize, &str) -> Option<()>, C: FnMut(&State) -> Option<()>> Engine
                                 let href = markdown_links::rewrite_local(href, policy);
                                 let node = self.add_node("a");
                                 self.state.nodes[node].attributes = vec![("href".to_owned(), href)];
-                                self.state.nodes[node].text = Some(Text {
+                                *self.text_slot(node, true) = Some(Text {
                                     value: url.to_owned(),
                                     atomic: true,
                                 });
@@ -929,7 +947,7 @@ impl<G: FnMut(usize, &str) -> Option<()>, C: FnMut(&State) -> Option<()>> Engine
                             let node = self.add_node("span");
                             self.state.nodes[node].attributes =
                                 vec![("class".to_owned(), "tex-error".to_owned())];
-                            self.state.nodes[node].text = Some(Text {
+                            *self.text_slot(node, true) = Some(Text {
                                 value: format!("$${body}$$"),
                                 atomic: true,
                             });
@@ -959,7 +977,7 @@ impl<G: FnMut(usize, &str) -> Option<()>, C: FnMut(&State) -> Option<()>> Engine
                                     .ancestors
                                     .push(self.state.nodes[child].lower_tag.clone());
                                 let text = self.handle(text, index + 1, depth + 1)?;
-                                self.state.nodes[child].text = Some(text);
+                                *self.text_slot(child, true) = Some(text);
                                 self.state.ancestors.pop();
                             }
                             if let Some(tail) = self.state.nodes[child]
@@ -968,7 +986,7 @@ impl<G: FnMut(usize, &str) -> Option<()>, C: FnMut(&State) -> Option<()>> Engine
                                 .filter(|t| !t.value.is_empty())
                             {
                                 let tail = self.handle(tail, index, depth + 1)?;
-                                self.state.nodes[child].tail = Some(tail);
+                                *self.text_slot(child, false) = Some(tail);
                             }
                         }
                     }
@@ -986,11 +1004,9 @@ impl<G: FnMut(usize, &str) -> Option<()>, C: FnMut(&State) -> Option<()>> Engine
             return;
         }
         let target = if let Some((last, _)) = result.last() {
-            &mut self.state.nodes[*last].tail
-        } else if is_text {
-            &mut self.state.nodes[parent].text
+            self.text_slot(*last, false)
         } else {
-            &mut self.state.nodes[parent].tail
+            self.text_slot(parent, is_text)
         };
         if let Some(previous) = target.as_mut().filter(|t| !t.value.is_empty()) {
             previous.value.push_str(&text.value);
@@ -1079,9 +1095,9 @@ impl<G: FnMut(usize, &str) -> Option<()>, C: FnMut(&State) -> Option<()>> Engine
     ) -> Option<()> {
         self.step(depth)?;
         let data = if is_text {
-            self.state.nodes[subnode].text.take()
+            self.text_slot(subnode, true).take()
         } else {
-            self.state.nodes[subnode].tail.take()
+            self.text_slot(subnode, false).take()
         };
         let children = self.placeholders(data, subnode, is_text, depth + 1)?;
         let position = if !is_text && node != subnode {
@@ -1149,7 +1165,7 @@ impl<G: FnMut(usize, &str) -> Option<()>, C: FnMut(&State) -> Option<()>> Engine
                     self.state
                         .ancestors
                         .push(self.state.nodes[child].lower_tag.clone());
-                    let data = self.state.nodes[child].text.take()?;
+                    let data = self.text_slot(child, true).take()?;
                     let data = self.handle(data, 0, 0)?;
                     let children = self.placeholders(Some(data), child, true, 0)?;
                     for (new_child, _) in &children {
@@ -1166,10 +1182,10 @@ impl<G: FnMut(usize, &str) -> Option<()>, C: FnMut(&State) -> Option<()>> Engine
                 {
                     let tail = self.state.nodes[child].tail.clone()?;
                     let tail = self.handle(tail, 0, 0)?;
-                    self.state.nodes[child].tail = None;
+                    *self.text_slot(child, false) = None;
                     let dummy = self.add_node("d");
                     let children = self.placeholders(Some(tail), dummy, false, 0)?;
-                    self.state.nodes[child].tail = self.state.nodes[dummy].tail.take();
+                    *self.text_slot(child, false) = self.text_slot(dummy, false).take();
                     let at = self.state.nodes[current]
                         .children
                         .iter()
@@ -1363,6 +1379,14 @@ pub(super) fn run_with_tex_outcomes(
         return None;
     }
     let parents = vec![None; nodes.len()];
+    let untouched_text = if tex_outcomes.is_some() {
+        nodes
+            .iter()
+            .map(|node| (node.text.is_some(), node.tail.is_some()))
+            .collect()
+    } else {
+        Vec::new()
+    };
     Engine {
         state: State {
             nodes,
@@ -1372,6 +1396,7 @@ pub(super) fn run_with_tex_outcomes(
             registry_used: false,
             ancestors: Vec::new(),
             ancestor_history: Vec::new(),
+            untouched_text,
             attachment_paths: Vec::new(),
             has_image: false,
             mentions: MentionEffects::default(),
