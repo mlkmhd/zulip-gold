@@ -3962,3 +3962,22 @@ This interface is not connected to the live renderer or any feature flag.
 Live registry and helper guards, immutable object identity, callback
 mutation handling, and cost bounds require further verification before
 activation. This is not a replacement for the Python renderer.
+
+## Format fenced block quotes through Rust
+
+With `ZULIP_RUST_MARKDOWN_FENCES=1`, a capable extension prefixes every
+LF-separated line with `> `. LF, including terminal LF, is the only
+separator. Empty lines are still quoted, and CR, NUL, and Unicode are
+preserved. The path delegates subclasses, invalid UTF-8 from Python
+surrogates, and output larger than 8 MiB without altering the fallback.
+Wheels without the formatter and disabled flags retain the Python path.
+
+Using the same Linux extension setup:
+
+```sh
+PYTHONPATH="$extension_dir:$PWD" python rust-backend/tests/check_fenced_quote_parity.py -v
+```
+
+This check extracts the actual source method and compares opt-in and
+old-wheel dispatch with Python. It does not exercise the complete
+provisioned Django Markdown stack.

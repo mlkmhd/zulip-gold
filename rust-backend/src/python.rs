@@ -871,6 +871,14 @@ mod _zulip_backend {
     }
 
     #[pyfunction]
+    fn format_markdown_fenced_quote(text: &Bound<'_, PyString>) -> Option<String> {
+        if !text.is_exact_instance_of::<PyString>() {
+            return None;
+        }
+        markdown_blockquotes::format_fenced_quote(text.to_str().ok()?)
+    }
+
+    #[pyfunction]
     fn parse_markdown_heading(
         block: &Bound<'_, PyString>,
     ) -> Option<(Option<usize>, String, String, String)> {

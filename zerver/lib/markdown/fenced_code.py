@@ -664,6 +664,11 @@ class FencedBlockPreprocessor(Preprocessor):
         return code
 
     def format_quote(self, text: str) -> str:
+        format_native = getattr(_rust_markdown_fences, "format_markdown_fenced_quote", None)
+        if format_native is not None and type(text) is str:
+            quoted = format_native(text)
+            if quoted is not None:
+                return cast(str, quoted)
         paragraphs = text.split("\n")
         quoted_paragraphs = []
         for paragraph in paragraphs:

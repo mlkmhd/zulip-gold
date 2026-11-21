@@ -46,6 +46,27 @@ pub(crate) fn strip_quote_marker(line: &str) -> &str {
     }
 }
 
+pub(crate) fn format_fenced_quote(text: &str) -> Option<String> {
+    const MAX_BYTES: usize = 8 * 1024 * 1024;
+    if text.len() >= MAX_BYTES {
+        return None;
+    }
+    let lines = text.bytes().filter(|&byte| byte == b'\n').count() + 1;
+    let capacity = text.len() + 2 * lines;
+    if capacity > MAX_BYTES {
+        return None;
+    }
+    let mut quoted = String::with_capacity(capacity);
+    for (index, line) in text.split('\n').enumerate() {
+        if index != 0 {
+            quoted.push('\n');
+        }
+        quoted.push_str("> ");
+        quoted.push_str(line);
+    }
+    Some(quoted)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
