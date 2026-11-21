@@ -3932,3 +3932,33 @@ PYTHONPATH="$extension_dir:$PWD" python rust-backend/tests/check_katex_cli_locat
 
 This Linux check does not require Django services or verify the real
 production static-file manifest.
+
+## Transfer deferred TeX checkpoints to Python
+
+The internal `preflight_markdown_tex_checkpoint` export accepts a graph
+snapshot and a registry limited to native HTML entities and TeX. It
+returns no plan for unsupported or over-budget inputs, before any
+callback or host mutation. A returned `MarkdownTexCheckpoint` exposes
+the next renderer argument as `body` and transfers a checkpoint once
+with `take_checkpoint()`. The tuple and ancestor history are accepted
+by the existing `MarkdownInlineCheckpoint.apply` committer.
+
+Only after applying the checkpoint and receiving a normal renderer
+result may a caller use `complete(result)`. It consumes one continuation
+and returns the next checkpoint. `None` is ordinary failure; an empty
+string is a successful rendering. If the renderer raises, the caller
+must discard the continuation and propagate the original exception after
+preserving its effects. This transport checks ownership and sequencing,
+not whether the caller actually applied the checkpoint or ran a callback.
+
+With the same Linux extension setup as the previous section:
+
+```sh
+PYTHONPATH="$extension_dir:$PWD" python rust-backend/tests/check_tex_checkpoint_transport.py -v
+PYTHONPATH="$extension_dir:$PWD" python -m unittest zerver.tests.test_markdown_inline_checkpoint
+```
+
+This interface is not connected to the live renderer or any feature flag.
+Live registry and helper guards, immutable object identity, callback
+mutation handling, and cost bounds require further verification before
+activation. This is not a replacement for the Python renderer.

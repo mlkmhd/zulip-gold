@@ -180,6 +180,9 @@ mod python_tex;
 mod python_inline_checkpoint;
 
 #[cfg(feature = "python")]
+mod python_tex_checkpoint;
+
+#[cfg(feature = "python")]
 mod reminder_access;
 
 #[cfg(any(feature = "python", test))]

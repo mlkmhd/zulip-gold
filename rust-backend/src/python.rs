@@ -78,7 +78,7 @@ type NativeInlineNode = (
     Option<NativeInlineText>,
     Vec<usize>,
 );
-type NativeInlinePlannedNode = (
+pub(crate) type NativeInlinePlannedNode = (
     String,
     String,
     Option<NativeInlineText>,
@@ -240,12 +240,65 @@ fn draft_parse_result<T>(
     }
 }
 
+pub(crate) type NativeInlinePlan = (NativeInlineResult, Vec<String>, bool, Vec<String>);
+
+pub(crate) fn serialize_inline_plan(result: markdown_native_inline::State) -> NativeInlinePlan {
+    use markdown_native_inline::{Stashed, Text};
+    let text = |text: Text| (text.value, text.atomic);
+    let planned = (
+        result
+            .nodes
+            .into_iter()
+            .map(|node| {
+                (
+                    node.tag,
+                    node.lower_tag,
+                    node.text.map(text),
+                    node.tail.map(text),
+                    node.children,
+                    node.attributes,
+                )
+            })
+            .collect(),
+        result
+            .parent_order
+            .into_iter()
+            .map(|child| (child, result.parents[child].unwrap()))
+            .collect(),
+        result
+            .stash
+            .into_iter()
+            .map(|stashed| match stashed {
+                Stashed::Node(node) => (Some(node), None),
+                Stashed::Text(value) => (None, Some(text(value))),
+            })
+            .collect(),
+        result.ancestors,
+        result.registry_used,
+        (
+            result.mentions.users.into_iter().collect(),
+            result.mentions.groups.into_iter().collect(),
+            result.mentions.channel,
+            result.mentions.topic,
+        ),
+    );
+    (
+        planned,
+        result.attachment_paths,
+        result.has_image,
+        result.html_blocks,
+    )
+}
+
 #[pymodule]
 mod _zulip_backend {
     use super::*;
 
     #[pymodule_export]
     use crate::python_inline_checkpoint::MarkdownInlineCheckpoint;
+
+    #[pymodule_export]
+    use crate::python_tex_checkpoint::{MarkdownTexCheckpoint, preflight_markdown_tex_checkpoint};
 
     #[pymodule_export]
     use crate::python_highlight::{
@@ -420,7 +473,7 @@ mod _zulip_backend {
         html_counter: Option<usize>,
         autolink_spec: Option<NativeAutolinkSpec>,
     ) -> Option<(NativeInlineResult, Vec<String>, bool, Vec<String>)> {
-        use markdown_native_inline::{Emoticons, NamedEmoji, Node, Pattern, Stashed, Text};
+        use markdown_native_inline::{Emoticons, NamedEmoji, Node, Pattern, Text};
         if (html_counter.is_none() && patterns.iter().any(|(kind, _)| *kind == 20))
             || (autolink_spec.is_none() && patterns.iter().any(|(kind, _)| *kind == 21))
             || patterns.len() != guards.len()
@@ -596,50 +649,7 @@ mod _zulip_backend {
                 }
             },
         )?;
-        let text = |text: Text| (text.value, text.atomic);
-        let planned = (
-            result
-                .nodes
-                .into_iter()
-                .map(|node| {
-                    (
-                        node.tag,
-                        node.lower_tag,
-                        node.text.map(text),
-                        node.tail.map(text),
-                        node.children,
-                        node.attributes,
-                    )
-                })
-                .collect(),
-            result
-                .parent_order
-                .into_iter()
-                .map(|child| (child, result.parents[child].unwrap()))
-                .collect(),
-            result
-                .stash
-                .into_iter()
-                .map(|stashed| match stashed {
-                    Stashed::Node(node) => (Some(node), None),
-                    Stashed::Text(value) => (None, Some(text(value))),
-                })
-                .collect(),
-            result.ancestors,
-            result.registry_used,
-            (
-                result.mentions.users.into_iter().collect(),
-                result.mentions.groups.into_iter().collect(),
-                result.mentions.channel,
-                result.mentions.topic,
-            ),
-        );
-        Some((
-            planned,
-            result.attachment_paths,
-            result.has_image,
-            result.html_blocks,
-        ))
+        Some(serialize_inline_plan(result))
     }
 
     #[pyfunction]

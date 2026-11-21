@@ -5612,3 +5612,26 @@ workerها، مهاجرت‌ها، رندر و ابزارهای عملیاتی �
 هر سه تست Python متمرکز، ۱۲۹ تست library Rust با ویژگی‌های Python و
 HTTP، و build آفلاین قفل‌شدهٔ باینری HTTP موفق بودند. package تازه
 دانلود نشد. سنجه‌های HTTP و بازنشستگی Python همان مقادیر بخش قبل‌اند.
+
+## انتقال checkpoint بومی TeX به پل Python
+
+رابط داخلی آزمایشی `preflight_markdown_tex_checkpoint` فقط snapshot
+تأییدشدهٔ الگوهای TeX و entity را می‌پذیرد و به renderer زنده متصل
+نیست. checkpoint و ادامه جداگانه یک‌بار مصرف‌اند؛ ابتدا state و
+تاریخچهٔ ancestor به committer موجود منتقل می‌شوند و فقط برای نتیجهٔ
+عادی، continuation تکمیل می‌شود. موفقیت خالی از خطای عادی جداست.
+رابط renderer را فراخوانی نمی‌کند و تضمین نمی‌کند که caller پیش از
+تکمیل، checkpoint را در host اعمال کرده است.
+
+سه تست transport روی ElementTree و HTML stash واقعی، ۱۴ تست committer
+و سه تست مسیر CLI گذشتند. ۱۲۹ تست library ترکیبی و ۱۹ تست یکپارچهٔ
+preflight در Rust و build آفلاین HTTP موفق بودند؛ هیچ وابستگی
+دانلود نشد. تست exception نشان می‌دهد caller آزمایشی می‌تواند بعد از
+تغییر renderer همان استثنا را بازگرداند و ادامه را کنار بگذارد؛
+این تست، رفع خطر تغییر دلخواه callback در مسیر زنده نیست.
+[روش بازآزمایی](README.md#transfer-deferred-tex-checkpoints-to-python)
+
+پیش از اتصال زنده، هویت immutable و تغییرات renderer در بازگشت
+عادی، snapshot و اعتبار registry/helper، و هزینهٔ enumeration
+همچنان باید حل یا با fallback پیش از نخستین اثر محدود شوند. مسیر HTTP
+و پیش‌فرض production و سنجهٔ بازنشستگی فایل Python تغییری نکردند.
