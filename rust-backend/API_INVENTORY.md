@@ -1699,3 +1699,16 @@ README موفق بودند؛ کل integrationهای Cargo اجرا نشدند. �
 ۲۸/۱۹۰ وب و صفر فایل Python بازنشسته. main planner هنوز به preflight
 گراف و اثرهای deferred و حفظ وضعیت exception نیاز دارد.
 [شواهد و کار باقی‌مانده](MIGRATION_HANDOFF.md)
+
+
+## decode پاسخ موفق KaTeX در Rust — ۲۰۲۶-۱۱-۲۱
+
+- `7bc4a1a69a` با پرچم موجود و خاموش `ZULIP_RUST_KATEX_RESPONSE=1`،
+  UTF-8 decode و trim پاسخ موفق exact bytes را در Rust انجام می‌دهد.
+  newline داخلی حفظ می‌شود؛ UTF-8 نامعتبر و decoder سفارشی رفتار قبلی دارند.
+- ۱٬۱۹۷٬۸۶۱ مقایسه با Python بدون اختلاف، ۱۲ تست متمرکز و رگرسیون ۷۷۰
+  تستی در هر دو حالت موفق بودند. probe واقعی loopback با wheel تازه و قبلی
+  نتیجه، خطا، لاگ و تمام metadata را برابر یافت. وابستگی یا دانلود تازه نیست.
+- این پل PyO3 است؛ شمار HTTP مستقل همان ۲۸/۱۷۱ OpenAPI و ۲۸/۱۹۰ وب و
+  بازنشستگی فایل Python صفر است.
+  [قرارداد](README.md#decode-successful-katex-http-responses-through-rust)
