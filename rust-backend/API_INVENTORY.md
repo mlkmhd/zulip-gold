@@ -1647,3 +1647,15 @@ trigger ربات، در هر حالت ۳۶ تست موفق داشت. Cargo می�
   کش‌ها حفظ شدند. HTTP همان ۲۸/۱۷۱ OpenAPI و ۲۸/۱۹۰ وب و صفر فایل
   Python بازنشسته است.
   [قرارداد](README.md#choose-unused-quote-fences-through-rust)
+
+## تکمیل حصارهای باز — ۲۱ نوامبر ۲۰۲۶
+
+`ZULIP_RUST_MARKDOWN_BLOCKS=1` علاوه بر planner موجود، helper عمومی
+`close_unclosed_fences` را از طریق `close_unclosed_markdown_fences`
+به نرمال‌ساز و planner Rust متصل می‌کند؛ ورودی اصلی حفظ و حصارها به
+ترتیب معکوس nesting اضافه می‌شوند. این مسیر برای ورودی‌های پذیرفته‌شده
+دیگر Markdown و handlerهای Python را جهت تشخیص حصار نمی‌سازد.
+wheel قدیمی، subclass، surrogate، متن بیش از ۸ MiB و زبان پیش‌فرض غیر
+ASCII fallback دارند. flag پیش‌فرض خاموش، شمار HTTP مستقل ۲۸/۱۷۱
+OpenAPI و ۲۸/۱۹۰ وب و بازنشستگی Python صفر باقی است.
+[شواهد و کار باقی‌مانده](MIGRATION_HANDOFF.md)
