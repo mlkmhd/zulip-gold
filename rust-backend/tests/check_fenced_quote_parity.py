@@ -469,8 +469,7 @@ class NestedFencedStackParity(unittest.TestCase):
         error: object = None
         try:
             processor.handle_lines(lines, output, "python")
-            while processor.handlers:
-                processor.handlers[-1].done()
+            processor._finish_fenced_input(output)
         except ValueError as caught:
             error = (type(caught), caught.args)
         return output, md.htmlStash.rawHtmlBlocks, md.htmlStash.html_counter, error
@@ -553,6 +552,83 @@ class FencedHandlerFactoryParity(unittest.TestCase):
         self.assertIs(caught.exception, error)
         failing.assert_called_once()
         return cast(tuple[str, tuple[object, ...]], result)
+
+
+class FencedInputCompletionParity(unittest.TestCase):
+    def test_stack_and_padding_keep_evaluation_order(self) -> None:
+        cases = [
+            "empty",
+            "short",
+            "already-padded",
+            "append",
+            "done-error",
+            "len-error",
+            "index-error",
+            "compare-error",
+            "truth-error",
+            "append-error",
+        ]
+        native = Mock(wraps=EXTENSION.finish_fenced_input)
+        backend = SimpleNamespace(finish_fenced_input=native)
+        for stage in cases:
+            with self.subTest(stage=stage):
+                baseline = self.exercise(None, stage)
+                self.assertEqual(self.exercise(SimpleNamespace(), stage), baseline)
+                self.assertEqual(self.exercise(backend, stage), baseline)
+        self.assertEqual(native.call_count, len(cases))
+
+    def exercise(self, backend: object, stage: str) -> tuple[list[object], object]:
+        seen: list[object] = []
+        error = RuntimeError(stage)
+
+        def record(name: str) -> None:
+            seen.append(name)
+            if stage == name:
+                raise error
+
+        class Truth:
+            def __bool__(self) -> bool:
+                record("truth-error")
+                return stage != "already-padded"
+
+        class PaddingProbe:
+            def __ne__(self, other: object) -> object:
+                seen.append(("compared-to", other))
+                record("compare-error")
+                return Truth()
+
+        class Output:
+            def __len__(self) -> int:
+                record("len-error")
+                return 2 if stage == "short" else 3
+
+            def __getitem__(self, index: int) -> object:
+                seen.append(("index", index))
+                record("index-error")
+                return PaddingProbe()
+
+            def append(self, line: str) -> None:
+                seen.append(("padding", line))
+                record("append-error")
+
+        processor = SimpleNamespace(handlers=[])
+
+        def later() -> None:
+            record("later-handler")
+            processor.handlers.clear()
+
+        def first() -> None:
+            record("done-error")
+            processor.handlers = [SimpleNamespace(done=later)]
+
+        if stage != "empty":
+            processor.handlers = [SimpleNamespace(done=first)]
+        finish = load_formatter(backend, "_finish_fenced_input")
+        try:
+            return seen, finish(processor, Output())
+        except RuntimeError as caught:
+            self.assertIs(caught, error)
+            return seen, (type(caught), caught.args)
 
 
 if __name__ == "__main__":

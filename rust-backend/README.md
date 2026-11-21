@@ -4098,3 +4098,15 @@ before lowercasing; wheels without the new export use Python.
 The fenced-quote parity script tests live replacement factories, all
 four choices, Unicode lowercasing, and a subclass with an overridden
 `lower` method.
+
+## Finish fenced input through Rust
+
+Under the same opt-in, the Rust EOF handler drains the current parser
+stack with Python's live `done` methods, then applies the existing
+trailing-empty-line compatibility rule. It rereads the stack after
+each callback and preserves dynamic length, indexing, comparison,
+and append behavior. Any exception stops the sequence without retry.
+Disabled flags and older wheels retain the Python path.
+
+The fenced-quote parity script uses the source EOF method in the real
+nested handler fixture and checks stack replacement, padding, and errors.

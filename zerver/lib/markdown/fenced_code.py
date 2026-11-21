@@ -606,7 +606,14 @@ class FencedBlockPreprocessor(Preprocessor):
         if isinstance(self.md, ZulipMarkdown) and self.md.zulip_realm is not None:
             default_language = self.md.zulip_realm.default_code_block_language
         self.handle_lines(lines, output, default_language)
+        self._finish_fenced_input(output)
+        return output
 
+    def _finish_fenced_input(self, output: list[str]) -> None:
+        finish = getattr(_rust_markdown_fences, "finish_fenced_input", None)
+        if finish is not None:
+            finish(self, output)
+            return
         while self.handlers:
             self.handlers[-1].done()
 
@@ -615,7 +622,6 @@ class FencedBlockPreprocessor(Preprocessor):
         # but we could probably remove this hack.
         if len(output) > 2 and output[-2] != "":
             output.append("")
-        return output
 
     def format_code(self, lang: str | None, text: str) -> str:
         if lang:

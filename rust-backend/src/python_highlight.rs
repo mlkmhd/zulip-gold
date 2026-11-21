@@ -134,6 +134,29 @@ pub(crate) fn dispatch_new_fenced_block<'py>(
 }
 
 #[pyfunction]
+pub(crate) fn finish_fenced_input(
+    processor: &Bound<'_, PyAny>,
+    output: &Bound<'_, PyAny>,
+) -> PyResult<()> {
+    while processor.getattr("handlers")?.is_truthy()? {
+        // The previous done callback can change the live stack.
+        processor
+            .getattr("handlers")?
+            .get_item(-1)?
+            .call_method0("done")?;
+    }
+    if output.len()? > 2
+        && output
+            .get_item(-2)?
+            .rich_compare("", CompareOp::Ne)?
+            .is_truthy()?
+    {
+        output.call_method1("append", ("",))?;
+    }
+    Ok(())
+}
+
+#[pyfunction]
 pub(crate) fn finish_fenced_block(handler: &Bound<'_, PyAny>) -> PyResult<()> {
     if handler.getattr("lines")?.is_truthy()? {
         // Keep Python join/split for exact errors, string identity, subclasses,
