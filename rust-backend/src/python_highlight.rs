@@ -5,19 +5,50 @@ use pyo3::types::{PyDict, PyList, PyString, PyType};
 
 use crate::{markdown_code, markdown_code_header};
 
+fn fenced_line_closes(handler: &Bound<'_, PyAny>, line: &Bound<'_, PyAny>) -> PyResult<bool> {
+    let candidate = line.call_method0("rstrip")?;
+    let fence = handler.getattr("fence")?;
+    let equal = candidate.rich_compare(&fence, CompareOp::Eq)?;
+    drop(candidate);
+    drop(fence);
+    equal.is_truthy()
+}
+
 #[pyfunction]
 pub(crate) fn handle_fenced_block_line(
     handler: &Bound<'_, PyAny>,
     line: &Bound<'_, PyAny>,
 ) -> PyResult<()> {
-    let candidate = line.call_method0("rstrip")?;
-    let fence = handler.getattr("fence")?;
-    if candidate.rich_compare(fence, CompareOp::Eq)?.is_truthy()? {
+    if fenced_line_closes(handler, line)? {
         handler.call_method0("done")?;
     } else {
         // Resolve the append callback before the second rstrip, as in Python.
         let append = handler.getattr("lines")?.getattr("append")?;
         append.call1((line.call_method0("rstrip")?,))?;
+    }
+    Ok(())
+}
+
+#[pyfunction]
+pub(crate) fn handle_nested_fenced_block_line(
+    handler: &Bound<'_, PyAny>,
+    line: &Bound<'_, PyAny>,
+    context: &Bound<'_, PyDict>,
+    inherit_language: bool,
+) -> PyResult<()> {
+    if fenced_line_closes(handler, line)? {
+        handler.call_method0("done")?;
+    } else {
+        let check = global(context, "check_for_new_fence")?;
+        let processor = handler.getattr("processor")?;
+        let output = handler.getattr("lines")?;
+        if inherit_language {
+            let kwargs = PyDict::new(handler.py());
+            kwargs.set_item("default_language", handler.getattr("default_language")?)?;
+            check.call((processor, output, line), Some(&kwargs))?;
+        } else {
+            check.call1((processor, output, line))?;
+        }
     }
     Ok(())
 }

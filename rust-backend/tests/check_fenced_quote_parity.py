@@ -12,13 +12,19 @@ from types import SimpleNamespace
 from typing import cast
 from unittest.mock import Mock
 
+from typing_extensions import override
+
 ROOT = Path(__file__).resolve().parents[2]
 EXTENSION = import_module("_zulip_backend")
 SOURCE = ROOT / "zerver/lib/markdown/fenced_code.py"
 
 
 def load_formatter(
-    backend: object, name: str = "format_quote", *, owner: str = "FencedBlockPreprocessor"
+    backend: object,
+    name: str = "format_quote",
+    *,
+    owner: str = "FencedBlockPreprocessor",
+    extra: dict[str, object] | None = None,
 ) -> Callable[..., object]:
     module = ast.parse(SOURCE.read_text(encoding="utf-8"), filename=str(SOURCE))
     cls = next(
@@ -27,7 +33,9 @@ def load_formatter(
     method = next(
         node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == name
     )
-    namespace = {"_rust_markdown_fences": backend, "cast": cast}
+    namespace = {"_rust_markdown_fences": backend, "cast": cast, "override": override} | (
+        extra or {}
+    )
     exec(compile(ast.Module(body=[method], type_ignores=[]), str(SOURCE), "exec"), namespace)  # noqa: S102
     return cast(Callable[..., object], namespace[name])
 
@@ -292,6 +300,78 @@ class FencedLineParity(unittest.TestCase):
         try:
             return seen, method(handler, Line())
         except ValueError as caught:
+            self.assertIs(caught, error)
+            return seen, (type(caught), caught.args)
+
+
+class NestedFencedLineParity(unittest.TestCase):
+    def test_quote_and_spoiler_dispatch(self) -> None:
+        stages = ["closed", "open", "done", "processor", "lines", "language", "nested-check"]
+        for owner in ["QuoteHandler", "SpoilerHandler"]:
+            for stage in stages:
+                with self.subTest(owner=owner, stage=stage):
+                    reference = self.exercise(None, owner, stage)
+                    self.assertEqual(self.exercise(SimpleNamespace(), owner, stage), reference)
+                    native = Mock(wraps=EXTENSION.handle_nested_fenced_block_line)
+                    backend = SimpleNamespace(handle_nested_fenced_block_line=native)
+                    self.assertEqual(self.exercise(backend, owner, stage), reference)
+                    native.assert_called_once()
+
+    def exercise(self, backend: object, owner: str, stage: str) -> tuple[list[object], object]:
+        seen: list[object] = []
+        error = RuntimeError(stage)
+        processor: object = object()
+        output: list[object] = []
+        language: object = object()
+        line_text = "```\t" if stage in {"closed", "done"} else "~~~~\u2003"
+        line = line_text.encode().decode()
+
+        def record(event: str) -> None:
+            seen.append(event)
+            if stage == event:
+                raise error
+
+        def check(*args: object, **kwargs: object) -> None:
+            self.assertEqual(len(args), 3)
+            self.assertIs(args[0], processor)
+            self.assertIs(args[1], output)
+            self.assertIs(args[2], line)
+            if owner == "QuoteHandler":
+                self.assertEqual(set(kwargs), {"default_language"})
+                self.assertIs(kwargs["default_language"], language)
+            else:
+                self.assertEqual(kwargs, {})
+            record("nested-check")
+
+        method = load_formatter(
+            backend, "handle_line", owner=owner, extra={"check_for_new_fence": check}
+        )
+
+        class Handler:
+            fence = "```"
+
+            @property
+            def processor(self) -> object:
+                record("processor")
+                return processor
+
+            @property
+            def lines(self) -> list[object]:
+                record("lines")
+                return output
+
+            @property
+            def default_language(self) -> object:
+                assert owner == "QuoteHandler"
+                record("language")
+                return language
+
+            def done(self) -> None:
+                record("done")
+
+        try:
+            return seen, method(Handler(), line)
+        except RuntimeError as caught:
             self.assertIs(caught, error)
             return seen, (type(caught), caught.args)
 

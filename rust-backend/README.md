@@ -4055,3 +4055,18 @@ handlers and old wheels keep their existing behavior.
 
 The fenced-quote parity script tests Unicode whitespace, lone surrogates,
 dynamic equality and exact error propagation at each dispatch stage.
+
+## Dispatch nested quote and spoiler lines through Rust
+
+Under the same opt-in flag, capable wheels share Rust's closing marker
+check across the base, quote, and spoiler handlers. A nested line is
+passed unchanged to the live `check_for_new_fence` callback with its
+original processor and output. Quotes pass their current
+`default_language` keyword; spoilers do not pass that keyword. The
+handler resolves the callback and the arguments in Python's original
+order and propagates exceptions without repeating an effect. Older wheels
+and disabled flags keep the Python handlers.
+
+The fenced-quote parity script exercises both source methods, the
+specialized language behavior, and callback failures without starting a
+Django test database.
