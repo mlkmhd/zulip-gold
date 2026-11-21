@@ -89,12 +89,17 @@ def render_tex(tex: str, is_inline: bool = True) -> str | None:
             )
             return None
 
-    katex_path = (
-        static_path("webpack-bundles/katex-cli.js")
-        if settings.PRODUCTION
-        else os.path.join(settings.DEPLOY_ROOT, "node_modules/katex/cli.js")
-    )
-    if not os.path.isfile(katex_path):
+    locate = getattr(_rust_markdown_tex, "locate_katex_cli", None)
+    if locate is not None:
+        exists, katex_path = locate(globals())
+    else:
+        katex_path = (
+            static_path("webpack-bundles/katex-cli.js")
+            if settings.PRODUCTION
+            else os.path.join(settings.DEPLOY_ROOT, "node_modules/katex/cli.js")
+        )
+        exists = os.path.isfile(katex_path)
+    if not exists:
         logging.error("Cannot find KaTeX for latex rendering!")
         return None
     rust_render = getattr(_rust_markdown_tex, "run_katex_cli", None)

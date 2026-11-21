@@ -3902,3 +3902,29 @@ PYTHONPATH="$PWD/var/ancestor-history-final-python:$PWD" \
 
 Both mutant commands must fail. These finite tests do not establish production
 renderer integration or performance.
+
+## Locate the KaTeX CLI through Rust
+
+With the existing opt-in `ZULIP_RUST_MARKDOWN_TEX=1`, wheels exporting
+`locate_katex_cli` select the packaged production script or development
+script in Rust. The resolver calls the live Python path helpers and
+returns the original path object after its file check, preserving
+platform behavior, exceptions, and evaluation order. Missing scripts
+still log once and return without spawning a process. The HTTP service,
+encoding, subprocess guards, and fallback policies are unchanged;
+disabled flags and older wheels use the original Python resolver.
+
+A targeted check uses the actual Python dispatch and a fresh extension
+with controlled settings and storage resolution. It covers the two
+paths, missing files, resolver and filesystem errors, and a local
+Node.js pipe fixture. From a shell with the Python test dependencies:
+
+```sh
+cargo build --manifest-path rust-backend/Cargo.toml --locked --offline --features python --lib
+extension_dir=$(mktemp -d)
+ln -s "$PWD/rust-backend/target/debug/lib_zulip_backend.so" "$extension_dir/_zulip_backend.so"
+PYTHONPATH="$extension_dir:$PWD" python rust-backend/tests/check_katex_cli_location.py -v
+```
+
+This Linux check does not require Django services or verify the real
+production static-file manifest.

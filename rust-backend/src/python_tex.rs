@@ -48,6 +48,27 @@ pub(crate) fn request_katex_service<'py>(
 }
 
 #[pyfunction]
+pub(crate) fn locate_katex_cli<'py>(
+    context: &Bound<'py, PyDict>,
+) -> PyResult<(bool, Bound<'py, PyAny>)> {
+    let path = if global(context, "settings")?
+        .getattr("PRODUCTION")?
+        .is_truthy()?
+    {
+        global(context, "static_path")?.call1(("webpack-bundles/katex-cli.js",))?
+    } else {
+        let join = global(context, "os")?.getattr("path")?.getattr("join")?;
+        let root = global(context, "settings")?.getattr("DEPLOY_ROOT")?;
+        join.call1((root, "node_modules/katex/cli.js"))?
+    };
+    let exists = global(context, "os")?
+        .getattr("path")?
+        .call_method1("isfile", (&path,))?
+        .is_truthy()?;
+    Ok((exists, path))
+}
+
+#[pyfunction]
 pub(crate) fn select_katex_encoding<'py>(
     context: &Bound<'py, PyDict>,
 ) -> PyResult<Bound<'py, PyAny>> {
