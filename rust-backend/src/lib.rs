@@ -177,6 +177,9 @@ mod python_highlight;
 mod python_tex;
 
 #[cfg(feature = "python")]
+mod python_inline_checkpoint;
+
+#[cfg(feature = "python")]
 mod reminder_access;
 
 #[cfg(any(feature = "python", test))]

@@ -107,7 +107,7 @@ type NativeMentionData = (
 type NativeMentionInputs = (Option<NativeMentionData>, HashMap<char, u8>, usize);
 type NativeMentionEffects = (Vec<i32>, Vec<i32>, bool, bool);
 type NativeInlineStash = (Option<usize>, Option<NativeInlineText>);
-type NativeInlineResult = (
+pub(crate) type NativeInlineResult = (
     Vec<NativeInlinePlannedNode>,
     Vec<(usize, usize)>,
     Vec<NativeInlineStash>,
@@ -243,6 +243,9 @@ fn draft_parse_result<T>(
 #[pymodule]
 mod _zulip_backend {
     use super::*;
+
+    #[pymodule_export]
+    use crate::python_inline_checkpoint::MarkdownInlineCheckpoint;
 
     #[pymodule_export]
     use crate::python_highlight::{

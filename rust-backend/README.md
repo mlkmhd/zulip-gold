@@ -3818,3 +3818,66 @@ Rust tests also exercise every outcome prefix through six formulas and check
 that later attachment and mention effects have not been committed early.
 These finite comparisons do not test a live Python commit adapter, arbitrary
 callback mutations or production performance.
+
+## Apply cumulative inline checkpoints to Python objects
+
+The internal PyO3 `MarkdownInlineCheckpoint(processor, originals, ordered)`
+committer prepares host application separately from renderer execution. Pass
+the original Elements in the planner's arena order and the sorted registry
+priority snapshot. Construction records the HTML counter and stash length
+without changing the graph, registry or rendering metadata.
+
+`apply(plan, paths, has_image, html_blocks)` accepts the existing native inline
+plan tuple and cumulative effects from a certified prefix or final state. It
+retains original Element and attribute-dictionary identities, creates new
+arena Elements once, and reuses those Elements in later trees, stashes and
+parent maps. Shared and detached nodes remain shared. Stash and parent-map
+dictionaries are initialized on first application and updated in place on
+later applications. Atomic strings and dictionary insertion order are restored.
+The registry priority list is updated in place only when the plan uses it.
+
+HTML and attachment paths append only their new suffixes, including repeated
+paths and empty successful HTML. Mention sets receive new IDs without losing
+existing entries; flags preserve previous true values. HTML counters advance
+from the captured counter independently of the initial raw-block list length.
+Before modifying the host, inconsistent graph indices, stash variants,
+shrinking effect prefixes, changed new-node definitions, and unexpected HTML
+lengths or counters raise `ValueError`. An error during host mutation preserves
+the original exception and partial state and permanently poisons the committer;
+another application raises `RuntimeError`. Python reference cycles through the
+processor, Elements or priority snapshot participate in garbage collection.
+
+This is an **unconnected internal building block**, with no new flag, production
+consumer, default activation or Python retirement. Callers must still guard
+the live registry, helpers, runtime and snapshots before any effect. They must
+certify the entire graph, apply a checkpoint before each original callback,
+and propagate renderer exceptions without fallback or retry. It does not guard
+renderer mutations to the graph, preserve alias lifetimes for ancestor lists
+or immutable strings, or bind the Rust continuation to the Python committer.
+Those contracts and enumeration benchmarks remain prerequisites for activation.
+
+The host differential applies whole chains of prefixes and final states to
+real Python-Markdown processors. It compares live graphs, shared/stashed node
+identities, atomic text, parents, ancestors, HTML and counters with snapshots
+taken at the reference renderer's original callback positions. Seeded original
+attributes and rendering metadata remain intact. The diagnostic transport omits
+the registry-used bit, so that decision is supplied by the reference here and
+tested separately by the existing native engine suites.
+
+```bash
+PYTHONPATH="$PWD/var/host-checkpoint-gc-python:$PWD" \
+    python -m unittest zerver.tests.test_markdown_inline_checkpoint
+cargo build --manifest-path rust-backend/Cargo.toml --locked --offline \
+    --release --features native-markdown --example tex_preflight
+PYTHONPATH="$PWD/var/host-checkpoint-gc-python:$PWD" \
+    python rust-backend/tests/check_inline_checkpoint_parity.py \
+    --probe "$CARGO_TARGET_DIR/release/examples/tex_preflight" \
+    --seed 962858 --cases 1000 --report /tmp/host-checkpoint-parity.json
+PYTHONPATH="$PWD/var/host-checkpoint-gc-python:$PWD" \
+    python rust-backend/tests/check_inline_checkpoint_parity.py \
+    --probe "$CARGO_TARGET_DIR/release/examples/tex_preflight" \
+    --cases 0 --mutant-duplicate-html --report /tmp/host-checkpoint-mutant.json
+```
+
+The mutant command must fail. These finite tests do not establish production
+renderer integration or performance.
