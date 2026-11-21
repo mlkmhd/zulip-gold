@@ -51,20 +51,24 @@ def render_tex(tex: str, is_inline: bool = True) -> str | None:
     """
 
     if settings.KATEX_SERVER:
+        request = getattr(_rust_katex_response, "request_katex_service", None)
         try:
-            resp = KatexSession().post(
-                # We explicitly disable the Smokescreen proxy for this
-                # call, since it intentionally connects to localhost.
-                # This is safe because the host is explicitly fixed, and
-                # the port is pulled from our own configuration.
-                f"http://localhost:{settings.KATEX_SERVER_PORT}/",
-                data={
-                    "content": tex,
-                    "is_display": "false" if is_inline else "true",
-                    "shared_secret": settings.SHARED_SECRET,
-                },
-                proxies={"http": ""},
-            )
+            if request is not None:
+                resp = request(tex, is_inline, globals())
+            else:
+                resp = KatexSession().post(
+                    # We explicitly disable the Smokescreen proxy for this
+                    # call, since it intentionally connects to localhost.
+                    # This is safe because the host is explicitly fixed, and
+                    # the port is pulled from our own configuration.
+                    f"http://localhost:{settings.KATEX_SERVER_PORT}/",
+                    data={
+                        "content": tex,
+                        "is_display": "false" if is_inline else "true",
+                        "shared_secret": settings.SHARED_SECRET,
+                    },
+                    proxies={"http": ""},
+                )
         except requests.exceptions.Timeout:
             logging.warning("KaTeX rendering service timed out with %d byte long input", len(tex))
             return None

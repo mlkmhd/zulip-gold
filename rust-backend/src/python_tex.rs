@@ -8,6 +8,45 @@ use crate::{markdown_tex, markdown_tex_syntax};
 
 type TexMatch = (String, String, Option<String>, String);
 
+fn global<'py>(context: &Bound<'py, PyDict>, name: &str) -> PyResult<Bound<'py, PyAny>> {
+    context
+        .get_item(name)?
+        .ok_or_else(|| PyNameError::new_err(format!("name '{name}' is not defined")))
+}
+
+#[pyfunction]
+pub(crate) fn request_katex_service<'py>(
+    tex: &Bound<'py, PyAny>,
+    is_inline: &Bound<'py, PyAny>,
+    context: &Bound<'py, PyDict>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let py = context.py();
+    let post = global(context, "KatexSession")?.call0()?.getattr("post")?;
+    let port = global(context, "settings")?.getattr("KATEX_SERVER_PORT")?;
+    let url = PyString::new(py, "http://localhost:{}/").call_method1("format", (port,))?;
+    let data = PyDict::new(py);
+    data.set_item("content", tex)?;
+    data.set_item(
+        "is_display",
+        if is_inline.is_truthy()? {
+            "false"
+        } else {
+            "true"
+        },
+    )?;
+    data.set_item(
+        "shared_secret",
+        global(context, "settings")?.getattr("SHARED_SECRET")?,
+    )?;
+    let proxies = PyDict::new(py);
+    // The fixed localhost destination intentionally bypasses Smokescreen.
+    proxies.set_item("http", "")?;
+    let kwargs = PyDict::new(py);
+    kwargs.set_item("data", data)?;
+    kwargs.set_item("proxies", proxies)?;
+    post.call((url,), Some(&kwargs))
+}
+
 #[pyfunction]
 pub(crate) fn finish_katex_cli<'py>(
     success: bool,

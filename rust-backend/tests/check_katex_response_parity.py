@@ -5,6 +5,7 @@ import json
 import logging
 import random
 import sys
+from contextlib import nullcontext
 from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,11 +17,15 @@ from django.test import override_settings
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Compare live KaTeX service response handling")
+    parser = argparse.ArgumentParser(
+        description="Compare live KaTeX service request and response handling"
+    )
     parser.add_argument("--cases", type=int, default=20_000)
     parser.add_argument("--seed", type=int, default=962845)
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--mutant-strip-errors", action="store_true")
+    parser.add_argument("--require-request-bridge", action="store_true")
+    parser.add_argument("--mutant-display", action="store_true")
     args = parser.parse_args()
     if args.cases < 0:
         parser.error("--cases must be nonnegative")
@@ -28,11 +33,14 @@ def main() -> None:
     from zerver.lib import tex
 
     extension = import_module("_zulip_backend")
+    request_bridge = getattr(extension, "request_katex_service", None)
+    if args.require_request_bridge and request_bridge is None:
+        parser.error("Rust extension does not support KaTeX requests")
     rng = random.Random(args.seed)
     statuses = [200, 200.0, 400, 400.0, 201, 301, 404, 500, 503, True, None, "200"]
     bodies = [b"", b" math \n", "\u2003فارسی 😀\u0085".encode(), b"\xff", b"\xc0\xaf"]
     failures = [None, None, None, requests.ReadTimeout, requests.ConnectionError, ValueError]
-    checked = errors = warnings = 0
+    checked = errors = warnings = request_calls = 0
     differences: list[dict[str, object]] = []
     with override_settings(KATEX_SERVER=True, KATEX_SERVER_PORT=9755, SHARED_SECRET="test-secret"):
         for index in range(args.cases + len(statuses) * len(bodies)):
@@ -54,16 +62,25 @@ def main() -> None:
                 if failure is not None:
                     session.post.side_effect = failure("controlled request failure")
                 outcome: tuple[object, ...]
+                request = Mock(wraps=request_bridge)
                 with (
                     patch.object(tex, "_rust_katex_response", extension if native else None),
                     patch.object(tex, "KatexSession", return_value=session) as factory,
                     patch.object(logging, "warning") as warning,
+                    patch.object(extension, "request_katex_service", request)
+                    if native and request_bridge is not None
+                    else nullcontext(),
                 ):
                     try:
                         outcome = ("returned", tex.render_tex(content, inline))
                     except Exception as error:
                         outcome = ("raised", type(error).__name__, error.args)
                 logs = warning.call_args_list
+                request_calls += request.call_count
+                if native and args.mutant_display:
+                    session.post.call_args.kwargs["data"]["is_display"] = (
+                        "true" if inline else "false"
+                    )
                 if native and args.mutant_strip_errors and logs and len(logs[0].args) == 3:
                     message, code, text = logs[0].args
                     logs[0] = call(message, code, text.strip())
@@ -105,6 +122,8 @@ def main() -> None:
         "warnings": warnings,
         "differences": differences,
         "mutant_strip_errors": args.mutant_strip_errors,
+        "mutant_display": args.mutant_display,
+        "request_bridge_calls": request_calls,
         "python": sys.version,
         "source_sha256": {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in sources},
     }
@@ -112,6 +131,8 @@ def main() -> None:
     print(json.dumps({key: value for key, value in report.items() if key != "source_sha256"}))
     if differences:
         raise SystemExit(1)
+    if args.require_request_bridge and request_calls != checked:
+        raise SystemExit("Every native request must use the bridge exactly once")
 
 
 if __name__ == "__main__":

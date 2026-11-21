@@ -3599,3 +3599,49 @@ incorrect sign conversion. The existing header oracle additionally compares
 complete highlighter states and exceptions. Neither oracle is a benchmark or an
 exhaustive test of all strings. Pygments, lxml and the fallback header methods
 remain Python dependencies; this bridge does not retire a Python module.
+
+## Issue KaTeX service requests through Rust
+
+The existing default-off `ZULIP_RUST_KATEX_RESPONSE=1` bridge also uses
+`request_katex_service` when available. Request and response exports are checked
+independently, so an older wheel retains its existing response bridge and the
+Python request path. The request bridge constructs the fixed localhost URL,
+form data and proxy override and invokes the live `KatexSession().post` once.
+It keeps the existing `OutgoingSession` timeout, HTTP policy and connection
+handling; no new HTTP client or dependency is introduced.
+
+Session construction, method lookup, port formatting, inline-mode truthiness,
+secret lookup and the request retain Python's evaluation order. Content is
+passed without encoding or normalization, including surrogate strings. The
+service secret remains in form data, and the fixed localhost request retains
+`proxies={"http": ""}` to bypass Smokescreen intentionally. This bridge never
+retries a failed request or falls back after a request has begun.
+
+The `try`/`except` and warning calls stay in Python. This preserves the active
+handled exception visible to logging callbacks and the request exception as
+`__context__` if logging itself fails. Response decoding remains outside the
+request catch. CLI selection and native planner delegation are unchanged.
+This is request orchestration through the existing Python HTTP client, not a
+standalone Rust transport or a Python module retirement.
+
+Build a fresh wheel with `maturin build --release --locked --offline` and install
+it into a separate target with `pip install --no-index --no-deps --target`:
+
+```bash
+PYTHONPATH="$PWD/var/katex-request-final-python:$PWD" \
+    ZULIP_RUST_KATEX_RESPONSE=1 ./tools/test-backend \
+    zerver.tests.test_katex_request_rust zerver.tests.test_katex_response_rust
+PYTHONPATH="$PWD/var/katex-request-final-python:$PWD" \
+    DJANGO_SETTINGS_MODULE=zproject.test_settings \
+    python rust-backend/tests/check_katex_response_parity.py \
+    --require-request-bridge --seed 962853 --cases 20000 \
+    --report /tmp/katex-request-parity.json
+```
+
+The offline oracle compares results, exceptions, request arguments and warnings
+with the live Python implementation, and requires exactly one native request
+call per native case. `--mutant-display` must reject an inverted display-mode
+field. Tests additionally cover factory failures, exception context, live
+settings, callback evaluation order, partial wheel capabilities and CLI
+isolation. Controlled sessions avoid network traffic; this is not an HTTP
+transport benchmark or exhaustive input coverage.
