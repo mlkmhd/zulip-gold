@@ -1728,3 +1728,20 @@ README موفق بودند؛ کل integrationهای Cargo اجرا نشدند. �
   تغییری نکرده‌اند: ۲۸/۱۷۱ OpenAPI، ۲۸/۱۹۰ وب و صفر فایل بازنشسته.
   [قرارداد](README.md#preflight-deferred-tex-outcomes-without-rendering)
   [شواهد و گام بعد](MIGRATION_HANDOFF.md)
+
+## checkpointهای renderer و ادامهٔ یک‌بارمصرف TeX — ۲۰۲۶-۱۱-۲۱
+
+- `ec1f724215` به API خالص preflight، checkpoint پیش از هر renderer و
+  `begin/body/complete` اضافه می‌کند. continuation فقط یک بار مصرف می‌شود؛
+  انتخاب نتیجه handler یا fallback اجرا نمی‌کند. بودجهٔ مشترک گراف و متن
+  checkpointها را هم شامل می‌شود؛ اثرهای آینده زودتر اعمال نمی‌شوند.
+- هفت تست تازه، ۳۶۶٬۴۸۰ مقایسهٔ وضعیت exception شامل
+  ۹۸٬۴۳۶ پذیرفته‌شده و ۱۲۱٬۰۸۰ مقایسهٔ حالت نهایی شامل
+  ۱۰۱٬۰۵۲ پذیرفته‌شده بدون اختلاف بودند. دو mutant رد شدند؛ ۳۲۰
+  تست در هر حالت، Cargo و Clippy منتخب و lint شامل mypy موفق بودند.
+- API هنوز adapter پایتون ندارد. اعمال checkpoint با هویت و اثرهای درست
+  در host و سنجش هزینه گام بعدند. وابستگی و دانلود package تازه صفر است؛
+  cacheها و wheelها حفظ‌اند. HTTP مستقل همان ۲۸/۱۷۱ OpenAPI و ۲۸/۱۹۰
+  وب و بازنشستگی Python صفر است.
+  [قرارداد](README.md#checkpoint-deferred-tex-before-each-renderer-call)
+  [شواهد و کار بعدی](MIGRATION_HANDOFF.md)
