@@ -5891,3 +5891,28 @@ regex جایگزین، wheel قدیمی و حالت خاموش مسیر Python �
 بیلد آفلاین PyO3/HTTP و fmt/Clippy/Ruff گذشتند. یک تست Rust
 نیازمند PostgreSQL و Memcached موقت اجرا نشد. دانلود یا بررسی
 CI انجام نشد.
+
+## تست خروجی HTML و benchmark برای Markdown حصاردار
+
+fixture روی Python-Markdown، افزونه، preprocessor، formatter و
+Pygments واقعی را اجرا می‌کند؛ فقط تنظیم realm و پاسخ TeX آزمایشی
+هستند. ۸۸ ورودی در چهار ترکیب Pygments و زبان پیش‌فرض، HTML نهایی،
+stash و خطا را در Python، wheel قدیمی و Rust مقایسه کردند. یک کنترل
+عمداً خروجی Rust را تغییر داد و اختلاف در HTML نهایی دیده شد.
+[روش اجرا](README.md#measure-fenced-markdown-parity-and-performance-without-django-setup)
+
+این اندازه‌گیری production یا کل Zulip نیست. پوشش HTTP همان
+۲۸/۱۷۱ OpenAPI (۱۶٫۴٪) و ۲۸/۱۹۰ وب (۱۴٫۷٪) است. هیچ پیش‌فرض
+production تغییر نکرد و هیچ فایل Python بازنشسته نشد. پیش از گسترش یا فعال‌سازی
+پل حصار، گلوگاه فراخوانی‌های بین دو زبان را جداگانه اندازه
+بگیرید و parity کامل را در محیط ایزولهٔ Django بررسی کنید.
+
+روی mmallaki با Python 3.12.3 و build بهینه، دو اجرای هفت‌تکراری
+در این fixture افزایش زمان حدود ۱۱ تا ۱۵٪ برای batch بدون Pygments
+و حدود ۶٪ با Pygments نشان دادند. نسبت همهٔ ترکیب‌ها ۱٫۰۰۳ تا ۱٫۱۶۹
+بود؛ اختلاف‌های نزدیک ۱ را نباید معنادار دانست. نتیجه دلیل
+فعال‌سازی پیش‌فرض نیست.
+
+۴۳ تست Python هدفمند، ۱۲۹ تست واحد و ۱۴۳ تست یکپارچهٔ Rust،
+بیلد آفلاین افزونهٔ بهینه و HTTP و fmt/Clippy/Ruff گذشتند. یک
+تست نیازمند PostgreSQL و Memcached موقت اجرا نشد. CI بررسی نشد.

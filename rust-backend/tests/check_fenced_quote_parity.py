@@ -3,6 +3,8 @@
 """Exercise the source formatter without importing the provisioned Zulip app."""
 
 import ast
+import builtins
+import logging
 import random
 import re
 import unittest
@@ -13,8 +15,14 @@ from types import SimpleNamespace
 from typing import cast
 from unittest.mock import Mock
 
+import lxml.html
+from django.utils.html import escape
 from markdown import Markdown
+from markdown.extensions import Extension, codehilite
+from markdown.extensions.codehilite import CodeHiliteExtension
 from markdown.preprocessors import Preprocessor
+from pygments.lexers import find_lexer_class_by_name
+from pygments.util import ClassNotFound
 from typing_extensions import override
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -379,11 +387,15 @@ class NestedFencedLineParity(unittest.TestCase):
             return seen, (type(caught), caught.args)
 
 
-def load_fence_stack(backend: object) -> dict[str, object]:
+def load_fence_stack(
+    backend: object, *, extra: dict[str, object] | None = None
+) -> dict[str, object]:
     source = ast.parse(SOURCE.read_text(encoding="utf-8"), filename=str(SOURCE))
     future = ast.parse("from __future__ import annotations").body
     names = {
         "FENCE_RE",
+        "CODE_WRAP",
+        "LANG_TAG",
         "_original_parse_fence_line",
         "_original_curl_re_search",
         "CODE_VALIDATORS",
@@ -391,6 +403,8 @@ def load_fence_stack(backend: object) -> dict[str, object]:
         "check_for_new_fence",
         "generic_handler",
         "validate_curl_content",
+        "FencedCodeExtension",
+        "CodeHilite",
         "ZulipBaseHandler",
         "OuterHandler",
         "QuoteHandler",
@@ -431,7 +445,9 @@ def load_fence_stack(backend: object) -> dict[str, object]:
         "Preprocessor": Preprocessor,
         "PLAYGROUND_LANGUAGE_REGEX": language,
         "MarkdownRenderingError": ValueError,
-    }
+        "Extension": Extension,
+        "codehilite": codehilite,
+    } | (extra or {})
     exec(compile(ast.Module(body=future + body, type_ignores=[]), str(SOURCE), "exec"), namespace)  # noqa: S102
     return namespace
 
@@ -840,6 +856,123 @@ class FencedCurlValidationParity(unittest.TestCase):
             return validator(lines)
         except ValueError as error:
             return type(error), error.args
+
+
+class FencedFixtureMarkdown(Markdown):
+    def __init__(self, default_language: str | None, extensions: list[Extension]) -> None:
+        self.zulip_realm = SimpleNamespace(default_code_block_language=default_language)
+        super().__init__(extensions=extensions)
+        self.preprocessors.deregister("html_block")
+
+
+def make_fenced_render_fixture(
+    backend: object, *, default_language: str | None = None, highlight: bool = False
+) -> FencedFixtureMarkdown:
+    def fixture_import(name: str, *args: object) -> object:
+        # The source's run method imports only this renderer type; the real
+        # Zulip package would require a provisioned Django environment.
+        if name == "zerver.lib.markdown":
+            return SimpleNamespace(ZulipMarkdown=FencedFixtureMarkdown)
+        return builtins.__import__(name, *args)
+
+    def render_tex(text: str, *, is_inline: bool) -> str | None:
+        assert not is_inline
+        return None if text == "invalid" else f'<span class="test-math">{escape(text)}</span>'
+
+    scope = load_fence_stack(
+        backend,
+        extra={
+            "__builtins__": vars(builtins) | {"__import__": fixture_import},
+            "PREPROCESSOR_PRIORITIES": {"fenced_code_block": 25},
+            "Markdown": Markdown,
+            "CodeHiliteExtension": CodeHiliteExtension,
+            "ClassNotFound": ClassNotFound,
+            "find_lexer_class_by_name": find_lexer_class_by_name,
+            "lxml": lxml,
+            "logging": logging,
+            "render_tex": render_tex,
+            "escape": escape,
+            "_rust_code_header": None,
+            "_rust_code_highlight": None,
+            "_rust_tex_handlers": None,
+            "parse_hl_lines": codehilite.parse_hl_lines,
+        },
+    )
+    extension = cast(type[Extension], scope["FencedCodeExtension"])
+    extensions = [extension({"run_content_validators": True})]
+    if highlight:
+        extensions.append(CodeHiliteExtension(guess_lang=False))
+    return FencedFixtureMarkdown(default_language, extensions)
+
+
+TICKS = chr(96) * 3
+FENCED_RENDER_SAMPLES = {
+    "plain": "Hello **Markdown** with فارسی and a link [docs](https://example.test).",
+    "code": 'Before\n\n~~~python\nprint("فارسی <&>")\n~~~\n\nAfter',
+    "nested": (
+        "~~~quote\nQuoted **text**\n\n"
+        f"{TICKS}spoiler Title *here*\nA **secret**.\n\n"
+        "~~~~javascript\nconst x = '<tag>';\n~~~~\n"
+        "~~~math\nx < 2\n\ninvalid\n~~~\n"
+        f"{TICKS}\n~~~"
+    ),
+    "incomplete": f"Top\n\n~~~~quote\n{TICKS}python\nimport sys",
+    "default-language": "~~~\nconst x = 1;\n~~~",
+    "curl-valid": '~~~curl\ncurl -sSX "POST" https://example.test\n~~~',
+}
+
+
+class FencedMarkdownRenderingParity(unittest.TestCase):
+    def test_fixture_rendering_matches_python_and_old_wheel(self) -> None:
+        old_wheel = SimpleNamespace(parse_markdown_fence=EXTENSION.parse_markdown_fence)
+        rng = random.Random(390544)
+        samples = list(FENCED_RENDER_SAMPLES.values())
+        samples += ["\r\n\r\n".join(rng.choices(samples, k=rng.randrange(1, 5))) for _ in range(80)]
+        samples += ["~~~curl\ncurl -sX GET\n~~~", "~~~curl\ncurl -X PUT\n~~~"]
+        for highlight in (False, True):
+            for language in (None, "javascript"):
+                reference, legacy, native = [
+                    make_fenced_render_fixture(
+                        backend, default_language=language, highlight=highlight
+                    )
+                    for backend in (None, old_wheel, EXTENSION)
+                ]
+                for sample in samples:
+                    with self.subTest(highlight=highlight, language=language, sample=sample):
+                        expected = render_fenced_fixture(reference, sample)
+                        self.assertEqual(render_fenced_fixture(legacy, sample), expected)
+                        self.assertEqual(render_fenced_fixture(native, sample), expected)
+
+    def test_fixture_visits_real_formatter_and_stash(self) -> None:
+        md = make_fenced_render_fixture(EXTENSION, default_language="javascript", highlight=True)
+        html = md.convert(FENCED_RENDER_SAMPLES["code"])
+        self.assertIn('data-code-language="Python"', html)
+        self.assertIn('class="codehilite"', html)
+        html = md.reset().convert(FENCED_RENDER_SAMPLES["nested"])
+        self.assertIn("<blockquote>", html)
+        self.assertIn('class="spoiler-block"', html)
+        self.assertIn('class="test-math"', html)
+        self.assertIn('class="tex-error"', html)
+        html = md.reset().convert(FENCED_RENDER_SAMPLES["default-language"])
+        self.assertIn('data-code-language="JavaScript"', html)
+
+    def test_changed_native_quote_is_visible_at_html_boundary(self) -> None:
+        mutant = SimpleNamespace(**vars(EXTENSION))
+        mutate = Mock(return_value="changed quote")
+        mutant.format_markdown_fenced_quote = mutate
+        python = make_fenced_render_fixture(None)
+        native = make_fenced_render_fixture(mutant)
+        sample = "~~~quote\nOriginal quote\n~~~"
+        self.assertNotEqual(python.convert(sample), native.convert(sample))
+        mutate.assert_called_once()
+
+
+def render_fenced_fixture(md: FencedFixtureMarkdown, sample: str) -> tuple[object, ...]:
+    try:
+        html = md.reset().convert(sample)
+    except ValueError as error:
+        return type(error), error.args
+    return html, tuple(md.htmlStash.rawHtmlBlocks), md.htmlStash.html_counter
 
 
 if __name__ == "__main__":

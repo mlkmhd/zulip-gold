@@ -4139,3 +4139,24 @@ configuration keep the Python validation path.
 The parity script compares the source validator across historical flag
 and quoting cases, 2,000 seeded input sets, and real Markdown fenced
 handler success and failure.
+
+## Measure fenced Markdown parity and performance without Django setup
+
+With the local PyO3 extension importable (prefer an optimized build for
+timings), run these from the repository root:
+
+```sh
+CARGO_NET_OFFLINE=true cargo build --manifest-path rust-backend/Cargo.toml --locked --release --features python --lib
+python rust-backend/tests/check_fenced_quote_parity.py
+python rust-backend/tests/benchmark_fenced_markdown.py --iterations 200 --repeats 7
+```
+
+The fixture loads the source fenced extension, preprocessor and code
+formatter into Python-Markdown. It compares final HTML, stash contents
+and validation errors across Python, opt-in Rust and a wheel without the
+new entry points. The rendering test covers 88 inputs with and without
+Pygments and with and without a realm default. The benchmark interleaves
+Python and Rust, checks parity first, and reports median per-conversion
+times and Rust/Python ratios. The fixture supplies a realm setting and
+a deterministic TeX stub; it does not exercise full Zulip rendering,
+production traffic or the actual TeX service.
