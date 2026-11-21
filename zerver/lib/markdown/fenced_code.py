@@ -79,6 +79,8 @@ Dependencies:
 import logging
 import os
 import re
+import sys
+import unicodedata
 from collections.abc import Callable, Iterable, Mapping, MutableSequence, Sequence
 from importlib import import_module
 from typing import Any, cast
@@ -98,6 +100,10 @@ from zerver.lib.markdown.priorities import PREPROCESSOR_PRIORITIES
 from zerver.lib.markdown.whitespace import ZulipNormalizeWhitespace
 from zerver.lib.tex import render_tex
 from zerver.models.realm_playgrounds import PLAYGROUND_LANGUAGE_REGEX
+
+_rust_code_header = (
+    import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_CODE_HEADER") == "1" else None
+)
 
 _rust_code_highlight = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_CODE_HIGHLIGHT") == "1" else None
@@ -412,6 +418,25 @@ class TexHandler(ZulipBaseHandler):
 
 class CodeHilite(codehilite.CodeHilite):
     def _parseHeader(self) -> None:
+        parser = getattr(_rust_code_header, "parse_fenced_code_header", None)
+        if (
+            parser is not None
+            and sys.implementation.name == "cpython"
+            and sys.version_info[:2] == (3, 12)
+            and type(self.src) is str
+        ):
+            result = parser(self.src, unicodedata.unidata_version)
+            if result is not None:
+                source, header = result
+                if header is not None:
+                    language, shebang, highlight_lines = header
+                    self.lang = language.lower()
+                    if self.options["linenos"] is None and shebang:
+                        self.options["linenos"] = True
+                    self.options["hl_lines"] = parse_hl_lines(highlight_lines)
+                self.src = source
+                return
+
         # Python-Markdown has a feature to parse-and-hide shebang
         # lines present in code blocks:
         #

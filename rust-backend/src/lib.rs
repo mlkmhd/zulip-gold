@@ -105,6 +105,9 @@ mod markdown_tex_handlers;
 #[cfg(feature = "native-markdown")]
 pub mod markdown_tex_syntax;
 
+#[cfg(feature = "native-markdown")]
+pub mod markdown_code_header;
+
 #[cfg(feature = "python")]
 mod markdown_list_blocks;
 

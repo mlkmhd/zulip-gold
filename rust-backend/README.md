@@ -3403,3 +3403,50 @@ existing target package unchanged unless explicitly asked to upgrade it. The
 seeded offline differential compares real Pygments output, complete exception
 arguments and cached configuration, including disabled highlighting, aliases,
 Unicode, malformed text and custom languages. It is not exhaustive or a benchmark.
+
+## Parse fenced code headers through Rust
+
+`ZULIP_RUST_CODE_HEADER=1` opts into native first-line header matching in
+`CodeHilite._parseHeader`. It is off by default and independent of
+`ZULIP_RUST_CODE_HIGHLIGHT`. `markdown_code_header::parse_header` preserves
+shebang/path greediness, two-or-more colons, the exact CPython Unicode word
+and whitespace classes, and matching single/double quotes around `hl_lines`.
+The header stays in the displayed source; only leading/trailing LF characters
+are removed, as in the original split/join/strip sequence. CR characters and
+all other whitespace are retained.
+
+`parse_fenced_code_header(source, unicode_version)` returns
+`(normalized_source, optional_header)`, where the header is
+`(language, shebang, optional_highlight_lines)`. `None` delegates before any
+mutation when Unicode differs from 15.0.0, UTF-8 conversion fails (including
+surrogates), or source exceeds 8 MiB. The adapter also delegates for runtimes
+other than CPython 3.12, string subclasses and older wheels without the export.
+Python still lowercases the language and calls the existing `parse_hl_lines`
+helper, preserving Unicode integers, arbitrary precision, digit limits and
+custom helper failures. Language, line-number and highlight-line assignments
+retain their original order; a failure does not normalize the source or retry.
+Pygments, lxml and exception logging remain in their existing paths.
+
+Using cached dependencies in the provisioned Linux development environment:
+
+```bash
+maturin build --manifest-path rust-backend/Cargo.toml --release --locked --offline \
+    --out var/code-header-wheels
+python -m pip install --no-index --no-deps --target var/code-header-python \
+    var/code-header-wheels/*.whl
+PYTHONPATH="$PWD/var/code-header-python:$PWD" ZULIP_RUST_CODE_HEADER=1 \
+    ./tools/test-backend zerver.tests.test_code_header_rust zerver.tests.test_markdown
+PYTHONPATH="$PWD/var/code-header-python:$PWD" DJANGO_SETTINGS_MODULE=zproject.test_settings \
+    python rust-backend/tests/check_code_header_parity.py --unicode \
+    --report var/code-header-parity.json
+```
+
+Use a fresh installation target when changing a wheel; retain previous targets
+for fallback checks. The parity oracle reads the original regex from the Python
+method's AST, checks all Unicode scalars in three fixed contexts, enumerates
+short strings and compares randomized complete highlighter state and errors.
+It checks that every supported input actually used the native parser. The
+`--mutant-remove-header` option deliberately removes the displayed first line
+and must produce differences. This is a compatibility corpus, not exhaustive
+string coverage or a performance benchmark. Full renderer and TeX deferred
+planner effects still need migration before Python files can be retired.

@@ -1,6 +1,29 @@
 use pyo3::exceptions::PyNameError;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyType};
+use pyo3::types::{PyDict, PyString, PyType};
+
+use crate::markdown_code_header;
+
+type CodeHeader = (String, Option<(String, bool, Option<String>)>);
+
+#[pyfunction]
+pub(crate) fn parse_fenced_code_header(
+    source: &Bound<'_, PyString>,
+    unicode_version: &str,
+) -> Option<CodeHeader> {
+    let source = source.to_str().ok()?;
+    if unicode_version != markdown_code_header::UNICODE_VERSION || source.len() > 8 * 1024 * 1024 {
+        return None;
+    }
+    let header = markdown_code_header::parse_header(source).map(|header| {
+        (
+            header.language.to_owned(),
+            header.shebang,
+            header.highlight_lines.map(str::to_owned),
+        )
+    });
+    Some((source.trim_matches('\n').to_owned(), header))
+}
 
 fn global<'py>(context: &Bound<'py, PyDict>, name: &str) -> PyResult<Bound<'py, PyAny>> {
     context
