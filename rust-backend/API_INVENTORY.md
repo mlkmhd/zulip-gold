@@ -1597,3 +1597,16 @@ trigger ربات، در هر حالت ۳۶ تست موفق داشت. Cargo می�
   encode ورودی و transport سرویس هنوز Python هستند؛ فایل بازنشسته
   نشد. HTTP و پیش‌فرض همان ۲۸/۱۷۱ OpenAPI و ۲۸/۱۹۰ وب باقی‌اند.
   [قرارداد](README.md#normalize-katex-cli-output-through-rust)
+
+## کنترل highlighting بلوک کد در Rust — ۲۰۲۶-۱۱-۲۱
+
+- کامیت `dd45bd6736` با `ZULIP_RUST_CODE_HIGHLIGHT=1` با پیش‌فرض خاموش، کش تنظیمات و ساخت
+  highlighter و metadata زبان را از طریق PyO3 کنترل می‌کند. Pygments،
+  lxml، header parsing و گرفتن خطای hilite در Python باقی‌اند. ۵٬۰۷۰
+  مقایسه شامل ۵۰۹ خطا بدون اختلاف و پنج رندر کامل با همهٔ metadata
+  برابر بودند؛ wheel قبلی نیز fallback را گذراند. نه تست تازه و
+  ۴۴۶ تست در هر دو حالت موفق بودند؛ سیزده statement adapter پوشش
+  دارند. Cargo، Clippy، mypy و lint هدفمند موفق بودند. ساخت و نصب آفلاین
+  بود و هیچ cache یا wheel قبلی حذف نشد. این یک renderer مستقل نیست؛
+  شمار HTTP همان ۲۸/۱۷۱ OpenAPI و ۲۸/۱۹۰ وب و بازنشستگی Python صفر است.
+  [قرارداد](README.md#orchestrate-fenced-code-highlighting-through-rust)
