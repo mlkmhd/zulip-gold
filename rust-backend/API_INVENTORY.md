@@ -1745,3 +1745,20 @@ README موفق بودند؛ کل integrationهای Cargo اجرا نشدند. �
   وب و بازنشستگی Python صفر است.
   [قرارداد](README.md#checkpoint-deferred-tex-before-each-renderer-call)
   [شواهد و کار بعدی](MIGRATION_HANDOFF.md)
+
+## اعمال host checkpoint در Rust — ۲۰۲۶-۱۱-۲۱
+
+- `566c91f6e7` ابزار داخلی `MarkdownInlineCheckpoint` را اضافه می‌کند:
+  هویت Elementها و attributeها، stash و parent map حفظ می‌شود؛ HTML و
+  پیوست فقط suffix تازه می‌گیرند و metadata با حالت قبلی ادغام می‌شود.
+  خطای اعمال، وضعیت نیمه‌تمام و exception اصلی را نگه می‌دارد و retry
+  را رد می‌کند. چرخه‌های ارجاع Python در GC شرکت می‌کنند.
+- ده تست تازه، ۱۵۱٬۹۷۶ مقایسهٔ وضعیت در ۶۱٬۰۸۰ زنجیره بدون اختلاف،
+  mutant ده‌اختلافی، ۳۳۰ تست در هر حالت و Cargo و Clippy و lint منتخب
+  موفق بودند. package و وابستگی تازه صفر و wheelها و cacheها حفظ‌اند.
+- هنوز اتصال renderer، guardهای زنده و قرارداد aliasهای ancestor و
+  تغییرات callback و سنجش هزینه باقی است. ابزار consumer تولیدی ندارد؛
+  مسیر و پرچم پیش‌فرض و بازنشستگی Python تغییری نکرده‌اند: ۲۸/۱۷۱
+  OpenAPI، ۲۸/۱۹۰ وب و صفر فایل Python بازنشسته.
+  [قرارداد](README.md#apply-cumulative-inline-checkpoints-to-python-objects)
+  [شواهد و گام بعد](MIGRATION_HANDOFF.md)
