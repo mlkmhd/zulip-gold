@@ -1712,3 +1712,19 @@ README موفق بودند؛ کل integrationهای Cargo اجرا نشدند. �
 - این پل PyO3 است؛ شمار HTTP مستقل همان ۲۸/۱۷۱ OpenAPI و ۲۸/۱۹۰ وب و
   بازنشستگی فایل Python صفر است.
   [قرارداد](README.md#decode-successful-katex-http-responses-through-rust)
+
+## پیش‌بررسی گراف TeX بدون رندر — ۲۰۲۶-۱۱-۲۱
+
+- `bf18a4aa13` API خالص `markdown_tex_preflight::preflight` را اضافه
+  می‌کند؛ تمام ترکیب‌های موفقیت و شکست معمول، حداکثر شش فرمول، پیش
+  از دریافت آرگومان‌های renderer بررسی می‌شوند. stash، شمارندهٔ HTML
+  و متن مصرفی لینک‌ها برای هر شاخه جدا هستند؛ خطای دیرهنگام کل گراف
+  را پیش از هر effect واگذار می‌کند. انتخاب نتیجه handler اجرا نمی‌کند.
+- نه تست تازه، ۹۶٬۸۶۴ مقایسه با Python شامل ۸۲٬۰۷۶ حالت پذیرفته‌شده
+  بدون اختلاف و رگرسیون ۳۲۰ تستی در هر دو حالت موفق بودند. Cargo و
+  Clippy منتخب، rustfmt و lint شامل mypy موفق‌اند؛ دانلود package صفر است.
+- این API هنوز به adapter متصل نیست. checkpoint و حفظ وضعیت هنگام
+  exception و سنجش هزینه پیش‌نیاز فعال‌سازی‌اند؛ Python و HTTP مستقل
+  تغییری نکرده‌اند: ۲۸/۱۷۱ OpenAPI، ۲۸/۱۹۰ وب و صفر فایل بازنشسته.
+  [قرارداد](README.md#preflight-deferred-tex-outcomes-without-rendering)
+  [شواهد و گام بعد](MIGRATION_HANDOFF.md)
