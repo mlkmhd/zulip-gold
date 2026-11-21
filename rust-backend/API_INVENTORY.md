@@ -1634,3 +1634,16 @@ trigger ربات، در هر حالت ۳۶ تست موفق داشت. Cargo می�
   محفوظ بودند. Pygments و lxml و renderer کامل هنوز باقی‌اند. شمار
   HTTP همان ۲۸/۱۷۱ OpenAPI و ۲۸/۱۹۰ وب و بازنشستگی Python صفر است.
   [قرارداد](README.md#escape-fenced-code-html-through-rust)
+
+## انتخاب مشترک fence نقل‌قول در Rust — ۲۰۲۶-۱۱-۲۱
+
+- کامیت `d49da6b896` با همان `ZULIP_RUST_MARKDOWN_FENCES=1` و
+  پیش‌فرض خاموش، scanner موجود یادآوری را برای helper عمومی انتخاب
+  fence مشترک می‌کند. ۳٬۴۹۳٬۴۵۴ مقایسه بدون اختلاف، شش تست تازه و
+  ۷۴۵ تست در هر دو حالت موفق بودند؛ هر پنج statement تازه پوشش
+  دارند. quote reply، گزارش، onboarding و webhookهای GitHub و GitLab
+  نیز تست شدند. سه رندر کامل با متن و metadata و wheel قبلی برابر
+  بودند. Cargo، Clippy، mypy و lint موفق و ساخت و نصب آفلاین بودند؛
+  کش‌ها حفظ شدند. HTTP همان ۲۸/۱۷۱ OpenAPI و ۲۸/۱۹۰ وب و صفر فایل
+  Python بازنشسته است.
+  [قرارداد](README.md#choose-unused-quote-fences-through-rust)
