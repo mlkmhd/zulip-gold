@@ -3,7 +3,7 @@
 - **تاریخ ثبت** — ۲۱ نوامبر ۲۰۲۶، تهران
 - **شاخهٔ کار** — `codex/rust-backend`
 - **مبنای پایتون** — `e28e86e48e`، نوک شاخهٔ `main` فورک Zulip Gold در شروع مهاجرت
-- **آخرین کامیت کد تأییدشده** — `07329b7850`
+- **آخرین کامیت کد تأییدشده** — `4b73c2f8ff`
 
 هدف این است که کل کد پایتون این فورک، شامل سرور، workerها، ابزارهای نصب و مدیریت، مهاجرت‌های پایگاه داده و تست‌ها، با Rust جایگزین شود. API و رفتار قابل مشاهدهٔ برنامه باید در طول مهاجرت سازگار بمانند. در توسعه، مسیر سازگاری موبایل و عملیات منتقل‌شدهٔ واژه‌های هشدار، متن‌های ذخیره‌شده، پیش‌نویس‌ها، فضای ذخیره‌سازی ربات، لینک‌سازها، دامنه‌های مجاز، تعاریف پروفایل، نماهای ناوبری، فایل‌های آپلودشده، ایموجی‌های سفارشی، پوشه‌های کانال، پیام‌های زمان‌بندی‌شده و یادآوری‌ها در سرویس HTTP مستقل Rust اجرا می‌شوند. بخش‌هایی از اعتبارسنجی، آماده‌سازی پیام و عملیات پایگاه داده از داخل Django به Rust واگذار شده‌اند. Django مبنای مقایسه و مسیر پیش‌فرض استقرار است.
 
@@ -5111,3 +5111,115 @@ preflight تمام گراف TeX پیش از هر callback و ثبت اثرهای
 ۱۱ تست coverage همهٔ هفت statement افزوده یا جایگزین‌شدهٔ adapter را
 پوشش دادند. proof نهایی برابری hash هر هفت منبع با کامیت کد، extension
 نصب‌شده با wheel تازه و تغییرنکردن wheel قبلی را تأیید می‌کند.
+
+## ساخت درخواست سرویس KaTeX در Rust — ۲۱ نوامبر ۲۰۲۶
+
+کامیت `ff708a66c5` با همان پرچم موجود و پیش‌فرض خاموش
+`ZULIP_RUST_KATEX_RESPONSE=1`، export جدید `request_katex_service` را
+به مسیر سرویس اضافه می‌کند. قابلیت درخواست و پاسخ مستقل بررسی می‌شوند؛
+wheel قبلی که فقط handler پاسخ دارد همچنان کار می‌کند. ساخت session،
+lookup متد، قالب‌بندی port، بررسی truthiness حالت inline، خواندن secret
+و ارسال فرم همان ترتیب Python را دارند. محتوا حتی با surrogate دست‌نخورده
+به session فعلی می‌رسد. آدرس همچنان ثابتِ localhost است و override پراکسی
+حفظ می‌شود. HTTP client، timeout نیم‌ثانیه‌ای و سیاست `OutgoingSession`
+تغییر نکرده‌اند؛ این کلاینت HTTP مستقل Rust نیست.
+[قرارداد و فرمان‌ها](README.md#issue-katex-service-requests-through-rust)
+
+مرز catch و logging عمداً در Python باقی است: callback لاگ باید همان
+exception فعال را در `sys.exception()` ببیند و خطای خود logger باید
+exception درخواست را در `__context__` نگه دارد. decode پاسخ خارج از
+catch درخواست باقی است. پس از شروع درخواست، fallback یا ارسال دوباره
+وجود ندارد. حالت CLI این export را فراخوانی نمی‌کند.
+
+مقایسهٔ extension واقعی با seed برابر `962853` روی ۲۰٬۰۶۰ حالت بدون
+اختلاف بود؛ ۹٬۱۸۴ exception و ۸٬۷۷۱ هشدار مقایسه شدند و هر حالت بومی
+دقیقاً یک فراخوانی export درخواست داشت. mutant برعکس‌کردن `is_display`
+با ده اختلاف رد شد. شش تست تازه و پانزده تست متمرکز موفق بودند؛
+coverage هر چهار statement تازهٔ adapter را پوشش داد. پنج رندر کامل،
+تمام metadata و آرگومان‌های درخواست برابر بودند؛ wheel تازه نه
+فراخوانی بومی و wheel واقعی قبلی صفر فراخوانی تازه داشت.
+
+probe با HTTP واقعی فقط روی loopback برای wheel تازه و قبلی اجرا شد:
+در هر اجرا شش حالت در هر دو مسیر و یک رندر کامل در هر مسیر، مجموعاً
+۱۴ درخواست داشت. فرم‌ها، حالت display، secret آزمایشی، timeout، نتیجه،
+exception، هشدار و تمام metadata برابر بودند. wheel تازه هفت درخواست
+بومی و wheel قبلی صفر درخواست بومی داشت. سرویس بیرونی استفاده نشد.
+
+رگرسیون نهایی ۷۶۰ تستی در هر دو حالت موفق بود؛ خاموش ۱۱٬۴۰۳ skip
+مختص native و روشن دو skip شناخته‌شدهٔ RabbitMQ داشت. Cargo میزبان
+۱۲۴ تست library با Python و مهمان ۱۲۹ تست library با همهٔ featureها،
+Clippy تمام targetهای هر دو محیط، rustfmt میزبان، lint شامل mypy و
+README و پیام کامیت موفق بودند. تمام integrationهای Cargo اجرا نشدند.
+مهمان rustfmt نصب‌شده ندارد؛ برای این بررسی package جدید نصب نشد.
+
+دو job اولیهٔ رگرسیون اشتباهاً روی یک DB هم‌پوشانی پیدا کردند؛ هر دو
+متوقف شدند و مدرک تأیید نیستند. ماتریس نهایی و coverage پس از توقف
+آن‌ها به‌صورت ترتیبی اجرا شدند. فقط گزارش‌های `final-regression-*`
+مبنای نتیجهٔ نهایی‌اند. نمونهٔ فرمان README پس از بررسی runtime فقط
+برای افزودن `DJANGO_SETTINGS_MODULE` اصلاح و همان کامیت amend شد؛ کد
+runtime بین `5ad4473a7c` آزمایش‌شده و `ff708a66c5` یکسان است.
+
+wheel نهایی در `var/katex-request-final-wheels` و نصب جدا در
+`var/katex-request-final-python` نگهداری می‌شود. ساخت `--locked --offline`
+و نصب `--no-index --no-deps` بود؛ هیچ package دانلود یا وابستگی اضافه
+نشد و هیچ cache یا wheel قبلی حذف نشد. گزارش‌ها و proof با پیشوند
+`/home/ubuntu/zulip-rust-katex-request-` و نسخهٔ میزبان در `/tmp` هستند.
+شش hash منبع با کامیت نهایی، extension نصب‌شده با wheel، تغییرنکردن
+wheel قبلی و سی hash گزارشِ کپی‌شده تأیید شدند. proof اولیهٔ قبل از
+اصلاح فرمان README نیز حفظ شده است.
+
+## انتخاب encoding و ورودی CLI در Rust — ۲۱ نوامبر ۲۰۲۶
+
+کامیت `4b73c2f8ff` با همان پرچم موجود و خاموش
+`ZULIP_RUST_MARKDOWN_TEX=1`، exportهای مستقل `select_katex_encoding` و
+`encode_katex_input` را اضافه می‌کند. UTF-8 mode قبل از خواندن locale
+بررسی می‌شود. رشتهٔ دقیق با نام‌های رایج UTF-8 در Rust به bytes تبدیل
+می‌شود؛ codec دیگر، subclass رشته و خطای surrogate از متد encode
+Python استفاده می‌کنند. newline، NUL و Unicode ورودی تغییر نمی‌کنند.
+[قرارداد و فرمان‌ها](README.md#select-and-encode-katex-cli-input-through-rust)
+
+انتخاب encoding بیرون مرز `NotImplementedError` و تبدیل ورودی داخل آن
+باقی است. خطای انتخاب locale منتشر می‌شود؛ encoder دارای
+`NotImplementedError` همان fallback subprocess قبلی را دارد. خطای
+معمول encoding پیش از ساخت process منتشر می‌شود و process شروع یا
+تکرار نمی‌شود. wheel قدیمی و wheel با یکی از دو export مسیر سازگار
+دارند. guardهای Linux، هشدار encoding و callbackهای subprocess حفظ‌اند.
+
+مقایسهٔ extension واقعی با seed برابر `962854` روی ۱٬۳۵۴٬۱۷۲ ورودی،
+شامل همهٔ code pointهای Unicode و surrogate در یک زمینهٔ ثابت و
+رشته‌های تصادفی در دوازده codec، بدون اختلاف بود. ۶۸٬۳۶۵ exception
+با نوع و آرگومان کامل مقایسه شدند. mutant نرمال‌سازی CRLF با هشت
+اختلاف رد شد. این corpus پوشش همهٔ رشته‌ها یا benchmark نیست.
+هفت تست تازه و مجموعهٔ متمرکز ۲۷ تستی موفق بودند؛ coverage هر پنج
+statement تازه یا جایگزین‌شدهٔ adapter را پوشش داد. پنج رندر واقعی
+KaTeX با تمام metadata برابر بودند؛ wheel تازه شش encoder بومی و
+wheel واقعی قبلی صفر encoder تازه داشت.
+
+رگرسیون نهایی ۷۶۷ تستی در هر دو حالت موفق بود؛ خاموش ۱۱٬۴۰۳ skip
+مختص native و روشن دو skip شناخته‌شدهٔ RabbitMQ داشت. Cargo میزبان
+۱۲۴ library با Python و مهمان ۱۲۹ library با همهٔ featureها، Clippy
+تمام targetهای هر دو محیط، rustfmt میزبان، lint شامل mypy و README و
+پیام کامیت موفق بودند؛ تمام integrationهای Cargo اجرا نشدند.
+
+wheel در `var/katex-input-wheels` و نصب جدا در `var/katex-input-python`
+با ساخت قفل‌شده و آفلاین و نصب `--no-index --no-deps` حفظ شد. هیچ
+package دانلود، وابستگی اضافه یا cache و wheel قبلی حذف نشد. گزارش‌ها
+و proof با پیشوند `/home/ubuntu/zulip-rust-katex-input-` و نسخهٔ میزبان
+در `/tmp` حفظ‌اند. شش hash منبع با کامیت کد، extension نصب‌شده با wheel،
+تغییرنکردن wheel قبلی و بیست hash گزارش تأیید شدند.
+
+در این نوبت یک `ls-remote` کوچک upstream را همچنان در `5b8df40354`
+یافت و `merge-tree` تعارض‌های فورک را تأیید کرد؛ fetch تکراری و rebase
+زنده، push یا استقرار انجام نشد. شمار HTTP مستقل همان ۲۸/۱۷۱ OpenAPI
+و ۲۸/۱۹۰ وب و بازنشستگی فایل Python صفر است. این دو پل PyO3 برای حذف
+`tex.py` کافی نیستند؛ مسیر پیش‌فرض، codecها، انتخاب CLI و مرزهای catch
+و مصرف‌کنندگان ماژول هنوز Python هستند.
+
+گام اصلی بعدی همچنان preflight تمام گراف TeX و effectهای deferred
+پیش از نخستین callback است. علاوه بر تفاوت stash موفق و خطا، شمارنده
+و متن مصرفی لینک‌ها، باید وضعیت نیمه‌تمام هنگام exception حفظ شود.
+پروتکل باید پیش از هر رندر، unsupported بودن تمام گراف را مشخص کند؛
+هرگز پس از اجرای renderer به fallback با رندر دوباره نروید. handlerهای
+موجود فقط در نقطهٔ commit امن قابل استفاده‌اند. بازنشستگی transport
+واقعی HTTP، codecهای fallback، Pygments و lxml، preview و renderer
+کامل و orchestration مجوز و پیوست و تحویل listener هنوز باقی‌اند.

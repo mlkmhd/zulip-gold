@@ -1671,3 +1671,31 @@ OpenAPI و ۲۸/۱۹۰ وب و بازنشستگی Python صفر باقی است.
 بازنشستگی فایل Python وجود ندارد. شمار HTTP همان ۲۸/۱۷۱ OpenAPI و
 ۲۸/۱۹۰ وب است. جزئیات و محدودیت‌ها در آخرین بخش سند تحویل و
 [قرارداد](README.md#normalize-fenced-code-header-values-through-rust) آمده‌اند.
+
+## درخواست سرویس و ورودی CLI در Rust — ۲۱ نوامبر ۲۰۲۶
+
+- کامیت `ff708a66c5` با پرچم موجود و خاموش `ZULIP_RUST_KATEX_RESPONSE`
+  ساخت درخواست KaTeX را به Rust می‌برد؛ `KatexSession`، HTTP client،
+  timeout و مرز catch و logging همان قبلی‌اند. قابلیت request و response
+  مستقل است. ۲۰٬۰۶۰ مقایسه بدون اختلاف، شش تست تازه، پانزده تست coverage
+  و رگرسیون نهایی ۷۶۰ تستی در هر دو حالت موفق بودند. چهار statement
+  تازه پوشش دارند؛ پنج رندر کامل و probe واقعی loopback با wheel تازه
+  و قبلی برابر بودند. jobهای اولیهٔ هم‌پوشان متوقف و تأیید نهایی ترتیبی
+  انجام شد. کلاینت HTTP مستقل یا بازنشستگی Python نیست.
+  [قرارداد](README.md#issue-katex-service-requests-through-rust)
+- کامیت `4b73c2f8ff` با پرچم موجود و خاموش `ZULIP_RUST_MARKDOWN_TEX`
+  انتخاب encoding و تبدیل رشتهٔ معمولی UTF-8 به stdin را بومی می‌کند.
+  codecها و encoder سفارشی و خطاهای surrogate مسیر Python دارند؛
+  ترتیب fallback و شروع process حفظ است. ۱٬۳۵۴٬۱۷۲ مقایسه بدون اختلاف،
+  هفت تست تازه، ۲۷ تست coverage و رگرسیون ۷۶۷ تستی در هر دو حالت
+  موفق بودند. پنج statement تازه یا جایگزین‌شده پوشش دارند؛ پنج رندر
+  واقعی و تمام metadata با wheel تازه و قبلی برابر بودند.
+  [قرارداد](README.md#select-and-encode-katex-cli-input-through-rust)
+
+Cargo library، Clippy تمام targetها، rustfmt میزبان، lint شامل mypy و
+README موفق بودند؛ کل integrationهای Cargo اجرا نشدند. ساخت و نصب
+آفلاین و بدون دانلود package یا وابستگی تازه بود؛ cacheها و wheelهای
+قبلی حفظ شدند. HTTP مستقل و پیش‌فرض تغییر نکرده‌اند: ۲۸/۱۷۱ OpenAPI،
+۲۸/۱۹۰ وب و صفر فایل Python بازنشسته. main planner هنوز به preflight
+گراف و اثرهای deferred و حفظ وضعیت exception نیاز دارد.
+[شواهد و کار باقی‌مانده](MIGRATION_HANDOFF.md)
