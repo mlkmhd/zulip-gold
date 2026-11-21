@@ -20,6 +20,7 @@ use crate::markdown_link_syntax::TextStash;
 use crate::markdown_links;
 use crate::markdown_media::{self, AudioPolicy, ImageMetadata};
 use crate::markdown_mention_syntax::{self, Kind as MentionKind};
+use crate::markdown_tex_syntax;
 use crate::markdown_timestamp::{self, Rendered as Timestamp};
 use crate::markdown_unicode_emoji::{self, UnicodeEmoji};
 
@@ -38,7 +39,7 @@ impl Text {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Node {
     pub tag: String,
     /// The host renderer's lowercase form of the tag.
@@ -74,7 +75,7 @@ pub struct Pattern {
     /// 9: emoticon translation; 10: Unicode emoji; 11: explicit link;
     /// 12: audio; 13: image; 14: channel; 15: topic; 16: message link;
     /// 17: user mention; 18: group mention; 19: ISO timestamp; 20: HTML entity;
-    /// 21: automatic link.
+    /// 21: automatic link; 22: speculative TeX (preflight only).
     pub kind: u8,
     pub excludes: Vec<String>,
     pub emoji: Option<NamedEmoji>,
@@ -108,8 +109,17 @@ pub struct State {
     pub has_image: bool,
     /// Union these notifications with existing host metadata after plan success.
     pub mentions: MentionEffects,
-    /// Raw entities for the host HTML stash, in encounter order.
+    /// Raw HTML for the host stash, in encounter order.
     pub html_blocks: Vec<String>,
+    /// Speculative TeX results, never renderer callbacks. Successful entries
+    /// reserve an HTML block which must be filled before committing the state.
+    pub tex: Vec<TexCall>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct TexCall {
+    pub body: String,
+    pub html_block: Option<usize>,
 }
 
 /// Already-authorized media snapshots and live renderer settings.
@@ -171,7 +181,7 @@ pub struct MentionEffects {
 }
 
 /// Immutable authorized snapshots; none of the native handlers perform lookups.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct Inputs<'a> {
     pub media: Option<&'a Media>,
     pub channels: Option<&'a Channels>,
@@ -267,6 +277,8 @@ struct Engine<'a, G> {
     remaining_autolink_bytes: usize,
     html_counter: Option<usize>,
     autolinks: Option<&'a markdown_autolinks::Matcher>,
+    tex_outcomes: Option<&'a [bool]>,
+    remaining_tex_bytes: usize,
 }
 
 impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
@@ -887,6 +899,37 @@ impl<G: FnMut(usize, &str) -> Option<()>> Engine<'_, G> {
                             stashed,
                         )
                     }
+                    22 => {
+                        self.remaining_tex_bytes =
+                            self.remaining_tex_bytes.checked_sub(data.len())?;
+                        let Some(matched) = markdown_tex_syntax::find_tex(&data) else {
+                            break;
+                        };
+                        let success = *self.tex_outcomes?.get(self.state.tex.len())?;
+                        let body = matched.body.to_owned();
+                        let before = matched.before.to_owned();
+                        let after = matched.after.to_owned();
+                        let (stashed, html_block) = if success {
+                            let block = self.state.html_blocks.len();
+                            let counter = self.html_counter?.checked_add(block)?;
+                            self.state.html_blocks.push(String::new());
+                            (
+                                Stashed::Text(Text::plain(format!("\u{2}wzxhzdk:{counter}\u{3}"))),
+                                Some(block),
+                            )
+                        } else {
+                            let node = self.add_node("span");
+                            self.state.nodes[node].attributes =
+                                vec![("class".to_owned(), "tex-error".to_owned())];
+                            self.state.nodes[node].text = Some(Text {
+                                value: format!("$${body}$$"),
+                                atomic: true,
+                            });
+                            (Stashed::Node(node), None)
+                        };
+                        self.state.tex.push(TexCall { body, html_block });
+                        (before, after, stashed)
+                    }
                     _ => return None,
                 };
                 if let Stashed::Node(node) = &mut stashed {
@@ -1264,6 +1307,17 @@ pub fn run_with_inputs(
     inputs: Inputs<'_>,
     guard: impl FnMut(usize, &str) -> Option<()>,
 ) -> Option<State> {
+    run_with_tex_outcomes(nodes, patterns, ancestors, inputs, None, guard)
+}
+
+pub(super) fn run_with_tex_outcomes(
+    nodes: Vec<Node>,
+    patterns: &[Pattern],
+    ancestors: Vec<String>,
+    inputs: Inputs<'_>,
+    tex_outcomes: Option<&[bool]>,
+    guard: impl FnMut(usize, &str) -> Option<()>,
+) -> Option<State> {
     if nodes.is_empty()
         || nodes.len() > 20_000
         || patterns.iter().any(|pattern| {
@@ -1288,6 +1342,7 @@ pub fn run_with_inputs(
             has_image: false,
             mentions: MentionEffects::default(),
             html_blocks: Vec::new(),
+            tex: Vec::new(),
         },
         patterns,
         media: inputs.media,
@@ -1304,6 +1359,8 @@ pub fn run_with_inputs(
         remaining_autolink_bytes: 8 * 1024 * 1024,
         html_counter: inputs.html_counter,
         autolinks: inputs.autolinks,
+        tex_outcomes,
+        remaining_tex_bytes: 8 * 1024 * 1024,
     }
     .run(ancestors)
 }

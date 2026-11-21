@@ -3721,3 +3721,49 @@ and size boundaries. It compares exception types and full arguments. The
 finite corpus, not exhaustive string coverage or a performance benchmark.
 This computation remains a PyO3 bridge; HTTP transport, renderer orchestration
 and Python module retirement remain separate migration work.
+
+## Preflight deferred TeX outcomes without rendering
+
+`markdown_tex_preflight::preflight` is a pure Rust preparation API for the
+native inline planner. Pattern kind 22 uses the existing native TeX matcher.
+Before exposing renderer arguments, preflight checks the entire graph for
+every combination of successful and failed formulas. Each branch keeps its
+own error spans, inline stash variants, HTML counter, link destinations and
+titles. All branches must agree on the ordered renderer arguments, including
+duplicates. A late unsupported URL, guard, or resource limit rejects the
+whole preflight without renderer callbacks or host mutations.
+
+The bounds are six formulas, 64 outcome combinations, 100,000 retained graph
+items and 8 MiB of retained text. Larger inputs delegate. Guards must be pure
+and may run repeatedly. Callers must validate the live handler registry,
+CPython/Unicode syntax compatibility, authorized snapshots and HTML stash
+semantics before supplying inputs. `calls()` exposes the certified arguments;
+`into_plan()` selects an existing branch and fills its reserved raw HTML
+blocks. An empty successful rendering is distinct from failure. Selection
+does not run handlers, reparse rendered HTML or retry an unsupported plan.
+A result-count mismatch is a caller protocol error and must propagate.
+
+This API is **not connected to the Python adapter**. The default and opt-in
+native planners still delegate matching TeX before rendering. Host state at
+each callback and when a renderer raises must be preserved before enabling a
+deferred commit path. A final-state certificate alone does not solve that
+exception protocol or retire any Python module.
+
+With the existing cached Rust dependencies and provisioned Python environment:
+
+```bash
+cargo test --manifest-path rust-backend/Cargo.toml --locked --offline \
+    --features native-markdown --test tex_preflight
+cargo build --manifest-path rust-backend/Cargo.toml --locked --offline \
+    --features native-markdown --example tex_preflight
+python rust-backend/tests/check_tex_preflight_parity.py \
+    --probe rust-backend/target/debug/examples/tex_preflight \
+    --seed 962856 --cases 2000 --report /tmp/tex-preflight-parity.json
+```
+
+The oracle compares graphs, shared stash and parent identities, atomic text,
+ancestors, renderer argument order, raw HTML blocks and counters with the live
+Python handlers. It varies registry precedence, nested nodes, tails, atomic
+input and mixed normal outcomes. `--mutant-error-class` must reject a changed
+error-span class. These finite checks do not cover renderer exceptions or
+benchmark the branch enumeration; no runtime activation or speedup is claimed.
