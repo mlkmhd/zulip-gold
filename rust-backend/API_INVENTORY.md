@@ -1622,3 +1622,15 @@ trigger ربات، در هر حالت ۳۶ تست موفق داشت. Cargo می�
   و cacheها حفظ شدند. شمار HTTP همان ۲۸/۱۷۱ OpenAPI و ۲۸/۱۹۰ وب و
   بازنشستگی Python صفر است.
   [قرارداد](README.md#parse-fenced-code-headers-through-rust)
+
+## escape بومی HTML بلوک کد — ۲۰۲۶-۱۱-۲۱
+
+- کامیت `b34b7a149f` با همان `ZULIP_RUST_CODE_HIGHLIGHT=1` و
+  پیش‌فرض خاموش، escape بلوک کد غیرفعال یا خطادار را در Rust انجام
+  می‌دهد. ۱٬۱۸۸٬۰۵۶ مقایسه بدون اختلاف، شش تست تازه و ۴۶۰ تست در
+  هر دو حالت موفق بودند؛ هر پنج statement تازه پوشش دارند. چهار
+  رندر کامل با context لاگ و همهٔ metadata و wheel قبلی برابر بودند.
+  Cargo، Clippy، mypy و lint موفق بودند؛ ساخت و نصب آفلاین و کش‌ها
+  محفوظ بودند. Pygments و lxml و renderer کامل هنوز باقی‌اند. شمار
+  HTTP همان ۲۸/۱۷۱ OpenAPI و ۲۸/۱۹۰ وب و بازنشستگی Python صفر است.
+  [قرارداد](README.md#escape-fenced-code-html-through-rust)
