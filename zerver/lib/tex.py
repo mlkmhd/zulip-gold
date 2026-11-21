@@ -105,9 +105,18 @@ def render_tex(tex: str, is_inline: bool = True) -> str | None:
         and subprocess.check_output is _subprocess_check_output
         and subprocess.Popen is _subprocess_popen
     ):
-        encoding = "utf-8" if sys.flags.utf8_mode else locale.getencoding()
+        select_encoding = getattr(_rust_markdown_tex, "select_katex_encoding", None)
+        encoding = (
+            select_encoding(globals())
+            if select_encoding is not None
+            else "utf-8"
+            if sys.flags.utf8_mode
+            else locale.getencoding()
+        )
+        encode = getattr(_rust_markdown_tex, "encode_katex_input", None)
         try:
-            success, stdout = rust_render(katex_path, tex.encode(encoding), is_inline)
+            stdin = encode(tex, encoding) if encode is not None else tex.encode(encoding)
+            success, stdout = rust_render(katex_path, stdin, is_inline)
         except NotImplementedError:
             pass
         else:

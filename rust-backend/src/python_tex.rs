@@ -48,6 +48,37 @@ pub(crate) fn request_katex_service<'py>(
 }
 
 #[pyfunction]
+pub(crate) fn select_katex_encoding<'py>(
+    context: &Bound<'py, PyDict>,
+) -> PyResult<Bound<'py, PyAny>> {
+    if global(context, "sys")?
+        .getattr("flags")?
+        .getattr("utf8_mode")?
+        .is_truthy()?
+    {
+        Ok(PyString::new(context.py(), "utf-8").into_any())
+    } else {
+        global(context, "locale")?.call_method0("getencoding")
+    }
+}
+
+#[pyfunction]
+pub(crate) fn encode_katex_input<'py>(
+    tex: &Bound<'py, PyAny>,
+    encoding: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    if tex.is_exact_instance_of::<PyString>()
+        && encoding.is_exact_instance_of::<PyString>()
+        && let Ok(encoding) = encoding.cast::<PyString>()?.to_str()
+        && matches!(encoding, "utf-8" | "UTF-8" | "utf8" | "UTF8")
+        && let Ok(value) = tex.cast::<PyString>()?.to_str()
+    {
+        return Ok(PyBytes::new(tex.py(), value.as_bytes()).into_any());
+    }
+    tex.call_method1("encode", (encoding,))
+}
+
+#[pyfunction]
 pub(crate) fn finish_katex_cli<'py>(
     success: bool,
     stdout: &Bound<'py, PyBytes>,

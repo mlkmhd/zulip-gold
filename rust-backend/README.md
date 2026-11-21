@@ -3346,9 +3346,10 @@ string. Unsuccessful output is decoded before returning `None`, preserving
 encoding errors rather than hiding them behind the process exit status.
 
 Other codecs and malformed UTF-8 use Python's decoding and normalization to
-retain exact codec errors, BOM behavior and surrogate results. Locale selection
-and stdin encoding stay in Python. Older wheels use the existing Python output
-handling after a single native process execution. Service response handling and
+retain exact codec errors, BOM behavior and surrogate results.
+[Input encoding](#select-and-encode-katex-cli-input-through-rust) has independent
+capability checks. Older wheels use the existing Python output handling after
+a single native process execution. Service response handling and
 planner fallback are unchanged. No additional flag or dependency is needed.
 
 ```sh
@@ -3645,3 +3646,44 @@ field. Tests additionally cover factory failures, exception context, live
 settings, callback evaluation order, partial wheel capabilities and CLI
 isolation. Controlled sessions avoid network traffic; this is not an HTTP
 transport benchmark or exhaustive input coverage.
+
+## Select and encode KaTeX CLI input through Rust
+
+The default-off `ZULIP_RUST_MARKDOWN_TEX=1` CLI bridge independently checks
+`select_katex_encoding` and `encode_katex_input`. The selector honors UTF-8 mode
+before reading the live locale encoding. Exact strings with canonical UTF-8
+codec names are copied into bytes in Rust. Other codecs, string subclasses and
+surrogate errors use the original Python `encode` method. No newline, NUL or
+Unicode normalization is performed on stdin.
+
+Encoding selection stays outside the `NotImplementedError` process fallback;
+input encoding stays inside it, at the original point before process creation.
+An unavailable locale therefore propagates, while an encoder that explicitly
+raises `NotImplementedError` retains the existing subprocess fallback. Ordinary
+encoding errors propagate without starting or retrying a process. Missing
+exports delegate independently, including with wheels that already support
+native process creation and output normalization. Linux, encoding-warning and
+subprocess callback guards remain in force.
+
+Using a locked offline wheel installed with `--no-index --no-deps` into
+`var/katex-input-python`:
+
+```bash
+PYTHONPATH="$PWD/var/katex-input-python:$PWD" \
+    ZULIP_RUST_MARKDOWN_TEX=1 ./tools/test-backend \
+    zerver.tests.test_katex_input_rust zerver.tests.test_katex_output_rust \
+    zerver.tests.test_tex_rust
+PYTHONPATH="$PWD/var/katex-input-python:$PWD" \
+    python rust-backend/tests/check_katex_input_parity.py \
+    --unicode-scalars --seed 962854 --cases 20000 \
+    --report /tmp/katex-input-parity.json
+```
+
+The oracle compares encoded bytes and complete error arguments against Python
+for every Unicode code point, including surrogates, in a fixed stdin context,
+plus seeded random strings across twelve codecs. `--mutant-newlines` must reject
+a deliberately normalized CRLF sequence. Focused tests cover live encoding
+selection, independent wheel capabilities, custom encoders and fallback/error
+boundaries. These checks do not exhaust all strings or benchmark encoding.
+Python codec fallbacks, CLI selection and exception handling remain dependencies;
+this bridge does not retire `tex.py` or activate standalone HTTP routes.
