@@ -2755,7 +2755,9 @@ To Do
         self.assertEqual(prereg_realm.data_import_metadata["slack_access_token"], access_token)
 
         # Assume user uploaded a file, after an earlier import attempt failed.
+        upload_path_id = "import/test-upload/slack.zip"
         prereg_realm.data_import_metadata["uploaded_import_file_name"] = "test_slack_importer.zip"
+        prereg_realm.data_import_metadata["uploaded_import_file_path_id"] = upload_path_id
         prereg_realm.data_import_metadata["invalid_file_error_message"] = (
             "Uploaded zip file is not a valid Slack export."
         )
@@ -2787,7 +2789,7 @@ To Do
             {
                 "type": "import_slack_data",
                 "preregistration_realm_id": prereg_realm.id,
-                "filename": f"import/{prereg_realm.id}/slack.zip",
+                "filename": upload_path_id,
                 "slack_access_token": access_token,
             },
         )
@@ -2846,7 +2848,7 @@ To Do
                 {
                     "type": "import_slack_data",
                     "preregistration_realm_id": prereg_realm.id,
-                    "filename": f"import/{prereg_realm.id}/slack.zip",
+                    "filename": upload_path_id,
                     "slack_access_token": access_token,
                 },
             )

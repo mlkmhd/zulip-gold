@@ -334,8 +334,8 @@ class TusdPreCreateTest(ZulipTestCase):
         self.assertEqual(result_json.get("HttpResponse", None), None)
         self.assertEqual(result_json.get("RejectUpload", False), False)
         self.assertEqual(list(result_json["ChangeFileInfo"].keys()), ["ID"])
-        filename = f"import/{prereg_realm.id}/slack.zip"
-        self.assertTrue(result_json["ChangeFileInfo"]["ID"].endswith(filename))
+        filename = result_json["ChangeFileInfo"]["ID"]
+        self.assertTrue(filename.endswith("/slack.zip"))
 
         info = TusUpload(
             id=filename,
