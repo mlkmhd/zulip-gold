@@ -143,7 +143,8 @@ class PreviewUrlsTest(unittest.TestCase):
         )
         self.assertEqual(native.calls, [("image", source), ("video", "/scl/fi/asset/image.JPG")])
         self.assertEqual(
-            native.dropbox_media("https://dropbox.com/scl/fo/asset/folder"), DeferredMedia("folder")
+            native.dropbox_media("https://dropbox.com/scl/fo/asset/folder"),  # codespell:ignore fo
+            DeferredMedia("folder"),
         )
         self.assertEqual(
             native.dropbox_media("https://dropbox.com/scl/fi/asset/document.pdf?q=one"),
@@ -303,7 +304,7 @@ class PreviewUrlsTest(unittest.TestCase):
                 ["dropbox.com", "files.dropbox.com", "DROPBOX.com", "example.test"],
                 [
                     "/sc/album",
-                    "/scl/fo/album",
+                    "/scl/fo/album",  # codespell:ignore fo
                     "/scl/fi/x/image.JPG",
                     "/scl/fi/x/doc.pdf",
                     "/scl/fi/x/movie.mp4",

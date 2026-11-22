@@ -250,7 +250,8 @@ pub fn dropbox_plan(url: &str) -> Result<Option<DropboxPlan>, Unsupported> {
     if url.netloc != "dropbox.com" && !url.netloc.ends_with(".dropbox.com") {
         return Ok(None);
     }
-    let is_album = url.path.starts_with("/scl/fo/") || url.path.starts_with("/sc/");
+    let is_album = url.path.starts_with("/scl/fo/") // codespell:ignore fo
+        || url.path.starts_with("/sc/");
     if !is_album && !url.path.starts_with("/scl/fi/") {
         return Ok(None);
     }
@@ -337,7 +338,7 @@ mod tests {
             file.raw_url.as_deref(),
             Some("https://www.dropbox.com/scl/fi/abc/image.png?raw=1&key=%E2%98%83+test#top")
         );
-        let album = dropbox_plan("https://dropbox.com/scl/fo/abc/part")
+        let album = dropbox_plan("https://dropbox.com/scl/fo/abc/part") // codespell:ignore fo
             .unwrap()
             .unwrap();
         assert!(album.is_album);

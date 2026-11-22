@@ -26,11 +26,17 @@ def render() -> str:
         "",
         "pub(super) const WORD: &str = concat!(",
     ]
+    # Keep spell-check exceptions on the exact generated Unicode ranges.
+    false_positives = {0x0ABD, 0xAADD}
     for start, end in ranges:
         value = rf"\x{{{start:x}}}"
         if start != end:
             value += rf"-\x{{{end:x}}}"
-        lines.append(f'    r"{value}",')
+        ignored = {start, end} & false_positives
+        comment = ""
+        if ignored:
+            comment = " // codespell:ignore " + ",".join(f"{point:x}" for point in sorted(ignored))
+        lines.append(f'    r"{value}",{comment}')
     lines.append(");")
     return "\n".join(lines) + "\n"
 

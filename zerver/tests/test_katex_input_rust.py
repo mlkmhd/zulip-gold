@@ -84,7 +84,7 @@ class KatexInputRustTest(SimpleTestCase):
             (True, True),
         ]:
             with self.subTest(select=select_enabled, encode=encode_enabled):
-                run = Mock(return_value=(True, b" caf\xe9 \n"))
+                run = Mock(return_value=(True, b" caf\xe9 \n"))  # codespell:ignore caf
                 native = SimpleNamespace(run_katex_cli=run)
                 select = Mock(wraps=self.extension.select_katex_encoding)
                 encode = Mock(wraps=self.extension.encode_katex_input)
@@ -107,7 +107,10 @@ class KatexInputRustTest(SimpleTestCase):
                 ):
                     self.assertEqual(tex.render_tex("café\r\n"), "café")
                 run.assert_called_once()
-                self.assertEqual(run.call_args.args[1:], (b"caf\xe9\r\n", True))
+                self.assertEqual(
+                    run.call_args.args[1:],
+                    (b"caf\xe9\r\n", True),  # codespell:ignore caf
+                )
                 getencoding.assert_called_once_with()
                 self.assertEqual(select.call_count, int(select_enabled))
                 self.assertEqual(encode.call_count, int(encode_enabled))

@@ -96,7 +96,7 @@ pub(super) const WORD: &str = concat!(
     r"\x{aaa}-\x{ab0}",
     r"\x{ab2}-\x{ab3}",
     r"\x{ab5}-\x{ab9}",
-    r"\x{abd}",
+    r"\x{abd}", // codespell:ignore abd
     r"\x{ad0}",
     r"\x{ae0}-\x{ae1}",
     r"\x{ae6}-\x{aef}",
@@ -384,7 +384,7 @@ pub(super) const WORD: &str = concat!(
     r"\x{aab9}-\x{aabd}",
     r"\x{aac0}",
     r"\x{aac2}",
-    r"\x{aadb}-\x{aadd}",
+    r"\x{aadb}-\x{aadd}", // codespell:ignore aadd
     r"\x{aae0}-\x{aaea}",
     r"\x{aaf2}-\x{aaf4}",
     r"\x{ab01}-\x{ab06}",

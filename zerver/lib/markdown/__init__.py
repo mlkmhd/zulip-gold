@@ -896,7 +896,7 @@ class InlineInterestingLinkProcessor(markdown.treeprocessors.Treeprocessor):
             ):
                 return None
 
-            # Dropbox /sc/ links are treated as folders, like /scl/fo/ links.
+            # Dropbox treats its legacy /sc/ links like shared folder links.
             path = parsed_url.path
             is_album = path.startswith(("/scl/fo/", "/sc/"))  # codespell:ignore fo
             if not is_album and not path.startswith("/scl/fi/"):

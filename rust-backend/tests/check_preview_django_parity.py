@@ -33,7 +33,7 @@ def check_previews(realm: "Realm", backend: object) -> int:
     linx = "https://linx.li/example.png"
     dropbox_image = "https://dropbox.com/scl/fi/demo/sample.jpg?raw=0&key=one&key=two"
     dropbox_video = "https://dropbox.com/scl/fi/demo/video.mp4?dl=0"
-    dropbox_album = "https://dropbox.com/scl/fo/demo/album"
+    dropbox_album = "https://dropbox.com/scl/fo/demo/album"  # codespell:ignore fo
     dropbox_document = "https://dropbox.com/scl/fi/demo/document.pdf"
     tests = (
         ("youtube", youtube, None, 'data-id="clip_01"', {youtube}),
