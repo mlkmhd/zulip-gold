@@ -5256,3 +5256,36 @@ the POST selection check runs without forwarding to either application.
 If Rust stops, remove the route include and reload nginx to restore
 Django. There is no automatic failover. Live ingress and production load
 were not tested and deployment routing is unchanged.
+
+### Rehearse a single channel subscription read and rollback
+
+`ZULIP_RUST_SUBSCRIPTION_STATUS_READ_PILOT=1` enables only the loopback
+GET and HEAD for `/api/v1/users/{user_id}/subscriptions/{stream_id}` and
+its `/json/` alias, with a database and signed Django sessions. Django
+remains the default. The target user must be active and visible to the
+caller; bot targets are supported just as in Django. Only after the
+target check does the route check active-channel metadata access,
+including administrator and configured group access. It returns one
+boolean, not a member list. Subscription changes are not routed to Rust.
+
+From a fresh disposable fixture in its private loopback namespace:
+
+```sh
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" "$checkout/rust-backend/tests/check_subscription_status.py" \
+  --fixture-root "$fixture_root" --nginx "$nginx" --uwsgi "$uwsgi" --venv "$venv" \
+  --openssl "$openssl"
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" \
+  "$checkout/rust-backend/tests/check_read_proxy_activity.py" --subscription-status \
+  --fixture-root "$fixture_root" --nginx "$nginx" --uwsgi "$uwsgi" --venv "$venv" \
+  --openssl "$openssl" --redis-server "$redis_server" \
+  --rabbitmq-server "$rabbitmq_server" --epmd "$epmd"
+```
+
+The first check prepares the synthetic users, channels, and subscriptions.
+The second checks normal quota and activity for the same fixture.
+The separate staging map and include match only the numeric read paths
+on the test host. If Rust is stopped, removing the route include and
+reloading nginx restores Django. There is no automatic failover. Neither
+live ingress nor production load was tested.

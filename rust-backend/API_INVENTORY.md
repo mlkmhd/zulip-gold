@@ -24,8 +24,8 @@
 
 ## وضعیت مهاجرت
 
-شمار فعلی Rust مستقل و اختیاری: ۳۵ از ۱۷۱ عملیات OpenAPI (۲۰٫۵٪)
-و ۳۴ از ۱۹۰ عملیات صریح وب (۱۷٫۹٪). فهرست‌ها هم‌پوشانی دارند؛
+شمار فعلی Rust مستقل و اختیاری: ۳۶ از ۱۷۱ عملیات OpenAPI (۲۱٫۱٪)
+و ۳۵ از ۱۹۰ عملیات صریح وب (۱۸٫۴٪). فهرست‌ها هم‌پوشانی دارند؛
 `HEAD` متناظر جداگانه شمرده نشده و این اعداد درصد کل backend نیستند.
 
 | عملیات یا جریان                                                                         | منطق اختیاری Rust                                                      | مسیر HTTP در توسعه و staging                                    | مسیر پیش‌فرض استقرار |
@@ -68,6 +68,7 @@
 | `DELETE /api/v1/scheduled_messages/{scheduled_message_id}` و alias وب | حذف پیام زمان‌بندی‌شدهٔ مالک و پیوندهای پیوست در یک تراکنش | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی | Django |
 | `DELETE /api/v1/reminders/{reminder_id}` و alias وب | حذف یادآوری مالک و پیوندهای پیوست در یک تراکنش | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی | Django |
 | `GET /api/v1/users/{user_id}/status` و alias وب با `HEAD` متناظر | خواندن وضعیت کاربر قابل‌مشاهده با Basic/نشست، سهمیه و فعالیت | Rust مستقیم و nginx آزمایشی با پایلوت جداگانه | Django |
+| `GET /api/v1/users/{user_id}/subscriptions/{stream_id}` و alias وب با `HEAD` متناظر | اشتراک فعال یک هدف قابل‌مشاهده در کانال قابل‌مشاهده، Basic/نشست، سهمیه و فعالیت | Rust مستقیم و nginx آزمایشی با پایلوت جداگانه | Django |
 | `POST /api/v1/users/me/status`، `POST /api/v1/users/{user_id}/status` و aliasهای وب | قواعد به‌روزرسانی با `ZULIP_RUST_USER_STATUS` | Django | Django |
 | `POST /api/v1/register` و alias وب | قالب‌بندی وضعیت کاربران با `ZULIP_RUST_USER_STATUS` و پیش‌نویس‌ها با `ZULIP_RUST_DRAFT_SERIALIZATION` | Django | Django |
 | `GET /api/v1/bot_storage` و alias وب با `HEAD` متناظر | خواندن همهٔ کلیدها یا کلیدهای درخواست‌شده برای ربات احرازشده | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی | Django |
@@ -673,7 +674,7 @@ audit ایجاد حفظ می‌شود و رویداد `saved_snippets/remove` پ
 | `POST`   | `/api/v1/users/{user_id}/reactivate`                    | `reactivate-user`                      | `zerver.views.users.reactivate_user_backend`                                   | Django         |
 | `GET`    | `/api/v1/users/{user_id}/status`                        | `get-user-status`                      | `zerver.views.presence.get_status_backend`                                     | Rust اختیاری |
 | `POST`   | `/api/v1/users/{user_id}/status`                        | `update-status-for-user`               | `zerver.views.presence.update_user_status_admin`                               | Django         |
-| `GET`    | `/api/v1/users/{user_id}/subscriptions/{stream_id}`     | `get-subscription-status`              | `zerver.views.users.get_subscription_backend`                                  | Django         |
+| `GET`    | `/api/v1/users/{user_id}/subscriptions/{stream_id}`     | `get-subscription-status`              | `zerver.views.users.get_subscription_backend`                                  | Rust اختیاری |
 | `POST`   | `/zulip-outgoing-webhook`                               | `zulip-outgoing-webhooks`              | —                                                                              | مستندات        |
 
 ## عملیات خارج از OpenAPI زیر `/api/v1/`
@@ -860,7 +861,7 @@ audit ایجاد حفظ می‌شود و رویداد `saved_snippets/remove` پ
 | `/json/users/{user_id}/channels`                      | `GET`                    | Django            |
 | `/json/users/{user_id}/reactivate`                    | `POST`                   | Django            |
 | `/json/users/{user_id}/status`                        | `GET`, `POST`            | GET: Rust اختیاری؛ POST: Django |
-| `/json/users/{user_id}/subscriptions/{stream_id}`     | `GET`                    | Django            |
+| `/json/users/{user_id}/subscriptions/{stream_id}`     | `GET`                    | Rust اختیاری    |
 | `/json/zcommand`                                      | `POST`                   | Django            |
 
 ## مسیرهای داخلی و مسیرهای ویژهٔ بدون پیشوند API

@@ -92,6 +92,14 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
         query = urlencode({"stream": "Pilot lookup Café"})
         paths = ((f"/get_stream_id?{query}", "json_get_stream_id"),)
         group_pilot = {"ZULIP_RUST_CHANNEL_ID_READ_PILOT": "1"}
+    elif args.subscription_status:
+        from zerver.models import Stream
+
+        stream_id = Stream.objects.get(realm=member.realm, name="Pilot subscription status").id
+        maps = ("subscription-status-map.conf",)
+        route_groups = ((2, ("subscription-status-routes.conf",)),)
+        paths = ((f"/users/{member.id}/subscriptions/{stream_id}", "get_subscription_backend"),)
+        group_pilot = {"ZULIP_RUST_SUBSCRIPTION_STATUS_READ_PILOT": "1"}
     elif args.user_status:
         maps = ("user-status-map.conf",)
         route_groups = ((2, ("user-status-routes.conf",)),)
@@ -362,6 +370,11 @@ def main() -> None:
     group_modes.add_argument(
         "--user-status", action="store_true", help="rehearse authenticated user status reads"
     )
+    group_modes.add_argument(
+        "--subscription-status",
+        action="store_true",
+        help="rehearse one user/channel subscription read",
+    )
     parser.add_argument("--uwsgi", type=Path, required=True)
     parser.add_argument("--venv", type=Path, required=True)
     args = parser.parse_args()
@@ -372,6 +385,7 @@ def main() -> None:
         or args.channel_id
         or args.channel_topics
         or args.user_status
+        or args.subscription_status
     ) and (args.redis_server is None or args.openssl is None):
         parser.error("selected pilot requires --redis-server and --openssl")
     if args.redis_server is not None and args.openssl is None:
@@ -385,6 +399,7 @@ def main() -> None:
         or args.channel_id
         or args.channel_topics
         or args.user_status
+        or args.subscription_status
     ) and socket.if_nameindex() != [(1, "lo")]:
         raise RuntimeError("the selected pilot requires a private loopback-only network namespace")
     if any(name.startswith("ZULIP_RUST_") and name != "ZULIP_RUST_HTTP_BIN" for name in os.environ):

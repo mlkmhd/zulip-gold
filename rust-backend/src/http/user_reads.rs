@@ -35,6 +35,7 @@ use super::{
     saved_snippets::{self, SnippetEvent},
     scheduled_messages::{self, JobKind},
     session::{SessionLookup, Sessions},
+    subscription_status::{self, Outcome as SubscriptionStatus},
     unicode_lowercase::UnicodeLowercase,
     user_status_read::{self, ReadOutcome as StatusReadOutcome},
 };
@@ -63,6 +64,7 @@ enum Endpoint {
     ChannelId,
     ChannelTopics(Option<i64>),
     UserStatus(Option<i32>),
+    SubscriptionStatus(Option<i32>, Option<i64>),
     UserGroups,
     GroupDetail(DetailKind, Option<i64>),
     GroupMembership(Option<i64>, Option<i32>),
@@ -117,6 +119,7 @@ impl Endpoint {
             Self::ChannelId => "json_get_stream_id",
             Self::ChannelTopics(_) => "get_topics_backend",
             Self::UserStatus(_) => "get_status_backend",
+            Self::SubscriptionStatus(..) => "get_subscription_backend",
             Self::UserGroups => "get_user_groups",
             Self::GroupDetail(DetailKind::Members, _) => "get_user_group_members",
             Self::GroupDetail(DetailKind::Subgroups, _) => "get_subgroups_of_user_group",
@@ -258,6 +261,28 @@ impl Endpoint {
                         ("status", serde_json::to_string(&status))
                     }
                 }
+            }
+            Self::SubscriptionStatus(target, channel) => {
+                let form = Form::from_query(query).map_err(ApiError::Form)?;
+                let subscribed =
+                    match subscription_status::read(database, user_id, realm_id, target, channel)
+                        .await?
+                    {
+                        SubscriptionStatus::NoSuchUser => return Err(ApiError::MissingTargetUser),
+                        SubscriptionStatus::DeactivatedUser => {
+                            return Err(ApiError::DeactivatedTargetUser);
+                        }
+                        SubscriptionStatus::RestrictedUser => {
+                            return Err(ApiError::RestrictedTargetUser);
+                        }
+                        SubscriptionStatus::InvalidChannel => {
+                            return Err(ApiError::InvalidChannelId);
+                        }
+                        SubscriptionStatus::Subscribed(subscribed) => subscribed,
+                    };
+                // The two IDs are path-only; matching query names are still unsupported.
+                let extra = ignored_parameters(&form, &["client"]);
+                return Ok(format!("\"is_subscribed\":{subscribed}{extra}"));
             }
             Self::ChannelFolders => {
                 let form = Form::from_query(query).map_err(ApiError::Form)?;
@@ -932,6 +957,20 @@ pub(super) async fn get_user_status(
         return StatusCode::NOT_FOUND.into_response();
     }
     let endpoint = Endpoint::UserStatus(id.parse().ok());
+    respond(state, peer, uri, headers, None, Some(endpoint)).await
+}
+
+pub(super) async fn get_subscription_status(
+    State(state): State<UserReads>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    Path((user_id, stream_id)): Path<(String, String)>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    if !numeric_group_path(&user_id) || !numeric_group_path(&stream_id) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let endpoint = Endpoint::SubscriptionStatus(user_id.parse().ok(), stream_id.parse().ok());
     respond(state, peer, uri, headers, None, Some(endpoint)).await
 }
 
@@ -1671,6 +1710,7 @@ fn error_response(
             | Endpoint::ChannelId
             | Endpoint::ChannelTopics(_)
             | Endpoint::UserStatus(_)
+            | Endpoint::SubscriptionStatus(..)
             | Endpoint::UserGroups
             | Endpoint::GroupDetail(..)
             | Endpoint::GroupMembership(..)
