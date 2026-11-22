@@ -4201,3 +4201,25 @@ The [recorded sample](tests/fenced_markdown_parser_factory_sample.json)
 shows no consistent stand-alone parser or factory improvement in the
 batch, and a residual Python/Rust gap after both omissions. There is no
 basis here to change the production dispatch or defaults.
+
+### Compare one batch planner call with per-line crossings
+
+The fixture can exercise the existing opt-in `plan_markdown_blocks`
+route with the per-line Rust adapters disabled, or together with the
+rest of the fenced bridge. In the isolated planner-only mode, native
+planning runs once per supported input, then Python performs the actual
+formatting. A declined plan stays on the Python path.
+
+```sh
+python rust-backend/tests/benchmark_fenced_markdown.py --compare-planner \
+  --samples plain code nested batch --highlight both --iterations 240 --repeats 8 \
+  --report fenced-batch-planner.json
+```
+
+The [recorded sample](tests/fenced_markdown_batch_planner_sample.json)
+shows the planner-only mode about 12% faster than scalar Rust without
+Pygments and 7% faster with Pygments on the batched fixture. The advantage
+over Python on that fixture was smaller (about 2%); plain highlighted
+input was slower than Python. The Python formatter and validators
+remain active. This is service-free evidence, not end-to-end Zulip
+parity or a basis for enabling a default.

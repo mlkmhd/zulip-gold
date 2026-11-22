@@ -5977,3 +5977,31 @@ Python بدون Pygments و ۱٫۰۳۸ با Pygments طول کشید. این ن�
 ۴۴ تست Python هدفمند و ۲۷۲ تست Rust، build آفلاین HTTP و PyO3
 بهینه، fmt/Clippy/Ruff و دو حالت قبلی benchmark گذشتند. یک
 تست نیازمند PostgreSQL/Memcached اجرا نشد. CI بررسی نشد.
+
+## آزمون معماری planner دسته‌ای موجود
+
+مسیر اختیاری موجود از یک فراخوانی Rust برای ساخت plan استفاده می‌کند
+و callbackهای قالب‌بندی و validator را در Python نگه می‌دارد. چهار
+حالت Python، Rust سطری، planner تنها و planner همراه سایر پل‌ها
+در fixture مقایسه شدند. آزمون پوشش ۸۸ ورودی و چهار تنظیم، مسیرهای
+معمول و خطا را بررسی کرد. planner برای ورودی پشتیبانی‌شده فقط یک بار
+فراخوانی شد و برای زبان پیش‌فرض غیر ASCII بدون تغییر نتیجه به Python
+برگشت. [روش بازتولید](README.md#compare-one-batch-planner-call-with-per-line-crossings)
+و [دادهٔ جفت‌شده](tests/fenced_markdown_batch_planner_sample.json).
+
+در پردازش دسته‌ای، نسبت زمان planner تنها به Rust سطری بدون/با
+Pygments به‌ترتیب ۰٫۸۸۳ و ۰٫۹۳۰ بود. نسبت به Python به‌ترتیب
+۰٫۹۷۶ (نیمهٔ میانی ۰٫۹۴۷–۰٫۹۹۴) و ۰٫۹۸۴ (۰٫۹۶۹–۰٫۹۹۸) بود.
+این صرفه‌جویی یکنواخت نبود: متن ساده با Pygments نسبت ۱٫۰۳۵
+داشت و فعال کردن planner همراه سایر پل‌ها روی batch حدود ۲٪ بالاتر
+از زمان Python بود. این مقایسهٔ fixture است و نه بار تولید.
+
+گام بعد به‌جای گسترش adapterهای سطری، بررسی همین مسیر دسته‌ای
+روی رندر کامل در Django ایزوله، از جمله callbackها و دادهٔ realm،
+و سپس benchmark روی ورودی‌های نماینده است. کد تولید و پیش‌فرض‌ها
+تغییر نکرد، فایل Python بازنشسته نشد و پوشش HTTP همان ۲۸/۱۷۱
+OpenAPI (۱۶٫۴٪) و ۲۸/۱۹۰ وب (۱۴٫۷٪) است.
+
+۴۵ تست Python هدفمند و ۲۷۲ تست Rust، بیلد آفلاین PyO3 بهینه
+و HTTP، fmt/Clippy/Ruff و نمونهٔ دو حالت قبلی benchmark پاس شدند.
+یک تست نیازمند PostgreSQL/Memcached اجرا نشد. CI بررسی نشد.

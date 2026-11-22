@@ -76,6 +76,7 @@ def main() -> None:
     isolation = parser.add_mutually_exclusive_group()
     isolation.add_argument("--isolate-exports", action="store_true")
     isolation.add_argument("--isolate-parser-factory", action="store_true")
+    isolation.add_argument("--compare-planner", action="store_true")
     parser.add_argument("--report", type=Path, help="also write paired measurements to a JSON file")
     args = parser.parse_args()
     if args.iterations < 1 or args.repeats < 1:
@@ -104,6 +105,10 @@ def main() -> None:
     backends = {"python": None, "rust": EXTENSION} | {
         mode: omit_exports(omitted) for mode, omitted in omissions.items()
     }
+    planner_modes: set[str] = set()
+    if args.compare_planner:
+        backends.update(rust_planner=None, rust_planner_and_scalar=EXTENSION)
+        planner_modes.update(("rust_planner", "rust_planner_and_scalar"))
     pairs = [(mode, "python") for mode in backends if mode != "python"]
     if args.isolate_exports:
         pairs.extend(
@@ -126,6 +131,14 @@ def main() -> None:
                 ("rust_no_lines_or_factory", "rust_no_lines_parser_factory"),
             ]
         )
+    if args.compare_planner:
+        pairs.extend(
+            [
+                ("rust_planner", "rust"),
+                ("rust_planner_and_scalar", "rust"),
+                ("rust_planner_and_scalar", "rust_planner"),
+            ]
+        )
     highlighting = (False, True) if args.highlight == "both" else (args.highlight == "on",)
     modes = list(backends)
     results = []
@@ -136,6 +149,7 @@ def main() -> None:
                 default_language="javascript",
                 highlight=highlight,
                 python_parser=mode in python_parsers,
+                block_planner=EXTENSION if mode in planner_modes else None,
             )
             for mode, backend in backends.items()
         }
@@ -181,6 +195,7 @@ def main() -> None:
             "modes": modes,
             "omitted_exports": {mode: sorted(exports) for mode, exports in omissions.items()},
             "python_parser_modes": sorted(python_parsers),
+            "planner_modes": sorted(planner_modes),
             "repeat_orders": [execution_order(modes, repeat) for repeat in range(args.repeats)],
             "results": results,
         },

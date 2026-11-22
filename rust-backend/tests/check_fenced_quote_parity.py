@@ -871,6 +871,7 @@ def make_fenced_render_fixture(
     default_language: str | None = None,
     highlight: bool = False,
     python_parser: bool = False,
+    block_planner: object = None,
 ) -> FencedFixtureMarkdown:
     def fixture_import(name: str, *args: object) -> object:
         # The source's run method imports only this renderer type; the real
@@ -899,6 +900,7 @@ def make_fenced_render_fixture(
             "_rust_code_header": None,
             "_rust_code_highlight": None,
             "_rust_tex_handlers": None,
+            "_rust_markdown_blocks": block_planner,
             "parse_hl_lines": codehilite.parse_hl_lines,
         },
     )
@@ -941,17 +943,28 @@ class FencedMarkdownRenderingParity(unittest.TestCase):
         samples += ["~~~curl\ncurl -sX GET\n~~~", "~~~curl\ncurl -X PUT\n~~~"]
         for highlight in (False, True):
             for language in (None, "javascript"):
-                reference, legacy, native = [
+                reference, legacy, native, planner, combined = [
                     make_fenced_render_fixture(
-                        backend, default_language=language, highlight=highlight
+                        backend,
+                        default_language=language,
+                        highlight=highlight,
+                        block_planner=blocks,
                     )
-                    for backend in (None, old_wheel, EXTENSION)
+                    for backend, blocks in (
+                        (None, None),
+                        (old_wheel, None),
+                        (EXTENSION, None),
+                        (None, EXTENSION),
+                        (EXTENSION, EXTENSION),
+                    )
                 ]
                 for sample in samples:
                     with self.subTest(highlight=highlight, language=language, sample=sample):
                         expected = render_fenced_fixture(reference, sample)
                         self.assertEqual(render_fenced_fixture(legacy, sample), expected)
                         self.assertEqual(render_fenced_fixture(native, sample), expected)
+                        self.assertEqual(render_fenced_fixture(planner, sample), expected)
+                        self.assertEqual(render_fenced_fixture(combined, sample), expected)
 
     def test_fixture_visits_real_formatter_and_stash(self) -> None:
         md = make_fenced_render_fixture(EXTENSION, default_language="javascript", highlight=True)
@@ -993,6 +1006,27 @@ class FencedMarkdownRenderingParity(unittest.TestCase):
         parser.assert_not_called()
         self.assertGreater(dispatch.call_count, 0)
         factory.assert_called_once()
+
+    def test_batch_planner_is_called_once_or_declines_before_python(self) -> None:
+        for language in ("javascript", "İ"):
+            with self.subTest(language=language):
+                planner = Mock(wraps=EXTENSION.plan_markdown_blocks)
+                rendered = make_fenced_render_fixture(
+                    None,
+                    default_language=language,
+                    block_planner=SimpleNamespace(plan_markdown_blocks=planner),
+                )
+                reference = make_fenced_render_fixture(None, default_language=language)
+                sample = FENCED_RENDER_SAMPLES["nested"]
+                self.assertEqual(
+                    render_fenced_fixture(rendered, sample),
+                    render_fenced_fixture(reference, sample),
+                )
+                planner.assert_called_once()
+                args = planner.call_args.args
+                self.assertIs(type(args[0]), list)
+                self.assertEqual(args[1], language)
+                self.assertIs(EXTENSION.plan_markdown_blocks(*args) is None, language == "İ")
 
 
 def render_fenced_fixture(md: FencedFixtureMarkdown, sample: str) -> tuple[object, ...]:
