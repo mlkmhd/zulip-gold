@@ -16,6 +16,7 @@ from statistics import median
 import django
 from django.conf import settings
 from read_proxy_fixture import (
+    PrivateReadProxy,
     ReadResult,
     compare_read_headers,
     private_read_proxy,
@@ -51,12 +52,10 @@ def compare(actual: ReadResult, expected: ReadResult, label: str) -> None:
     compare_read_headers(actual, expected, label)
 
 
-def benchmark(port: int, case: Case, count: int) -> tuple[float, float]:
+def benchmark(proxy: PrivateReadProxy, case: Case, count: int) -> tuple[float, float]:
     def one(_: int) -> float:
         start = time.monotonic()
-        status, body, _, _ = request_test_http(
-            port, case.method, case.host, case.headers, case.path
-        )
+        status, body, _, _ = proxy.request(case.method, case.host, case.headers, case.path)
         elapsed = time.monotonic() - start
         assert status == 200 and json.loads(body)["saved_snippets"] == case.snippets, case.label
         return elapsed
@@ -188,7 +187,9 @@ def pilot(args: argparse.Namespace, directory: Path) -> None:
             Case("Session OPTIONS", "OPTIONS", host, {}, WEB_PATH, 204, mapped=False),
         ]
         maps = ("saved-snippets-map.conf", "saved-snippets-web-map.conf")
-        with private_read_proxy(ROOT, directory, args.nginx, args.uwsgi, args.venv, maps) as proxy:
+        with private_read_proxy(
+            ROOT, directory, args.nginx, args.uwsgi, args.venv, maps, openssl_bin=args.openssl
+        ) as proxy:
 
             def request(case: Case) -> tuple[ReadResult, str]:
                 return proxy.observe(case.method, case.host, case.headers, case.path)
@@ -219,8 +220,9 @@ def pilot(args: argparse.Namespace, directory: Path) -> None:
                 wait_until(loaded)
 
             wait_until(lambda: request(cases[0])[0][0] == 200)
+            proxy.assert_untrusted_tls_rejected(cases[0].host, cases[0].path)
             original = [expect(case, proxy.django_address) for case in cases]
-            django_metrics = [benchmark(proxy.port, case, args.requests) for case in cases[:2]]
+            django_metrics = [benchmark(proxy, case, args.requests) for case in cases[:2]]
             secret = directory / "synthetic-secret"
             secret.write_text(settings.SECRET_KEY)
             secret.chmod(0o600)
@@ -249,7 +251,7 @@ def pilot(args: argparse.Namespace, directory: Path) -> None:
                 for case, before in zip(cases, original, strict=True):
                     after = expect(case, rust_address if case.mapped else proxy.django_address)
                     compare(after, before, case.label)
-                rust_metrics = [benchmark(proxy.port, case, args.requests) for case in cases[:2]]
+                rust_metrics = [benchmark(proxy, case, args.requests) for case in cases[:2]]
 
             def expect_outage(case: Case) -> None:
                 failed, peer = request(case)
@@ -293,6 +295,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--fixture-root", type=Path, required=True)
     parser.add_argument("--nginx", type=Path, required=True)
+    parser.add_argument(
+        "--openssl", type=Path, help="enable private loopback TLS with this OpenSSL"
+    )
     parser.add_argument("--uwsgi", type=Path, required=True)
     parser.add_argument("--venv", type=Path, required=True)
     parser.add_argument("--requests", type=int, default=32, choices=range(8, 129), metavar="N")

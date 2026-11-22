@@ -1448,8 +1448,30 @@ an empty `502` response for HEAD. There is no automatic failover to Django.
 
 Request counts and timings describe only the local fixture. Conditions
 include four client workers, three short samples per backend and path,
-one uWSGI process with four threads, and no Redis, RabbitMQ, external
-load balancer, or TLS. Treat them as a baseline, not production capacity.
+one uWSGI process with four threads, and no Redis, RabbitMQ, or external
+load balancer. Treat them as a baseline, not production capacity.
+
+#### Verify the local TLS readiness gate
+
+For either the saved-snippet or scheduled-message rehearsal, add
+`--openssl /usr/bin/openssl` (OpenSSL 3) to terminate TLS at the private
+nginx listener. The harness generates a disposable certificate for
+`127.0.0.1`, trusts it only in the test client, and checks that a client
+without that trust rejects it. It does not change system trust or use host
+certificates. Both upstream transports remain private: uWSGI on a Unix
+socket and Rust HTTP on loopback. To mirror production cookie naming,
+the isolated Django settings can use `__Host-sessionid` and
+`__Host-csrftoken` and set `SESSION_COOKIE_SECURE` and
+`CSRF_COOKIE_SECURE` to true.
+
+Passing this gate demonstrates local TLS read and rollback parity for
+the selected cases. It is not a deployment approval. Before any
+production opt-in, verify the intended proxy and certificate chain,
+Redis quota and its once-per-request behavior, RabbitMQ activity and
+its routing, and rehearse rollback on the intended topology. These
+fixtures do not test public ingress, browser login, or production load.
+The timed requests open a new connection each time, so the TLS samples
+include connection setup and should not be compared to production capacity.
 
 ### Enable saved-snippet web creation
 

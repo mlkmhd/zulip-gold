@@ -3,6 +3,7 @@
 
 import os
 import socket
+import ssl
 import stat
 import subprocess
 import tempfile
@@ -140,8 +141,39 @@ class PrivateReadProxy:
     include: Path
     route_dir: Path
     stage: Path
+    tls_context: ssl.SSLContext | None
     requests: int = 0
     marker: int = 0
+
+    def request(
+        self,
+        method: str,
+        host: str,
+        headers: dict[str, str],
+        path: str,
+        *,
+        include_date: bool = False,
+    ) -> ReadResult:
+        return request_test_http(
+            self.port,
+            method,
+            host,
+            headers,
+            path,
+            include_date=include_date,
+            tls_context=self.tls_context,
+        )
+
+    def assert_untrusted_tls_rejected(self, host: str, path: str) -> None:
+        if self.tls_context is None:
+            return
+        # This separate client has no trusted certificates and sends no credentials.
+        untrusted = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        try:
+            request_test_http(self.port, "HEAD", host, {}, path, tls_context=untrusted)
+        except ssl.SSLCertVerificationError:
+            return
+        raise AssertionError("private TLS unexpectedly accepted an untrusted peer")
 
     def observe(
         self,
@@ -153,8 +185,7 @@ class PrivateReadProxy:
         self.marker += 1
         marker = str(self.marker)
         size = self.access_log.stat().st_size if self.access_log.exists() else 0
-        result = request_test_http(
-            self.port,
+        result = self.request(
             method,
             host,
             {**headers, "X-Pilot-Case": marker},
@@ -202,6 +233,46 @@ class PrivateReadProxy:
         return (self.include / "api_5xx.json").read_bytes()
 
 
+def private_tls(
+    directory: Path, openssl_bin: Path | None
+) -> tuple[str, str, ssl.SSLContext | None]:
+    if openssl_bin is None:
+        return "", "", None
+    if not openssl_bin.is_absolute():
+        raise RuntimeError("supply an absolute OpenSSL path")
+    certificate, key = directory / "localhost.crt", directory / "localhost.key"
+    subprocess.run(
+        [
+            str(openssl_bin),
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-noenc",
+            "-sha256",
+            "-days",
+            "1",
+            "-subj",
+            "/CN=Zulip test loopback",
+            "-addext",
+            "subjectAltName=IP:127.0.0.1",
+            "-keyout",
+            str(key),
+            "-out",
+            str(certificate),
+        ],
+        check=True,
+        timeout=10,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    key.chmod(0o600)
+    directives = (
+        f"ssl_certificate {certificate}; ssl_certificate_key {key}; ssl_protocols TLSv1.2 TLSv1.3;"
+    )
+    return " ssl", directives, ssl.create_default_context(cafile=str(certificate))
+
+
 @contextmanager
 def private_read_proxy(
     repo: Path,
@@ -210,11 +281,14 @@ def private_read_proxy(
     uwsgi_bin: Path,
     venv: Path,
     map_files: tuple[str, ...],
+    *,
+    openssl_bin: Path | None = None,
 ) -> Iterator[PrivateReadProxy]:
     if not all(path.is_absolute() for path in (nginx_bin, uwsgi_bin, venv)):
         raise RuntimeError("supply absolute paths to the cached executables")
     assert all(Path(name).name == name for name in map_files)
     conf = directory / "site.conf"
+    ssl_listen, ssl_directives, tls_context = private_tls(directory, openssl_bin)
     stage = repo / "rust-backend/staging/nginx"
     puppet = repo / "puppet/zulip/files/nginx"
     include = directory / "includes"
@@ -251,7 +325,8 @@ http {{
     upstream django {{ server unix:{socket_path}; }}
 {maps}
     server {{
-        listen 127.0.0.1:{port};
+        listen 127.0.0.1:{port}{ssl_listen};
+        {ssl_directives}
         server_name .testserver;
         set $trusted_remote_addr $remote_addr;
         set $trusted_x_forwarded_proto $scheme;
@@ -318,5 +393,12 @@ http {{
             if front.poll() is not None:
                 raise RuntimeError("private nginx could not start")
             yield PrivateReadProxy(
-                port, nginx, f"unix:{socket_path}", access_log, include, route_dir, stage
+                port,
+                nginx,
+                f"unix:{socket_path}",
+                access_log,
+                include,
+                route_dir,
+                stage,
+                tls_context,
             )

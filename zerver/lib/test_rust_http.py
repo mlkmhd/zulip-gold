@@ -4,7 +4,8 @@ import select
 import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager
-from http.client import HTTPConnection
+from http.client import HTTPConnection, HTTPSConnection
+from ssl import SSLContext
 from urllib.parse import urlsplit
 
 from django.conf import settings
@@ -87,8 +88,13 @@ def request_test_http(
     body: bytes | str | None = None,
     timeout: float = 5,
     include_date: bool = False,
+    tls_context: SSLContext | None = None,
 ) -> tuple[int, bytes, dict[str, str | None], str | None]:
-    client = HTTPConnection("127.0.0.1", port, timeout=timeout)
+    client = (
+        HTTPConnection("127.0.0.1", port, timeout=timeout)
+        if tls_context is None
+        else HTTPSConnection("127.0.0.1", port, timeout=timeout, context=tls_context)
+    )
     try:
         client.request(
             method,
