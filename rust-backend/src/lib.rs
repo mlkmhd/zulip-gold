@@ -191,8 +191,11 @@ mod python_message_payload;
 
 #[cfg(feature = "python")]
 mod python_presence;
+
 #[cfg(feature = "python")]
 mod python_tex;
+#[cfg(feature = "python")]
+mod python_unread;
 
 #[cfg(feature = "python")]
 mod python_inline_checkpoint;

@@ -30,7 +30,7 @@ from zerver.lib.test_helpers import (
     stub_event_queue_user_events,
 )
 from zerver.lib.users import get_users_for_api
-from zerver.models import CustomProfileField, UserMessage, UserPresence, UserProfile
+from zerver.models import CustomProfileField, Message, UserMessage, UserPresence, UserProfile
 from zerver.models.clients import get_client
 from zerver.models.realms import get_realm
 from zerver.models.streams import get_stream
@@ -222,6 +222,42 @@ class EventsEndpointTest(ZulipTestCase):
             user, "/api/v1/register", {"idle_queue_timeout": orjson.dumps("invalid").decode()}
         )
         self.assert_json_error_contains(result, "idle_queue_timeout")
+
+    def test_events_register_unread_topic_compatibility(self) -> None:
+        sender = self.example_user("hamlet")
+        reader = self.example_user("othello")
+        channel = "Unread topic compatibility"
+        stream = self.subscribe(sender, channel)
+        self.subscribe(reader, channel)
+        empty = self.send_stream_message(sender, channel, topic_name="")
+        named = self.send_stream_message(
+            sender, channel, topic_name=Message.EMPTY_TOPIC_FALLBACK_NAME.upper()
+        )
+        queue = EventQueueData(queue_id="15:25", idle_queue_timeout_secs=600)
+        for allow_empty, topics in (
+            (False, [(Message.EMPTY_TOPIC_FALLBACK_NAME, [empty, named])]),
+            (True, [("", [empty]), (Message.EMPTY_TOPIC_FALLBACK_NAME.upper(), [named])]),
+        ):
+            with self.subTest(allow_empty=allow_empty), stub_event_queue_user_events(queue, []):
+                response = self.api_post(
+                    reader,
+                    "/api/v1/register",
+                    {
+                        "event_types": orjson.dumps(["message", "update_message_flags"]).decode(),
+                        "client_capabilities": orjson.dumps(
+                            {"empty_topic_name": allow_empty, "notification_settings_null": False}
+                        ).decode(),
+                    },
+                )
+                snapshot = self.assert_json_success(response)["unread_msgs"]
+                self.assertEqual(snapshot["count"], 2)
+                self.assertEqual(
+                    snapshot["streams"],
+                    [
+                        {"stream_id": stream.id, "topic": topic, "unread_message_ids": message_ids}
+                        for topic, message_ids in topics
+                    ],
+                )
 
     def test_events_register_spectators(self) -> None:
         # Verify that POST /register works for spectators, but not for

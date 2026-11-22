@@ -24,6 +24,8 @@ from zerver.lib.exceptions import JsonableError, MissingAuthenticationError
 from zerver.lib.markdown import MessageRenderingResult
 from zerver.lib.mention import MentionData, sender_can_mention_group, silent_mention_syntax_for_user
 from zerver.lib.message_cache import MessageDict, extract_message_dict, stringify_message_dict
+from zerver.lib.native_unread import aggregate as native_aggregate_unread
+from zerver.lib.native_unread import format_details as native_format_unread_details
 from zerver.lib.partial import partial
 from zerver.lib.request import RequestVariableConversionError
 from zerver.lib.stream_subscription import (
@@ -1241,6 +1243,12 @@ def aggregate_direct_message_groups(
 def aggregate_unread_data(
     raw_data: RawUnreadMessagesResult, allow_empty_topic_name: bool
 ) -> UnreadMessagesResult:
+    native = native_aggregate_unread(
+        raw_data, allow_empty_topic_name, Message.EMPTY_TOPIC_FALLBACK_NAME
+    )
+    if native is not None:
+        return native
+
     pm_dict = raw_data["pm_dict"]
     stream_dict = raw_data["stream_dict"]
     unmuted_stream_msgs = raw_data["unmuted_stream_msgs"]
@@ -1349,6 +1357,10 @@ def format_unread_message_details(
     my_user_id: int,
     raw_unread_data: RawUnreadMessagesResult,
 ) -> dict[str, MessageDetails]:
+    native = native_format_unread_details(my_user_id, raw_unread_data, MessageDetails)
+    if native is not None:
+        return native
+
     unread_data = {}
 
     for message_id, private_message_details in raw_unread_data["pm_dict"].items():

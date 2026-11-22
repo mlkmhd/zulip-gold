@@ -4504,3 +4504,30 @@ tests in a disposable test database to verify both modes. Freshly
 seeded fixture users should have an older join time to exercise
 the legacy idle cases; this is a test fixture requirement, not a
 change to production data or settings.
+
+## Format unread snapshots and flag event details through Rust
+
+Set `ZULIP_RUST_UNREAD_PAYLOAD=1` to format already-selected unread
+rows through PyO3. The register/bootstrap snapshot groups and orders
+one-to-one direct messages, channel topics, and group direct messages.
+It keeps the first topic spelling, supports the legacy empty-topic
+substitution and `sender_id` alias, preserves mention iteration order,
+and uses the existing unmuted result set to calculate the displayed count.
+Rust retains CPython's Unicode lowercasing for non-ASCII topic keys.
+
+The message-flag path produces the per-message metadata needed to mark a
+message unread on clients. It preserves self-DMs, sorts group recipients
+without the current user, and uses the same Python event schema.
+Django remains responsible for authorization, row selection, muting and
+visibility, database writes, and event dispatch.
+
+The switch is off by default. Unsupported Python object shapes and older
+extensions fall back to the original formatter. With the freshly built
+extension available:
+
+```sh
+PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
+  python -m unittest discover -s rust-backend/tests -p test_unread_payload_parity.py
+./tools/test-backend zerver.tests.test_event_system.EventsEndpointTest.test_events_register_unread_topic_compatibility \
+  zerver.tests.test_message_flags.GetUnreadMsgsTest zerver.tests.test_message_flags.MarkUnreadTest
+```
