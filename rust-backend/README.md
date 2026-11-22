@@ -4854,3 +4854,39 @@ PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
   python -m unittest discover -s rust-backend/tests -p test_group_payload_parity.py
 ./tools/test-backend zerver.tests.test_user_groups.UserGroupAPITestCase.test_user_group_get
 ```
+
+### Compare the standalone user-group database query locally
+
+The HTTP feature now builds a Rust query for the list data, but the listener
+does not use it. Django still authenticates and authorizes the current
+endpoint. Rust loads the selected realm's named groups and their settings,
+then reads membership in a second query. It retains the Django filter for
+active users, uses bigint group IDs, sorts membership and group arrays, and
+preserves both a named setting's ID and the inline form for unnamed settings.
+
+Use the [owner-private PostgreSQL fixture](#rehearse-saved-snippet-read-routing-and-rollback-locally)
+with fresh synthetic records. From its project directory, with the fixture's
+Django settings and socket environment selected, generate the reference
+using Django with all Rust bridges off:
+
+```sh
+PYTHONPATH="$PWD" "$venv/bin/python" \
+  "$checkout/rust-backend/tests/seed_user_group_listing.py" --fixture-root "$fixture_root"
+```
+
+The seeder modifies only the disposable synthetic database and stores four
+actual Django GET responses. It also checks the existing guest and
+unauthenticated responses. Run the Rust comparison on that same database:
+
+```sh
+ZULIP_GROUP_FIXTURE_ROOT="$fixture_root" ISOLATED_PG_PORT="$port" \
+  ISOLATED_PG_ROLE="$ISOLATED_PG_ROLE" ISOLATED_PG_SOCKET="$ISOLATED_PG_SOCKET" \
+  CARGO_NET_OFFLINE=true cargo test --manifest-path "$checkout/rust-backend/Cargo.toml" \
+  --locked --features http --test group_listing_postgres -- --ignored
+```
+
+The Rust test uses only the private Unix socket in a read-only transaction.
+Before a standalone route can opt in, it still needs the same non-guest
+authorization and error behavior, authenticated query parsing, GET/HEAD,
+session and Basic Auth parity, and quota/activity and rollback checks.
+No route, default, or access policy changed in this step.

@@ -210,8 +210,12 @@ mod python_event_queue;
 #[cfg(feature = "python")]
 mod python_group_payload;
 
-#[cfg(any(feature = "python", test))]
+#[cfg(any(feature = "python", feature = "http", test))]
 mod group_membership;
+
+#[cfg(feature = "http")]
+#[doc(hidden)]
+pub mod group_listing;
 
 #[cfg(any(feature = "python", test))]
 mod channel_traffic;
