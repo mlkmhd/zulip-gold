@@ -4874,9 +4874,13 @@ PYTHONPATH="$PWD" "$venv/bin/python" \
   "$checkout/rust-backend/tests/seed_user_group_listing.py" --fixture-root "$fixture_root"
 ```
 
-The seeder modifies only the disposable synthetic database and stores four
-actual Django GET responses. It also checks the existing guest and
-unauthenticated responses. Run the Rust comparison on that same database:
+The seeder modifies only the disposable synthetic database. It stores four
+Django list responses and 30 request cases from the real Basic and session
+Django endpoints. These cover both realms, guest rejection before parameter
+validation, the default and explicit filter, the last duplicate value, and
+the normal error and ignored-parameter shapes. The reference contains
+synthetic IDs and responses, not credentials or cookies. Run the Rust
+comparison on that same database:
 
 ```sh
 ZULIP_GROUP_FIXTURE_ROOT="$fixture_root" ISOLATED_PG_PORT="$port" \
@@ -4886,7 +4890,10 @@ ZULIP_GROUP_FIXTURE_ROOT="$fixture_root" ISOLATED_PG_PORT="$port" \
 ```
 
 The Rust test uses only the private Unix socket in a read-only transaction.
-Before a standalone route can opt in, it still needs the same non-guest
-authorization and error behavior, authenticated query parsing, GET/HEAD,
-session and Basic Auth parity, and quota/activity and rollback checks.
-No route, default, or access policy changed in this step.
+The new operation takes a principal that has already passed the existing
+authentication and realm checks. It reads the role for that user in that
+realm and applies the existing non-guest restriction before validation.
+This checks the operation after authentication, not Rust HTTP authentication.
+Binding the handler to the existing Basic and session adapters, rendering
+localized errors, and checking GET/HEAD, quota/activity, routing and
+rollback are separate steps. No route, default, or access policy changed.

@@ -3,9 +3,12 @@
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::{env, fs, path::PathBuf};
 
-use _zulip_backend::group_listing::load_user_group_listing;
+use _zulip_backend::{
+    group_listing::load_user_group_listing,
+    http::group_listing_request::{ReadError, read_authenticated},
+};
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio_postgres::{Config, NoTls};
 
 #[derive(Deserialize)]
@@ -13,6 +16,16 @@ struct ReferenceCase {
     realm: i32,
     include_deactivated: bool,
     listing: Value,
+}
+
+#[derive(Deserialize)]
+struct RequestCase {
+    mode: String,
+    user: i32,
+    realm: i32,
+    query: Option<String>,
+    status: u16,
+    payload: Value,
 }
 
 #[tokio::test]
@@ -46,6 +59,23 @@ async fn user_group_listing_matches_django() {
     let cases: Vec<ReferenceCase> =
         serde_json::from_reader(fs::File::open(expected).unwrap()).unwrap();
     assert_eq!(cases.len(), 4);
+    let requests = root.join("user-group-listing-requests.json");
+    let metadata = fs::symlink_metadata(&requests).unwrap();
+    assert!(metadata.file_type().is_file() && metadata.uid() == owner);
+    let requests: Vec<RequestCase> =
+        serde_json::from_reader(fs::File::open(requests).unwrap()).unwrap();
+    assert_eq!(requests.len(), 30);
+    assert_eq!(
+        requests.iter().filter(|case| case.mode == "basic").count(),
+        15
+    );
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|case| case.mode == "session")
+            .count(),
+        15
+    );
 
     let (mut client, connection) = Config::new()
         .host_path(socket)
@@ -92,6 +122,38 @@ async fn user_group_listing_matches_django() {
             .unwrap()
             .is_empty()
     );
+    for case in requests {
+        let output = read_authenticated(&tx, case.user, case.realm, case.query.as_deref()).await;
+        let (status, payload) = match output {
+            Ok(data) => (200, serde_json::to_value(data).unwrap()),
+            Err(error) => {
+                let message = match error {
+                    ReadError::Guest => "Not allowed for guest users",
+                    ReadError::InvalidJson => "include_deactivated_groups is not valid JSON",
+                    ReadError::ExpectedBoolean => "include_deactivated_groups is not a boolean",
+                    other => panic!("unexpected request contract error: {other:?}"),
+                };
+                (
+                    400,
+                    json!({"result": "error", "msg": message, "code": "BAD_REQUEST"}),
+                )
+            }
+        };
+        assert_eq!(
+            status, case.status,
+            "mode={}, query={:?}",
+            case.mode, case.query
+        );
+        assert_eq!(
+            payload, case.payload,
+            "mode={}, query={:?}",
+            case.mode, case.query
+        );
+        assert!(matches!(
+            read_authenticated(&tx, case.user, 0, case.query.as_deref()).await,
+            Err(ReadError::PrincipalUnavailable)
+        ));
+    }
     tx.rollback().await.unwrap();
     drop(client);
     connection.await.unwrap().unwrap();

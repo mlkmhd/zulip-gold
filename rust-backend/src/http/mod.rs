@@ -21,6 +21,8 @@ mod database;
 mod draft_writes;
 mod drafts;
 mod form;
+#[doc(hidden)]
+pub mod group_listing_request;
 mod linkifiers;
 mod locale;
 mod navigation_views;

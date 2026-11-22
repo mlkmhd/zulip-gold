@@ -109,6 +109,77 @@ def emit_cases(output: Path) -> None:
     with output.open("x") as fixture:
         json.dump(cases, fixture)
     print("Django GET: four allowed list cases, one guest rejection and one anonymous rejection.")
+    emit_request_cases(output.with_name("user-group-listing-requests.json"))
+
+
+def emit_request_cases(output: Path) -> None:
+    from django.test import Client
+
+    from zerver.models import UserProfile
+
+    users = UserProfile.objects.filter(is_active=True, is_bot=False)
+    member = users.get(realm__string_id="zulip", delivery_email="hamlet@zulip.com")
+    guest = users.get(
+        realm=member.realm, role=UserProfile.ROLE_GUEST, delivery_email="polonius@zulip.com"
+    )
+    admin = users.filter(realm=member.realm, role=UserProfile.ROLE_REALM_ADMINISTRATOR).first()
+    other = users.filter(realm__string_id="zephyr", role=UserProfile.ROLE_MEMBER).first()
+    assert admin is not None and other is not None and not member.is_guest
+    parameter = "include_deactivated_groups"
+    cases = [
+        (member, None, 200),
+        (member, f"{parameter}=false", 200),
+        (member, f"{parameter}=true", 200),
+        (member, f"{parameter}=false&{parameter}=true", 200),
+        (member, f"z=one&client=website&a=two&{parameter}=true", 200),
+        (member, f"{parameter}=%20true%20", 200),
+        (member, f"{parameter}=undefined", 400),
+        (member, f"{parameter}=1", 400),
+        (member, f"{parameter}=%22yes%22", 400),
+        (member, f"{parameter}=", 400),
+        (guest, None, 400),
+        (guest, f"{parameter}=undefined", 400),
+        (guest, f"{parameter}=true", 400),
+        (admin, f"{parameter}=true", 200),
+        (other, f"{parameter}=true", 200),
+    ]
+    rows = []
+    for mode in ("basic", "session"):
+        for user, query, status in cases:
+            client = Client()
+            headers = {"HTTP_HOST": user.realm.host}
+            if mode == "basic":
+                token = b64encode(f"{user.delivery_email}:{user.api_key}".encode()).decode()
+                headers["HTTP_AUTHORIZATION"] = f"Basic {token}"
+                url = "/api/v1/user_groups"
+            else:
+                client.force_login(user)
+                url = "/json/user_groups"
+            if query is not None:
+                url = f"{url}?{query}"
+            response = client.get(url, **headers)
+            payload = response.json()
+            assert response.status_code == status, (mode, query, payload)
+            if status == 200:
+                assert payload.pop("result") == "success" and payload.pop("msg") == ""
+            else:
+                assert payload["result"] == "error" and payload["code"] == "BAD_REQUEST", payload
+                if user.is_guest:
+                    assert payload["msg"] == "Not allowed for guest users", payload
+            rows.append(
+                {
+                    "mode": mode,
+                    "user": user.id,
+                    "realm": user.realm_id,
+                    "query": query,
+                    "status": status,
+                    "payload": payload,
+                }
+            )
+
+    with output.open("x") as fixture:
+        json.dump(rows, fixture)
+    print(f"Django authenticated group query references: {len(rows)} Basic and session cases.")
 
 
 def main() -> None:
