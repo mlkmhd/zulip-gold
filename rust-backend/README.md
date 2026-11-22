@@ -5618,3 +5618,27 @@ with the locally built extension on your Python path:
 ```
 
 This bridge does not add independently served HTTP operations.
+
+### Replay drafts, saved snippets, and navigation views through Rust
+
+Set `ZULIP_RUST_PERSONAL_REPLAY=1` on the Django worker to reconcile
+already selected personal-list events during register. Rust applies
+the existing add, update, and remove operations to drafts, saved
+snippets, and navigation views. Existing draft IDs, first-match
+updates and removals, insertion order, and navigation in-place updates
+retain their Python semantics.
+
+Django still decides which user's records and events to load and
+which event types to apply. Rust receives only one prepared list
+and its event. It does not create or write database records, and
+does not change the HTTP routes. The flag defaults to off. Unsupported
+rows and older extensions use the unchanged Python reducer.
+
+Run the differential tests in an isolated test database with the built
+extension on the Python path:
+
+```bash
+./tools/test-backend zerver.tests.test_personal_replay_rust
+```
+
+This bridge changes no independent HTTP counts.

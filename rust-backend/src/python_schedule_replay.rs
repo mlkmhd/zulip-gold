@@ -34,7 +34,7 @@ enum Change<'py> {
     Reorder(Vec<Bound<'py, PyAny>>),
 }
 
-fn fields<'a, 'py>(value: &'a Bound<'py, PyAny>) -> Option<&'a Bound<'py, PyDict>> {
+pub(crate) fn fields<'a, 'py>(value: &'a Bound<'py, PyAny>) -> Option<&'a Bound<'py, PyDict>> {
     let value = value.cast_exact::<PyDict>().ok()?;
     value
         .iter()
@@ -42,7 +42,7 @@ fn fields<'a, 'py>(value: &'a Bound<'py, PyAny>) -> Option<&'a Bound<'py, PyDict
         .then_some(value)
 }
 
-fn int_field(value: &Bound<'_, PyAny>, key: &str) -> Option<i64> {
+pub(crate) fn int_field(value: &Bound<'_, PyAny>, key: &str) -> Option<i64> {
     let value = fields(value)?.get_item(key).ok()??;
     value.cast_exact::<PyInt>().ok()?.extract().ok()
 }
@@ -58,7 +58,12 @@ fn sorted_rows<'py>(rows: impl IntoIterator<Item = Bound<'py, PyAny>>) -> Option
     ))
 }
 
-fn find_row(rows: &Bound<'_, PyList>, key: &str, id: i64, unique: bool) -> Option<Option<usize>> {
+pub(crate) fn find_row(
+    rows: &Bound<'_, PyList>,
+    key: &str,
+    id: i64,
+    unique: bool,
+) -> Option<Option<usize>> {
     let mut matched = None;
     for (index, row) in rows.iter().enumerate() {
         if int_field(&row, key)? == id {

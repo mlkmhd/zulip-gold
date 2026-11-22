@@ -22,6 +22,7 @@ from zerver.actions.user_settings import do_change_user_setting
 from zerver.actions.users import get_owned_bot_dicts
 from zerver.lib import (
     emoji,
+    native_personal_replay,
     native_recent_conversations,
     native_register_state,
     native_schedule_replay,
@@ -1087,6 +1088,8 @@ def apply_event(
         pass
 
     elif event["type"] == "saved_snippets":
+        if native_personal_replay.apply(state, event):
+            return
         if event["op"] == "add":
             state["saved_snippets"].append(event["saved_snippet"])
         elif event["op"] == "remove":
@@ -1101,6 +1104,8 @@ def apply_event(
                     break
 
     elif event["type"] == "navigation_view":
+        if native_personal_replay.apply(state, event):
+            return
         if event["op"] == "add":
             state["navigation_views"].append(event["navigation_view"])
         elif event["op"] == "update":
@@ -1115,6 +1120,8 @@ def apply_event(
                     break
 
     elif event["type"] == "drafts":
+        if native_personal_replay.apply(state, event):
+            return
         # Updates and removals search linearly, since the drafts list
         # is ordered by last edit time, not id.
         if event["op"] == "add":

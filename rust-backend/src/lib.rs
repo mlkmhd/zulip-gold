@@ -207,6 +207,8 @@ mod python_register_state;
 #[cfg(feature = "python")]
 mod python_channel_payload;
 #[cfg(feature = "python")]
+mod python_personal_replay;
+#[cfg(feature = "python")]
 mod python_schedule_replay;
 #[cfg(feature = "python")]
 mod python_search_highlights;
