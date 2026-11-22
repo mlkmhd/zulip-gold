@@ -1,3 +1,5 @@
+"use strict";
+
 const assert = require("node:assert/strict");
 const readline = require("node:readline");
 
@@ -30,8 +32,8 @@ async function run() {
         const launched = browser.process()?.spawnargs;
         assert.ok(launched);
         assert.ok(
-            !launched.some((arg) =>
-                /^--(?:disable-|no-sandbox|ignore-certificate|allow-insecure)/.test(arg),
+            launched.every(
+                (arg) => !/^--(?:disable-|no-sandbox|ignore-certificate|allow-insecure)/.test(arg),
             ),
             "unexpected browser security override",
         );
@@ -107,7 +109,13 @@ async function run() {
     }
 }
 
-run().catch((error) => {
-    console.error(error.message);
-    process.exitCode = 1;
-});
+async function main() {
+    try {
+        await run();
+    } catch (error) {
+        console.error(error.message);
+        process.exitCode = 1;
+    }
+}
+
+void main();
