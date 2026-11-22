@@ -9,8 +9,10 @@ import os
 from base64 import b64encode
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 import django
+from django.conf import settings
 from read_proxy_fixture import validate_fixture, validate_local_root, verify_private_database
 
 
@@ -37,11 +39,14 @@ def emit_reference(path: Path) -> None:
 
     UserProfile.objects.filter(id=member.id).update(
         timezone="US/Eastern",
+        avatar_source=UserProfile.AVATAR_FROM_GRAVATAR,
         date_joined=datetime(2020, 2, 29, 19, 30, 59, 999999, tzinfo=timezone.utc),
         email="hidden-self@testserver",
         email_address_visibility=UserProfile.EMAIL_ADDRESS_VISIBILITY_NOBODY,
     )
     member.refresh_from_db()
+    UserProfile.objects.filter(id=other.id).update(avatar_source=UserProfile.AVATAR_FROM_USER)
+    other.refresh_from_db()
 
     text = CustomProfileField.objects.create(
         realm=member.realm, name="Pilot short text", field_type=CustomProfileField.SHORT_TEXT
@@ -88,6 +93,15 @@ def emit_reference(path: Path) -> None:
             user.avatar_version,
             medium=False,
             client_gravatar=False,
+        )
+        assert avatar is not None
+        avatar_kind = (
+            "system_bot"
+            if is_cross_realm_bot_email(user.delivery_email)
+            else "stored"
+            if user.avatar_source
+            in {UserProfile.AVATAR_FROM_USER, UserProfile.AVATAR_FROM_JDENTICON}
+            else "default"
         )
         timezone_name = canonicalize_timezone(user.timezone)
         for mode in ("basic", "session"):
@@ -137,10 +151,8 @@ def emit_reference(path: Path) -> None:
                     "user": user.id,
                     "realm": user.realm_id,
                     "avatar": avatar,
-                    "is_system_bot": is_cross_realm_bot_email(user.email),
-                    "timezone_aliases": {user.timezone: timezone_name}
-                    if user.timezone != timezone_name
-                    else {},
+                    "avatar_kind": avatar_kind,
+                    "avatar_version": user.avatar_version,
                     "payload": body,
                 }
             )
@@ -149,6 +161,51 @@ def emit_reference(path: Path) -> None:
     with path.open("x") as output:
         json.dump(profiles, output)
     print("Django self-profile references: 6 Basic and 5 session responses.")
+
+
+def emit_presentation_reference(root: Path) -> None:
+    from scripts.lib.zulip_tools import get_tzdata_zi
+    from zerver.lib.avatar import get_avatar_field
+    from zerver.lib.timezone import get_canonical_timezone_map
+    from zerver.models.users import is_cross_realm_bot_email
+
+    # Use the same installed read-only timezone source as Django.
+    with get_tzdata_zi() as tzdata:
+        (root / "profile-tzdata.zi").write_text(tzdata.read())
+    with (root / "profile-timezone-aliases.json").open("x") as alias_output:
+        json.dump(get_canonical_timezone_map(), alias_output)
+
+    # Test Django's avatar branches directly without any login, storage or fetch.
+    system = min(settings.CROSS_REALM_BOT_EMAILS).upper()
+    ordinary = "normal@example.test"
+    references = []
+    with (
+        patch("zerver.lib.avatar.get_static_avatar_url", return_value="system_bot"),
+        patch("zerver.lib.avatar.user_avatar_base_path_from_ids", return_value="fixture-avatar"),
+        patch("zerver.lib.avatar.get_avatar_url", return_value="stored"),
+        patch("zerver.lib.avatar.get_gravatar_url", return_value="default"),
+    ):
+        for public in (system, ordinary):
+            for delivery in (system, ordinary):
+                for source in ("G", "J", "U"):
+                    value = get_avatar_field(
+                        1, 1, delivery, source, 1, medium=False, client_gravatar=False
+                    )
+                    references.append(
+                        {
+                            "email": public,
+                            "delivery_email": delivery,
+                            "source": source,
+                            "kind": value,
+                            "is_system_bot": is_cross_realm_bot_email(public),
+                        }
+                    )
+    with (root / "profile-avatar-cases.json").open("x") as output:
+        json.dump(
+            {"system_bot_emails": sorted(settings.CROSS_REALM_BOT_EMAILS), "cases": references},
+            output,
+        )
+    print("Django presentation references: complete tzdata aliases and 12 avatar/system-bot cases.")
 
 
 def main() -> None:
@@ -163,6 +220,7 @@ def main() -> None:
     django.setup()
     verify_private_database()
     emit_reference(root / "own-profile.json")
+    emit_presentation_reference(root)
 
 
 if __name__ == "__main__":

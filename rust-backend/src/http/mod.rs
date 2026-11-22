@@ -30,6 +30,8 @@ mod locale;
 mod navigation_views;
 #[doc(hidden)]
 pub mod own_profile;
+#[doc(hidden)]
+pub mod own_profile_presentation;
 mod rate_limit;
 mod realm_domains;
 mod realm_emoji;

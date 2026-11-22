@@ -5056,9 +5056,11 @@ authenticated user and organization IDs. It keeps the account role and bot
 fields, timestamp precision, own delivery email, and typed custom profile
 values. The newest message ID comes from that account's user-message rows,
 or is `-1` when there are none. The projection cannot select another target
-user. The existing Django-owned avatar storage, system-bot registry and
-timezone alias data supply the presentation inputs; Rust does not perform
-storage lookups or load deployment credentials.
+user. Django still supplies the resolved avatar URL and trusted bot registry.
+Rust classifies the avatar source and bot flag, reads aliases from the same
+trusted tzdata source, and rejects an avatar resolved for another account,
+organization, version or source. It does not perform storage lookups,
+compute salted avatar paths or load deployment credentials.
 
 With the private PostgreSQL fixture and Rust bridges disabled, generate
 the synthetic references from the fixture's project directory and compare:
@@ -5075,6 +5077,8 @@ ZULIP_OWN_PROFILE_FIXTURE_ROOT="$fixture_root" ISOLATED_PG_PORT="$port" \
 The Rust test uses a read-only transaction and compares 11 actual Django
 Basic/session responses including ordinary owners, admins, members, guests,
 bots and a separate organization. It also verifies that mismatched
-organization IDs do not return rows. The test does not add an HTTP adapter
-or change the existing self-profile route; the current route and its
-other methods stay in Django.
+organization IDs do not return rows, and rejects mismatched avatar
+presentation. The test also checks the entire alias map from the installed
+tzdata source and 12 Django avatar and system-bot decisions without login
+or storage calls. No HTTP adapter was added. Django still handles the route
+and must remain the trusted avatar URL provider before an adapter can opt in.

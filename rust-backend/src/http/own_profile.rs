@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 use tokio_postgres::{Error, GenericClient};
 
+use super::own_profile_presentation::{Presentation, avatar_kind, system_bot};
+
 const PROFILE: &str = r#"
     SELECT u.id, u.email, u.delivery_email, u.full_name, u.avatar_source, u.avatar_version,
            u.role, u.is_bot, u.bot_type, u.bot_owner_id, u.is_active,
@@ -35,12 +37,16 @@ const ROLE_GUEST: i16 = 600;
 const FIELD_SHORT_TEXT: i16 = 1;
 const FIELD_PARAGRAPH: i16 = 2;
 
-/// Trusted presentation values for the authenticated account, not request input.
-/// The caller retains Django's storage policy, system-bot registry and tzdata source.
-pub struct Presentation<'a> {
-    pub avatar_url: Option<&'a str>,
-    pub is_system_bot: bool,
-    pub timezone_aliases: &'a BTreeMap<String, String>,
+#[derive(Debug)]
+pub enum ReadError {
+    Database(Error),
+    AvatarContextMismatch,
+}
+
+impl From<Error> for ReadError {
+    fn from(error: Error) -> Self {
+        Self::Database(error)
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -51,7 +57,7 @@ pub struct OwnProfile {
     full_name: String,
     avatar_source: String,
     avatar_version: i16,
-    avatar_url: Option<String>,
+    avatar_url: String,
     role: i16,
     is_admin: bool,
     is_owner: bool,
@@ -98,7 +104,7 @@ pub async fn read_authenticated(
     authenticated_user_id: i32,
     authenticated_realm_id: i32,
     presentation: Presentation<'_>,
-) -> Result<Option<OwnProfile>, Error> {
+) -> Result<Option<OwnProfile>, ReadError> {
     let args: &[&(dyn tokio_postgres::types::ToSql + Sync)] =
         &[&authenticated_user_id, &authenticated_realm_id];
     let Some(row) = db.query_opt(PROFILE, args).await? else {
@@ -109,16 +115,31 @@ pub async fn read_authenticated(
     let raw_timezone: String = row.try_get("timezone")?;
     let timezone = presentation
         .timezone_aliases
-        .get(&raw_timezone)
-        .cloned()
-        .unwrap_or(raw_timezone);
+        .canonical(&raw_timezone)
+        .to_owned();
+    let email: String = row.try_get("email")?;
+    let delivery_email: String = row.try_get("delivery_email")?;
+    let avatar_source: String = row.try_get("avatar_source")?;
+    let avatar_version = row.try_get("avatar_version")?;
+    if presentation.avatar.user_id != authenticated_user_id
+        || presentation.avatar.realm_id != authenticated_realm_id
+        || presentation.avatar.version != avatar_version
+        || presentation.avatar.kind
+            != avatar_kind(
+                &delivery_email,
+                &avatar_source,
+                presentation.system_bot_emails,
+            )
+    {
+        return Err(ReadError::AvatarContextMismatch);
+    }
 
     let (bot, profile_data) = if is_bot {
         (
             Some(BotData {
                 bot_type: row.try_get("bot_type")?,
                 bot_owner_id: row.try_get("bot_owner_id")?,
-                is_system_bot: presentation.is_system_bot,
+                is_system_bot: system_bot(&email, presentation.system_bot_emails),
             }),
             None,
         )
@@ -140,13 +161,13 @@ pub async fn read_authenticated(
 
     Ok(Some(OwnProfile {
         user_id: row.try_get("id")?,
-        email: row.try_get("email")?,
+        email,
         // Django's delivery-email visibility rule always permits the user themself.
-        delivery_email: row.try_get("delivery_email")?,
+        delivery_email,
         full_name: row.try_get("full_name")?,
-        avatar_source: row.try_get("avatar_source")?,
-        avatar_version: row.try_get("avatar_version")?,
-        avatar_url: presentation.avatar_url.map(str::to_owned),
+        avatar_source,
+        avatar_version,
+        avatar_url: presentation.avatar.url.to_owned(),
         role,
         is_admin: matches!(role, ROLE_OWNER | ROLE_ADMINISTRATOR),
         is_owner: role == ROLE_OWNER,

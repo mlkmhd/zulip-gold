@@ -1,9 +1,18 @@
 #![cfg(all(feature = "http", target_os = "linux"))]
 
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
-use std::{collections::BTreeMap, env, fs, path::PathBuf};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    env, fs,
+    path::PathBuf,
+};
 
-use _zulip_backend::http::own_profile::{Presentation, read_authenticated};
+use _zulip_backend::http::{
+    own_profile::{ReadError, read_authenticated},
+    own_profile_presentation::{
+        AvatarKind, Presentation, ResolvedAvatar, TimezoneAliases, avatar_kind, system_bot,
+    },
+};
 use serde::Deserialize;
 use serde_json::Value;
 use tokio_postgres::{Config, NoTls};
@@ -13,10 +22,25 @@ struct ReferenceCase {
     mode: String,
     user: i32,
     realm: i32,
-    avatar: Option<String>,
-    is_system_bot: bool,
-    timezone_aliases: BTreeMap<String, String>,
+    avatar: String,
+    avatar_kind: AvatarKind,
+    avatar_version: i16,
     payload: Value,
+}
+
+#[derive(Deserialize)]
+struct AvatarCases {
+    system_bot_emails: BTreeSet<String>,
+    cases: Vec<AvatarCase>,
+}
+
+#[derive(Deserialize)]
+struct AvatarCase {
+    email: String,
+    delivery_email: String,
+    source: String,
+    kind: AvatarKind,
+    is_system_bot: bool,
 }
 
 #[tokio::test]
@@ -44,9 +68,42 @@ async fn own_profile_matches_django() {
         .unwrap();
     let socket_file = fs::symlink_metadata(socket.join(format!(".s.PGSQL.{port}"))).unwrap();
     assert!(socket_file.file_type().is_socket() && socket_file.uid() == owner);
-    let expected = root.join("own-profile.json");
-    let metadata = fs::symlink_metadata(&expected).unwrap();
-    assert!(metadata.file_type().is_file() && metadata.uid() == owner);
+    let private_input = |name: &str| {
+        let path = root.join(name);
+        let metadata = fs::symlink_metadata(&path).unwrap();
+        assert!(metadata.file_type().is_file() && metadata.uid() == owner);
+        path
+    };
+    let expected = private_input("own-profile.json");
+    let tzdata = fs::read_to_string(private_input("profile-tzdata.zi")).unwrap();
+    let timezone_aliases = TimezoneAliases::parse(&tzdata).unwrap();
+    let django_aliases: BTreeMap<String, String> = serde_json::from_reader(
+        fs::File::open(private_input("profile-timezone-aliases.json")).unwrap(),
+    )
+    .unwrap();
+    assert!(!django_aliases.is_empty());
+    assert_eq!(timezone_aliases.entries(), &django_aliases);
+    eprintln!("{} tzdata aliases match Django.", django_aliases.len());
+
+    let avatars: AvatarCases = serde_json::from_reader(
+        fs::File::open(private_input("profile-avatar-cases.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(avatars.cases.len(), 12);
+    for case in &avatars.cases {
+        assert_eq!(
+            avatar_kind(
+                &case.delivery_email,
+                &case.source,
+                &avatars.system_bot_emails
+            ),
+            case.kind
+        );
+        assert_eq!(
+            system_bot(&case.email, &avatars.system_bot_emails),
+            case.is_system_bot
+        );
+    }
     let cases: Vec<ReferenceCase> =
         serde_json::from_reader(fs::File::open(expected).unwrap()).unwrap();
     assert_eq!(cases.len(), 11);
@@ -84,12 +141,41 @@ async fn own_profile_matches_django() {
     assert_eq!(local.get::<_, String>(3), "on");
 
     for case in cases {
-        let presentation = || Presentation {
-            avatar_url: case.avatar.as_deref(),
-            is_system_bot: case.is_system_bot,
-            timezone_aliases: &case.timezone_aliases,
+        let presentation_for = |user_id, realm_id, version, kind| Presentation {
+            avatar: ResolvedAvatar {
+                user_id,
+                realm_id,
+                version,
+                kind,
+                url: &case.avatar,
+            },
+            system_bot_emails: &avatars.system_bot_emails,
+            timezone_aliases: &timezone_aliases,
         };
-        let result = read_authenticated(&tx, case.user, case.realm, presentation())
+        let different = if case.avatar_kind == AvatarKind::Stored {
+            AvatarKind::Default
+        } else {
+            AvatarKind::Stored
+        };
+        let presentation =
+            |kind| presentation_for(case.user, case.realm, case.avatar_version, kind);
+        for mismatched in [
+            presentation(different),
+            presentation_for(0, case.realm, case.avatar_version, case.avatar_kind),
+            presentation_for(case.user, 0, case.avatar_version, case.avatar_kind),
+            presentation_for(
+                case.user,
+                case.realm,
+                case.avatar_version.wrapping_add(1),
+                case.avatar_kind,
+            ),
+        ] {
+            assert!(matches!(
+                read_authenticated(&tx, case.user, case.realm, mismatched).await,
+                Err(ReadError::AvatarContextMismatch)
+            ));
+        }
+        let result = read_authenticated(&tx, case.user, case.realm, presentation(case.avatar_kind))
             .await
             .unwrap()
             .unwrap();
@@ -100,7 +186,7 @@ async fn own_profile_matches_django() {
             case.mode
         );
         assert!(
-            read_authenticated(&tx, case.user, 0, presentation())
+            read_authenticated(&tx, case.user, 0, presentation(case.avatar_kind))
                 .await
                 .unwrap()
                 .is_none()
