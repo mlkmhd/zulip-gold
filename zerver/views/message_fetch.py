@@ -10,6 +10,7 @@ from django.utils.translation import gettext as _
 from pydantic import Json, NonNegativeInt
 
 from zerver.context_processors import get_valid_realm_from_request
+from zerver.lib import native_search_highlights
 from zerver.lib.exceptions import (
     IncompatibleParametersError,
     JsonableError,
@@ -27,6 +28,7 @@ from zerver.lib.narrow import (
     is_web_public_narrow,
     parse_anchor_value,
 )
+from zerver.lib.native_search_highlights import SearchHighlightRow
 from zerver.lib.request import RequestNotes
 from zerver.lib.response import json_success
 from zerver.lib.topic import DB_TOPIC_NAME, MATCH_TOPIC
@@ -82,6 +84,19 @@ def get_search_fields(
     return {
         "match_content": highlight_string(rendered_content, content_matches),
         MATCH_TOPIC: highlight_string(escaped_topic_name, topic_matches),
+    }
+
+
+def get_search_fields_batch(rows: Iterable[SearchHighlightRow]) -> dict[int, dict[str, str]]:
+    if native_search_highlights.available():
+        batch = list(rows)
+        fields = native_search_highlights.assemble(batch)
+        if fields is not None:
+            return fields
+        rows = batch
+    return {
+        message_id: get_search_fields(content, topic, content_matches, topic_matches)
+        for message_id, content, topic, content_matches, topic_matches in rows
     }
 
 
@@ -286,12 +301,13 @@ def get_messages_backend(
 
         search_fields: dict[int, dict[str, str]] = {}
         if is_search:
-            for row in rows:
-                message_id = row[0]
-                (escaped_topic_name, rendered_content, content_matches, topic_matches) = row[-4:]
-                search_fields[message_id] = get_search_fields(
-                    rendered_content, escaped_topic_name, content_matches, topic_matches
-                )
+
+            def search_rows() -> Iterable[SearchHighlightRow]:
+                for row in rows:
+                    topic, content, content_matches, topic_matches = row[-4:]
+                    yield row[0], content, topic, content_matches, topic_matches
+
+            search_fields = get_search_fields_batch(search_rows())
 
         message_list = messages_for_ids(
             message_ids=result_message_ids,
@@ -363,27 +379,25 @@ def messages_in_narrow_backend(
             ),
         )
 
-    search_fields = {}
-    plain_reply_links = needs_plain_reply_links(RequestNotes.get_notes(request).client_name)
-    for row in query.values(
+    rows = query.values(
         "id",
         "escaped_topic_name",
         "rendered_content",
         *["content_matches", "topic_matches"] if is_search else [],
-    ):
-        message_id = row["id"]
-        escaped_topic_name: str = row["escaped_topic_name"]
-        rendered_content: str = row["rendered_content"]
-        content_matches = row.get("content_matches", [])
-        topic_matches = row.get("topic_matches", [])
-        fields = get_search_fields(
-            rendered_content,
-            escaped_topic_name,
-            content_matches,
-            topic_matches,
+    )
+    fields_by_id = get_search_fields_batch(
+        (
+            row["id"],
+            row["rendered_content"],
+            row["escaped_topic_name"],
+            row.get("content_matches", []),
+            row.get("topic_matches", []),
         )
-        if plain_reply_links:
+        for row in rows
+    )
+    if needs_plain_reply_links(RequestNotes.get_notes(request).client_name):
+        for fields in fields_by_id.values():
             fields["match_content"] = render_plain_reply_links(fields["match_content"])
-        search_fields[str(message_id)] = fields
+    search_fields = {str(message_id): fields for message_id, fields in fields_by_id.items()}
 
     return json_success(request, data={"messages": search_fields})

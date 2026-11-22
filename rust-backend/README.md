@@ -5524,3 +5524,29 @@ pilot. This pilot does not change anyone's settings or consent. Remove the
 route include and reload nginx to restore Django while Rust is stopped.
 There is no automatic failover. Django remains the default; live ingress
 and production load were not tested.
+
+### Format message search highlights through Rust
+
+Set `ZULIP_RUST_SEARCH_HIGHLIGHTS=1` on the Django worker to opt into
+one batch projection of content and topic highlights for `GET /messages`
+and `GET /messages/matches_narrow`, for both API and web requests. Django
+still runs the original search, visibility checks, and SQL for PostgreSQL
+text search or PGroonga. Rust only formats selected rows and their
+character offsets. Django still applies the existing legacy mobile link
+formatting and assembles the rest of the response.
+
+The setting defaults to off. If the extension is absent or too old, or
+if a range or row shape is unsupported, Django formats the whole batch
+with the original Python implementation. Unset the flag and restart
+the Django worker to return to Python without a routing change.
+
+With the locally built extension on your Python path, run the targeted
+Django tests in an isolated test database:
+
+```bash
+./tools/test-backend zerver.tests.test_search_highlights_rust
+```
+
+The differential test checks both HTTP handlers and both authentication
+styles, and exercises PGroonga when enabled in the test configuration.
+This bridge does not add independently served HTTP operations.
