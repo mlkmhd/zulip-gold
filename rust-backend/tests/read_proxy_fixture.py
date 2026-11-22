@@ -105,11 +105,16 @@ def wait_until(probe: Callable[[], bool], timeout: float = 8) -> None:
 
 @contextmanager
 def process(
-    arguments: list[str], log: Path, *, env: dict[str, str] | None = None
+    arguments: list[str],
+    log: Path,
+    *,
+    env: dict[str, str] | None = None,
+    cwd: Path | None = None,
+    stop_timeout: float = 5,
 ) -> Iterator[subprocess.Popen[bytes]]:
     with (
         log.open("wb") as output,
-        subprocess.Popen(arguments, stdout=output, stderr=output, env=env) as child,
+        subprocess.Popen(arguments, stdout=output, stderr=output, env=env, cwd=cwd) as child,
     ):
         try:
             yield child
@@ -117,7 +122,7 @@ def process(
             if child.poll() is None:
                 child.terminate()
                 try:
-                    child.wait(timeout=5)
+                    child.wait(timeout=stop_timeout)
                 except subprocess.TimeoutExpired:
                     child.kill()
                     child.wait(timeout=5)
@@ -281,6 +286,15 @@ class PrivateQuota:
     limit: int
 
 
+@dataclass(frozen=True)
+class PrivateActivity:
+    port: int
+    password: str = field(repr=False)
+    username: str = "readpilot"
+    vhost: str = "read-pilot"
+    shards: int = 2
+
+
 @contextmanager
 def private_read_proxy(
     repo: Path,
@@ -292,6 +306,7 @@ def private_read_proxy(
     *,
     openssl_bin: Path | None = None,
     quota: PrivateQuota | None = None,
+    activity: PrivateActivity | None = None,
 ) -> Iterator[PrivateReadProxy]:
     if not all(path.is_absolute() for path in (nginx_bin, uwsgi_bin, venv)):
         raise RuntimeError("supply absolute paths to the cached executables")
@@ -372,11 +387,26 @@ http {{
             "settings.RATE_LIMITING_RULES = {**settings.RATE_LIMITING_RULES, "
             f"'api_by_user': [({quota.window}, {quota.limit})]}}\n"
         )
+    activity_settings = ""
+    if activity is not None:
+        activity_settings = (
+            "from django.conf import settings\n"
+            "settings.USING_RABBITMQ = True\n"
+            "settings.RABBITMQ_HOST = '127.0.0.1'\n"
+            f"settings.RABBITMQ_PORT = {activity.port}\n"
+            f"settings.RABBITMQ_USERNAME = {activity.username!r}\n"
+            f"settings.RABBITMQ_PASSWORD = {activity.password!r}\n"
+            f"settings.RABBITMQ_VHOST = {activity.vhost!r}\n"
+            "settings.RABBITMQ_USE_TLS = False\n"
+            f"settings.USER_ACTIVITY_SHARDS = {activity.shards}\n"
+        )
     wsgi.write_text(
         "from django.core.wsgi import get_wsgi_application\n"
         + quota_settings
+        + activity_settings
         + "application = get_wsgi_application()\n"
     )
+    wsgi.chmod(0o600)
     allowed_env = (
         "PATH",
         "HOME",

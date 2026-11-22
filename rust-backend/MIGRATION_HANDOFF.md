@@ -6587,3 +6587,25 @@ scheduled messages و realm domains با Basic و نشست Django بررسی
 واقعی آزمایش نشدند. مسیر و پیش‌فرض تغییر نکردند. پوشش مستقل همان
 ۲۸/۱۷۱ OpenAPI (۱۶٫۴٪) و ۲۸/۱۹۰ وب (۱۴٫۷٪) است؛ کل backend
 اندازه‌گیری نشده است.
+
+## تأیید activity خواندن در RabbitMQ خصوصی
+
+در fixture تازه، RabbitMQ و EPMD جدا با کاربر عادی و فقط روی
+loopback راه افتادند. vhost، تنظیمات، داده و رمز آزمایشی موقتی
+بودند. از سرویس، تنظیمات یا رمز میزبان استفاده نشد. پایان آزمون
+بسته‌شدن listenerهای AMQP، distribution و EPMD را هم بررسی کرد.
+
+HTTP و TLS جداگانه، هر کدام ۳۶ خواندن مجاز GET/HEAD در saved
+snippets، scheduled messages و realm domains داشتند: ۱۲ مورد
+Django پیش‌فرض، ۱۲ مورد Rust فعال و ۱۲ مورد Django بازگردانی‌شده.
+Basic و نشست Django از دو عضو مصنوعی در دو shard استفاده کردند.
+برای هر خواندن یک پیام پایدار در shard درست دریافت شد؛ نام endpoint،
+کاربر، client و زمان تطبیق داشتند و پیام اضافه‌ای نماند. rollback
+با حذف include و reload در حالی انجام شد که Rust متوقف بود.
+[فرمان و محدودیت‌ها](README.md#verify-activity-delivery-for-successful-reads)
+
+این تضمین exactly-once در خرابی broker یا قطع ارتباط نیست. worker
+تولید، Redis و RabbitMQ هم‌زمان، broker و ingress واقعی هنوز در
+این مرحله بررسی نشدند. مسیریابی و پیش‌فرض‌ها تغییر نکردند. پوشش
+مستقل همان ۲۸/۱۷۱ OpenAPI (۱۶٫۴٪) و ۲۸/۱۹۰ وب (۱۴٫۷٪) است؛
+درصد کل backend اندازه‌گیری نشده است.

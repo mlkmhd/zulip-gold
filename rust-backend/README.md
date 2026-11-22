@@ -1512,6 +1512,29 @@ This gate tests ordinary successful requests well below the fixture
 limit. It does not test exhaustion, rejection or exceptional traffic,
 RabbitMQ activity, public ingress, or production Redis configuration.
 
+#### Verify activity delivery for successful reads
+
+From the same private fixture, invoke `check_read_proxy_activity.py`
+instead of the saved-snippet script. Replace `--requests 32` with
+`--rabbitmq-server /usr/lib/rabbitmq/bin/rabbitmq-server --epmd /usr/bin/epmd`
+(on Ubuntu, use the package's server script, not its system-service wrapper).
+The optional `--openssl /usr/bin/openssl` tests client-to-nginx TLS.
+The harness starts its own unprivileged broker and Erlang port mapper,
+checks they listen only on loopback, and removes their scratch data. It
+does not use the host broker, configuration, or credentials.
+
+Across three route states, 36 ordinary successful GET/HEAD reads cover
+saved snippets, scheduled messages, and realm domains using Basic Auth and
+Django sessions. Two synthetic members exercise different activity shards.
+The harness verifies the expected endpoint, user, client and timestamp in
+each persisted event and checks there are no extra queued events. Manual
+rollback restores Django while Rust remains stopped.
+
+This checks the healthy local broker path. It does not guarantee
+exactly-once delivery during failures, run production activity workers,
+or exercise the production broker, ingress, or a combined quota/activity
+deployment. Run those checks separately before any production opt-in.
+
 ### Enable saved-snippet web creation
 
 Configure [Django sessions](#read-alert-words-with-a-django-session) and the
