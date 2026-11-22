@@ -1560,7 +1560,9 @@ Use the private fixture with `check_read_proxy_browser.py` instead of the
 saved-snippet script. The entire fixture must run in a separate, unprivileged
 Linux network namespace with only loopback enabled and no external routes.
 Use a cached Chrome, Node and Puppeteer with their ordinary browser security
-settings. Replace `--requests 32` with absolute `--chrome`, `--node`, and
+settings. The launcher uses only explicit headless/profile arguments and
+rejects security-disabling browser flags. Replace `--requests 32` with
+absolute `--chrome`, `--node`, and
 `--puppeteer` paths, and specify `--openssl /usr/bin/openssl`. Use the secure
 cookie settings from the TLS rehearsal.
 

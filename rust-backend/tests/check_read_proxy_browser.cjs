@@ -8,10 +8,26 @@ async function run() {
     const browser = await puppeteer.launch({
         executablePath: chrome,
         pipe: true,
-        userDataDir: profile,
-        args: ["--no-proxy-server", "--host-resolver-rules=MAP zulip.testserver 127.0.0.1"],
+        ignoreDefaultArgs: true,
+        args: [
+            "--headless",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--no-proxy-server",
+            `--user-data-dir=${profile}`,
+            "--host-resolver-rules=MAP zulip.testserver 127.0.0.1",
+            "about:blank",
+        ],
     });
     try {
+        const launched = browser.process()?.spawnargs;
+        assert.ok(launched);
+        assert.ok(
+            !launched.some((arg) =>
+                /^--(?:disable-|no-sandbox|ignore-certificate|allow-insecure)/.test(arg),
+            ),
+            "unexpected browser security override",
+        );
         const page = await browser.newPage();
         await page.setRequestInterception(true);
         page.on("request", (request) => {
