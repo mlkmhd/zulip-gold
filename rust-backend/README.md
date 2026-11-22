@@ -1390,6 +1390,41 @@ For the development proxy, pass `--rust-http-port 9997 --rust-saved-snippets-web
 The HTTP comparison in `zerver.tests.test_saved_snippets` also checks
 session authentication, requester isolation, and CSRF cookie behavior.
 
+### Rehearse saved-snippet read routing and rollback locally
+
+Use a fresh, owner-private temporary Django test fixture with canonical
+`zulip` tables, populated synthetic users, and PostgreSQL listening only on
+its private Unix socket. The fixture must run with `TEST_SUITE` and without
+Tornado or RabbitMQ. Do not point this harness at a shared or production
+database. Have the cached `zulip-http`, nginx, and uWSGI available.
+
+From the fixture's project directory, with its isolated settings and
+PostgreSQL socket environment selected:
+
+```sh
+env -i HOME="$HOME" PATH="$PATH" PYTHONDONTWRITEBYTECODE=1 \
+  DJANGO_SETTINGS_MODULE="$DJANGO_SETTINGS_MODULE" \
+  ISOLATED_PG_ROLE="$ISOLATED_PG_ROLE" ISOLATED_PG_SOCKET="$ISOLATED_PG_SOCKET" \
+  PYTHONPATH="$PWD" ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  "$venv/bin/python" "$checkout/rust-backend/tests/check_saved_snippets_read_proxy.py" \
+  --fixture-root "$fixture_root" --nginx /usr/sbin/nginx \
+  --uwsgi "$venv/bin/uwsgi" --venv "$venv" --requests 32
+```
+
+The harness uses the checked-in read maps and route files, the normal
+uWSGI transport over a private Unix socket, and an ephemeral loopback
+nginx listener. The process and log fixture is independent of the
+saved-snippet request cases. It validates direct Rust responses, reads
+through nginx with and without the opt-in, and returns to Django by
+removing each route include, validating nginx, and reloading. An
+unavailable Rust process returns the existing JSON `502` for GET and
+an empty `502` response for HEAD. There is no automatic failover to Django.
+
+Request counts and timings describe only the local fixture. Conditions
+include four client workers, three short samples per backend and path,
+one uWSGI process with four threads, and no Redis, RabbitMQ, external
+load balancer, or TLS. Treat them as a baseline, not production capacity.
+
 ### Enable saved-snippet web creation
 
 Configure [Django sessions](#read-alert-words-with-a-django-session) and the
