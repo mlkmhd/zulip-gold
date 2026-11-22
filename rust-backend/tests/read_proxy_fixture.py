@@ -10,6 +10,7 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import TypeAlias
 
@@ -19,6 +20,27 @@ from django.db import connection
 from zerver.lib.test_rust_http import request_test_http
 
 ReadResult: TypeAlias = tuple[int, bytes, dict[str, str | None], str | None]
+
+
+def compare_read_headers(actual: ReadResult, expected: ReadResult, label: str) -> None:
+    mismatched = [
+        name for name, value in actual[2].items() if name != "Date" and value != expected[2][name]
+    ]
+    assert not mismatched, (label, "response headers", mismatched)
+
+    def expires_offset(result: ReadResult) -> float | None:
+        if result[3] is None:
+            return None
+        date = result[2]["Date"]
+        assert date is not None, (label, "Date missing from a response with Expires")
+        return (parsedate_to_datetime(result[3]) - parsedate_to_datetime(date)).total_seconds()
+
+    actual_offset, expected_offset = expires_offset(actual), expires_offset(expected)
+    if actual_offset is None or expected_offset is None:
+        assert actual_offset == expected_offset, (label, "Expires presence")
+    else:
+        # Generation and transport can straddle a one-second HTTP date boundary.
+        assert abs(actual_offset - expected_offset) <= 1, (label, "Expires relative to Date")
 
 
 def validate_local_root(root: Path) -> None:
@@ -137,6 +159,7 @@ class PrivateReadProxy:
             host,
             {**headers, "X-Pilot-Case": marker},
             path,
+            include_date=True,
         )
         row: list[str] = []
 
@@ -155,11 +178,13 @@ class PrivateReadProxy:
         self.requests += 1
         return result, peer
 
-    def enable_routes(self, route_names: tuple[str, ...], rust_port: int) -> None:
+    def enable_routes(
+        self, route_names: tuple[str, ...], rust_port: int, *, upstreams_per_route: int = 1
+    ) -> None:
         for name in route_names:
             assert Path(name).name == name
             content = local_includes((self.stage / name).read_text(), self.include)
-            assert content.count("127.0.0.1:9997") == 1
+            assert content.count("127.0.0.1:9997") == upstreams_per_route
             route = self.route_dir / name
             route.write_text(content.replace("127.0.0.1:9997", f"127.0.0.1:{rust_port}"))
         self.reload()

@@ -86,6 +86,7 @@ def request_test_http(
     *,
     body: bytes | str | None = None,
     timeout: float = 5,
+    include_date: bool = False,
 ) -> tuple[int, bytes, dict[str, str | None], str | None]:
     client = HTTPConnection("127.0.0.1", port, timeout=timeout)
     try:
@@ -101,7 +102,7 @@ def request_test_http(
             },
         )
         response = client.getresponse()
-        compared_headers = (
+        compared_headers: tuple[str, ...] = (
             "Content-Type",
             "Content-Length",
             "Content-Language",
@@ -115,6 +116,8 @@ def request_test_http(
             "Retry-After",
             "Set-Cookie",
         )
+        if include_date:
+            compared_headers += ("Date",)
         return (
             response.status,
             response.read(),

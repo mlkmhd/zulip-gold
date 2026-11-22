@@ -1237,6 +1237,32 @@ handling. Per-item deletion has its own opt-in routing. To roll back either
 read, remove its development flag or the corresponding routes include and
 reload nginx after validation.
 
+### Rehearse scheduled-message read routing and rollback locally
+
+Use the [private fixture and command for saved snippets](#rehearse-saved-snippet-read-routing-and-rollback-locally),
+but invoke `check_scheduled_messages_read_proxy.py` instead. Use fresh
+synthetic users without existing scheduled messages, and do not run a worker.
+The test sends only GET, HEAD, and OPTIONS. It never delivers, deletes, or
+edits a scheduled message and does not exercise reminders.
+
+The harness uses the existing scheduled-message read map and shared route
+include for both the Basic Auth API and Django session web routes. It compares
+direct Rust responses and each nginx route state, checks the owner's pending
+and failed rows in delivery-time order, and confirms delivered rows and other
+users' rows are absent. Successful GET responses are compared as JSON, with
+list order preserved. Expires is compared relative to each response's Date,
+not against a timestamp captured before benchmarking or reloading. Unsupported
+detail reads, OPTIONS, and other realms remain on Django throughout.
+
+There is no automatic failover. While the enabled Rust process is stopped,
+mapped GETs return the standard JSON `502` and mapped HEADs return `502` with
+no body. Removing the single scheduled-message include, running `nginx -t`,
+and reloading the private nginx restores both routes to Django while Rust
+remains stopped. The saved-snippet and scheduled-message tests share the
+private process fixture but use separate routing definitions and test data.
+The harness reports short local throughput and p95 samples, not production
+performance.
+
 ## Delete scheduled messages and reminders through Rust
 
 Set `ZULIP_RUST_SCHEDULED_MESSAGE_DELETES=1` or

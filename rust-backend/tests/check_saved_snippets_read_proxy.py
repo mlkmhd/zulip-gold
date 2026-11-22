@@ -9,7 +9,6 @@ import time
 from base64 import b64encode
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from email.utils import parsedate_to_datetime
 from math import ceil
 from pathlib import Path
 from statistics import median
@@ -18,6 +17,7 @@ import django
 from django.conf import settings
 from read_proxy_fixture import (
     ReadResult,
+    compare_read_headers,
     private_read_proxy,
     validate_fixture,
     validate_local_root,
@@ -48,13 +48,7 @@ class Case:
 def compare(actual: ReadResult, expected: ReadResult, label: str) -> None:
     assert actual[0] == expected[0], (label, "status", actual[0], expected[0])
     assert actual[1] == expected[1], (label, "response bytes")
-    mismatched = [name for name, value in actual[2].items() if value != expected[2][name]]
-    assert not mismatched, (label, "response headers", mismatched)
-    if actual[3] is None or expected[3] is None:
-        assert actual[3] == expected[3], (label, "Expires")
-    else:
-        difference = parsedate_to_datetime(actual[3]) - parsedate_to_datetime(expected[3])
-        assert abs(difference.total_seconds()) <= 5, (label, "Expires")
+    compare_read_headers(actual, expected, label)
 
 
 def benchmark(port: int, case: Case, count: int) -> tuple[float, float]:
@@ -242,7 +236,12 @@ def pilot(args: argparse.Namespace, directory: Path) -> None:
                 rust_address = f"127.0.0.1:{rust_port}"
                 for case, before in zip(cases[:4], original[:4], strict=True):
                     direct = request_test_http(
-                        rust_port, case.method, case.host, case.headers, case.path
+                        rust_port,
+                        case.method,
+                        case.host,
+                        case.headers,
+                        case.path,
+                        include_date=True,
                     )
                     compare(direct, before, case.label)
                 proxy.enable_routes(ROUTES, rust_port)
