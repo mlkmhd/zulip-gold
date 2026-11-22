@@ -20,16 +20,16 @@ import django
 from django.conf import settings
 from read_proxy_fixture import (
     PrivateReadProxy,
+    ReadCase,
     ReadResult,
     compare_read_headers,
+    exercise_paired_read_routes,
     private_read_proxy,
     validate_fixture,
     validate_local_root,
     verify_private_database,
-    wait_until,
 )
 
-from zerver.lib.test_rust_http import request_test_http, rust_http_service
 from zerver.lib.timestamp import timestamp_to_datetime
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -40,20 +40,9 @@ WEB = "/json/scheduled_messages"
 
 
 @dataclass(frozen=True)
-class Case:
-    label: str
-    method: str
-    host: str
-    headers: dict[str, str]
-    path: str
-    status: int
+class Case(ReadCase):
     messages: list[dict[str, object]] | None = None
-    mapped: bool = True
     ignored_parameters: tuple[str, ...] = ()
-
-    def __post_init__(self) -> None:
-        if self.method not in {"GET", "HEAD", "OPTIONS"}:
-            raise ValueError("only read-only request methods are allowed")
 
 
 def validate(case: Case, reply: ReadResult) -> None:
@@ -215,8 +204,10 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
         Case("Session other owner", "GET", host, session(other), WEB, 200, [peer.to_dict()]),
         Case("Basic missing credentials", "GET", host, {}, API, 401),
         Case("Session missing credentials", "GET", host, {}, WEB, 401),
-        Case("Basic other realm", "GET", outside_host, basic(outside), API, 200, [], False),
-        Case("Session other realm", "GET", outside_host, session(outside), WEB, 200, [], False),
+        Case("Basic other realm", "GET", outside_host, basic(outside), API, 200, [], mapped=False),
+        Case(
+            "Session other realm", "GET", outside_host, session(outside), WEB, 200, [], mapped=False
+        ),
         Case("Basic realm mismatch", "GET", outside_host, api, API, 401, mapped=False),
         Case("Session realm mismatch", "GET", outside_host, browser, WEB, 400, mapped=False),
         Case("Basic OPTIONS", "OPTIONS", host, {}, API, 204, mapped=False),
@@ -228,96 +219,16 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
     with private_read_proxy(
         ROOT, directory, args.nginx, args.uwsgi, args.venv, (MAP,), openssl_bin=args.openssl
     ) as proxy:
-
-        def request(case: Case) -> tuple[ReadResult, str]:
-            return proxy.observe(case.method, case.host, case.headers, case.path)
-
-        def expect(case: Case, upstream: str) -> ReadResult:
-            result, actual = request(case)
-            assert actual == upstream, (case.label, "wrong upstream", actual, upstream)
-            validate(case, result)
-            return result
-
-        def wait_for_routes(upstream: str) -> None:
-            consecutive = 0
-
-            def ready() -> bool:
-                nonlocal consecutive
-                if all(request(case)[1] == upstream for case in cases[:2]):
-                    consecutive += 1
-                else:
-                    consecutive = 0
-                # Graceful reload can briefly leave old and new workers active.
-                return consecutive >= 3
-
-            wait_until(ready)
-
-        wait_until(lambda: request(cases[0])[0][0] == 200)
-        proxy.assert_untrusted_tls_rejected(cases[0].host, cases[0].path)
-        original = [expect(case, proxy.django_address) for case in cases]
-        django_metrics = [benchmark(proxy, case, args.requests) for case in cases[:2]]
-        secret = directory / "synthetic-secret"
-        secret.write_text(settings.SECRET_KEY)
-        secret.chmod(0o600)
-        with rust_http_service(
-            {
-                "ZULIP_RUST_DJANGO_SECRET_KEY_FILE": str(secret),
-                "ZULIP_RUST_DJANGO_AUTH_BACKENDS": json.dumps(settings.AUTHENTICATION_BACKENDS),
-                "ZULIP_RUST_SESSION_COOKIE_NAME": settings.SESSION_COOKIE_NAME,
-                "ZULIP_RUST_CSRF_COOKIE_NAME": settings.CSRF_COOKIE_NAME,
-                "ZULIP_RUST_CLIENT_IP_SOURCE": "proxy",
-            }
-        ) as rust_port:
-            rust_address = f"127.0.0.1:{rust_port}"
-            for case, before in zip(cases, original, strict=True):
-                if case.mapped:
-                    direct_result = request_test_http(
-                        rust_port,
-                        case.method,
-                        case.host,
-                        case.headers,
-                        case.path,
-                        include_date=True,
-                    )
-                    compare(case, direct_result, before)
-            proxy.enable_routes((ROUTE,), rust_port, upstreams_per_route=2)
-            wait_for_routes(rust_address)
-            for case, before in zip(cases, original, strict=True):
-                target = rust_address if case.mapped else proxy.django_address
-                compare(case, expect(case, target), before)
-            rust_metrics = [benchmark(proxy, case, args.requests) for case in cases[:2]]
-
-        for case in cases[:4]:
-            failed_result, upstream = request(case)
-            assert failed_result[0] == 502 and upstream == rust_address, case.label
-            if case.method == "HEAD":
-                assert failed_result[1] == b"", case.label
-            else:
-                assert json.loads(failed_result[1]) == json.loads(proxy.error_body()), case.label
-        for case in cases:
-            if not case.mapped:
-                expect(case, proxy.django_address)
-
-        proxy.disable_route(ROUTE)
-        wait_for_routes(proxy.django_address)
-        for case, before in zip(cases, original, strict=True):
-            compare(case, expect(case, proxy.django_address), before)
-        assert list(rows.values()) == initial_rows, "the read rehearsal changed scheduled rows"
-        count = sum(case.mapped for case in cases)
-        print(
-            f"{len(cases)} cases in each of three routing states, {count} direct comparisons, "
-            f"4 outage and {len(cases) - count} unaffected Django checks while Rust is stopped "
-            f"({proxy.requests} private proxy requests including readiness)",
-            flush=True,
+        exercise_paired_read_routes(
+            proxy,
+            directory,
+            ROUTE,
+            cases,
+            validate=validate,
+            compare=compare,
+            measure=lambda proxy, case: benchmark(proxy, case, args.requests),
         )
-        for case, django_speed, rust_speed in zip(
-            cases[:2], django_metrics, rust_metrics, strict=True
-        ):
-            print(
-                f"{case.label}: Django {django_speed[0]:.1f} req/s p95 {django_speed[1]:.2f} ms; "
-                f"Rust {rust_speed[0]:.1f} req/s p95 {rust_speed[1]:.2f} ms",
-                flush=True,
-            )
+    assert list(rows.values()) == initial_rows, "the read rehearsal changed scheduled rows"
 
 
 def main() -> None:

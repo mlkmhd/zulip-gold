@@ -761,6 +761,24 @@ organization in both services. Domain creation, editing, and deletion
 use Django. To roll back reads, remove the development option or the
 `realm-domains-routes.conf` include and reload nginx after validation.
 
+### Rehearse realm-domain read routing and rollback locally
+
+Use the [private saved-snippet fixture](#rehearse-saved-snippet-read-routing-and-rollback-locally)
+with `check_realm_domains_read_proxy.py` instead and omit `--requests`.
+Use two synthetic organizations with distinct domain lists. The same
+[optional loopback TLS check](#verify-the-local-tls-readiness-gate) also applies.
+Ordinary authenticated members see their organization's list, including each
+entry's `allow_subdomains` value. Compare the list without depending on row
+order, but do not discard duplicates. Missing credentials, realm mismatches,
+HEAD body handling, and routing of OPTIONS and detail GETs are also checked.
+
+The existing read include opts in both the API and web paths on the
+allowlisted host. When Rust stops, mapped GET and HEAD requests return
+`502` and excluded requests stay on Django. Remove the single include, run
+`nginx -t`, and reload the private nginx to restore both routes. The
+rehearsal does not issue write requests or change the host configuration.
+It does not validate production ingress, Redis quota, or RabbitMQ activity.
+
 ## Read custom profile field definitions through Rust
 
 The listener serves `GET` and `HEAD` on `/api/v1/realm/profile_fields` with

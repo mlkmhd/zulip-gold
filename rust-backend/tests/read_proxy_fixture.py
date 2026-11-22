@@ -1,6 +1,7 @@
 # ruff: noqa: INP001
 """Private nginx/uWSGI infrastructure for read-only parity checks."""
 
+import json
 import os
 import socket
 import ssl
@@ -10,15 +11,15 @@ import tempfile
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import TypeAlias
+from typing import TypeAlias, TypeVar
 
 from django.conf import settings
 from django.db import connection
 
-from zerver.lib.test_rust_http import request_test_http
+from zerver.lib.test_rust_http import request_test_http, rust_http_service
 
 ReadResult: TypeAlias = tuple[int, bytes, dict[str, str | None], str | None]
 
@@ -402,3 +403,129 @@ http {{
                 stage,
                 tls_context,
             )
+
+
+@dataclass(frozen=True)
+class ReadCase:
+    label: str
+    method: str
+    host: str
+    headers: dict[str, str]
+    path: str
+    status: int
+    mapped: bool = field(default=True, kw_only=True)
+    also_compare_direct: bool = field(default=False, kw_only=True)
+
+    def __post_init__(self) -> None:
+        if self.method not in {"GET", "HEAD", "OPTIONS"}:
+            raise ValueError("only read-only request methods are allowed")
+
+
+CaseT = TypeVar("CaseT", bound=ReadCase)
+
+
+def exercise_paired_read_routes(
+    proxy: PrivateReadProxy,
+    directory: Path,
+    route: str,
+    cases: list[CaseT],
+    *,
+    validate: Callable[[CaseT, ReadResult], None],
+    compare: Callable[[CaseT, ReadResult, ReadResult], None],
+    measure: Callable[[PrivateReadProxy, CaseT], tuple[float, float]] | None = None,
+) -> None:
+    # The first four probes are successful, mapped GET and HEAD on the API
+    # and web paths respectively. They cover both targets on reload/outage.
+    assert [case.method for case in cases[:4]] == ["GET", "GET", "HEAD", "HEAD"]
+    assert all(case.mapped and case.status == 200 for case in cases[:4])
+    assert all(cases[index].path == cases[index + 2].path for index in range(2))
+
+    def request(case: CaseT) -> tuple[ReadResult, str]:
+        return proxy.observe(case.method, case.host, case.headers, case.path)
+
+    def expect(case: CaseT, upstream: str) -> ReadResult:
+        result, actual = request(case)
+        assert actual == upstream, (case.label, "wrong upstream", actual, upstream)
+        validate(case, result)
+        return result
+
+    def wait_for_routes(upstream: str) -> None:
+        consecutive = 0
+
+        def ready() -> bool:
+            nonlocal consecutive
+            if all(request(case)[1] == upstream for case in cases[:2]):
+                consecutive += 1
+            else:
+                consecutive = 0
+            # Graceful reload can briefly leave old and new workers active.
+            return consecutive >= 3
+
+        wait_until(ready)
+
+    wait_until(lambda: request(cases[0])[0][0] == 200)
+    proxy.assert_untrusted_tls_rejected(cases[0].host, cases[0].path)
+    original = [expect(case, proxy.django_address) for case in cases]
+    django_metrics = [measure(proxy, case) for case in cases[:2]] if measure else []
+    secret = directory / "synthetic-secret"
+    secret.write_text(settings.SECRET_KEY)
+    secret.chmod(0o600)
+    with rust_http_service(
+        {
+            "ZULIP_RUST_DJANGO_SECRET_KEY_FILE": str(secret),
+            "ZULIP_RUST_DJANGO_AUTH_BACKENDS": json.dumps(settings.AUTHENTICATION_BACKENDS),
+            "ZULIP_RUST_SESSION_COOKIE_NAME": settings.SESSION_COOKIE_NAME,
+            "ZULIP_RUST_CSRF_COOKIE_NAME": settings.CSRF_COOKIE_NAME,
+            "ZULIP_RUST_CLIENT_IP_SOURCE": "proxy",
+        }
+    ) as rust_port:
+        rust_address = f"127.0.0.1:{rust_port}"
+        for case, before in zip(cases, original, strict=True):
+            if case.mapped or case.also_compare_direct:
+                direct_result = request_test_http(
+                    rust_port,
+                    case.method,
+                    case.host,
+                    case.headers,
+                    case.path,
+                    include_date=True,
+                )
+                compare(case, direct_result, before)
+        proxy.enable_routes((route,), rust_port, upstreams_per_route=2)
+        wait_for_routes(rust_address)
+        for case, before in zip(cases, original, strict=True):
+            target = rust_address if case.mapped else proxy.django_address
+            compare(case, expect(case, target), before)
+        rust_metrics = [measure(proxy, case) for case in cases[:2]] if measure else []
+
+    for case in cases[:4]:
+        failed_result, upstream = request(case)
+        assert failed_result[0] == 502 and upstream == rust_address, case.label
+        if case.method == "HEAD":
+            assert failed_result[1] == b"", case.label
+        else:
+            assert json.loads(failed_result[1]) == json.loads(proxy.error_body()), case.label
+    for case in cases:
+        if not case.mapped:
+            expect(case, proxy.django_address)
+
+    proxy.disable_route(route)
+    wait_for_routes(proxy.django_address)
+    for case, before in zip(cases, original, strict=True):
+        compare(case, expect(case, proxy.django_address), before)
+    direct_count = sum(case.mapped or case.also_compare_direct for case in cases)
+    unmapped_count = sum(not case.mapped for case in cases)
+    print(
+        f"{len(cases)} cases in each of three routing states, {direct_count} direct comparisons, "
+        f"4 outage and {unmapped_count} unaffected Django checks while Rust is stopped "
+        f"({proxy.requests} private proxy requests including readiness)",
+        flush=True,
+    )
+    for case, django_speed, rust_speed in zip(
+        cases[: len(django_metrics)], django_metrics, rust_metrics, strict=True
+    ):
+        print(
+            f"{case.label}: Django {django_speed[0]:.1f} req/s p95 {django_speed[1]:.2f} ms; "
+            f"Rust {rust_speed[0]:.1f} req/s p95 {rust_speed[1]:.2f} ms",
+            flush=True,
+        )
