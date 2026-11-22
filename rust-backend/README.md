@@ -1578,7 +1578,8 @@ route and then reads successfully after manual rollback.
 This does not exercise SSO, actual ingress, real user accounts, production
 browser assets or load. It never changes the user's Chrome profile or
 system trust. The test browser, temporary credentials, database and proxy
-are discarded after the rehearsal.
+are discarded after the rehearsal. For the combined evidence and the
+remaining go/no-go checks, see the [three-pilot staging readiness guide](STAGING_READINESS.md).
 
 ### Enable saved-snippet web creation
 

@@ -6,30 +6,26 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import socket
-import subprocess
 import tempfile
 import time
 from base64 import b64encode
-from collections.abc import Iterator
-from contextlib import ExitStack, contextmanager, nullcontext
+from contextlib import ExitStack, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from secrets import token_hex
 
 import django
-import pika
 from django.conf import settings
-from pika.adapters.blocking_connection import BlockingChannel, BlockingConnection
+from read_activity_fixture import (
+    ActivityObserver,
+    private_activity_broker,
+    rust_activity_environment,
+)
 from read_proxy_fixture import (
-    PrivateActivity,
     ReadCase,
     private_read_proxy,
-    process,
     validate_fixture,
     validate_local_root,
     verify_private_database,
-    wait_until,
 )
 from read_quota_fixture import LIMIT, QuotaCounter, private_redis, rust_quota_environment
 
@@ -51,130 +47,6 @@ PATHS = (
     ("/scheduled_messages", "fetch_scheduled_messages"),
     ("/realm/domains", "list_realm_domains"),
 )
-
-
-def reserve_ports() -> tuple[int, int, int]:
-    with ExitStack() as stack:
-        sockets = [stack.enter_context(socket.socket()) for _ in range(3)]
-        for listener in sockets:
-            listener.bind(("127.0.0.1", 0))
-        epmd_port, distribution_port, amqp_port = (
-            listener.getsockname()[1] for listener in sockets
-        )
-        return epmd_port, distribution_port, amqp_port
-
-
-def loopback_listener_present(port: int) -> bool:
-    rows = subprocess.check_output(
-        ["/usr/bin/ss", "-H", "-ltn", f"sport = :{port}"], text=True, timeout=3
-    ).splitlines()
-    assert all(row.split()[3] in (f"127.0.0.1:{port}", f"[::1]:{port}") for row in rows), (
-        "expected only private broker loopback listeners"
-    )
-    return bool(rows)
-
-
-@contextmanager
-def private_activity_broker(
-    directory: Path, server_bin: Path, epmd_bin: Path
-) -> Iterator[tuple[PrivateActivity, BlockingChannel]]:
-    if not server_bin.is_absolute() or not epmd_bin.is_absolute():
-        raise RuntimeError("supply absolute paths to the cached executables")
-    epmd_port, distribution_port, amqp_port = reserve_ports()
-    directory.mkdir(mode=0o700)
-    (directory / "env").touch()
-    (directory / "enabled_plugins").write_text("[].\n")
-    config = PrivateActivity(amqp_port, token_hex(16))
-    config_path = directory / "rabbitmq.conf"
-    config_path.write_text(
-        f"listeners.tcp.1 = 127.0.0.1:{amqp_port}\n"
-        "distribution.listener.interface = 127.0.0.1\n"
-        f"distribution.listener.port_range.min = {distribution_port}\n"
-        f"distribution.listener.port_range.max = {distribution_port}\n"
-        f"default_user = {config.username}\n"
-        f"default_pass = {config.password}\n"
-        f"default_vhost = {config.vhost}\n"
-        "log.console = true\n"
-        "log.console.level = warning\n"
-        "log.file = false\n"
-        "log.syslog = false\n"
-    )
-    config_path.chmod(0o600)
-    env = {
-        "PATH": "/usr/bin:/bin",
-        "HOME": str(directory),
-        "TMPDIR": str(directory),
-        "LC_ALL": "C.UTF-8",
-        "ERL_EPMD_PORT": str(epmd_port),
-        "ERL_EPMD_ADDRESS": "127.0.0.1",
-        "ERL_CRASH_DUMP": str(directory / "erl_crash.dump"),
-        "RABBITMQ_CONFIG_FILE": str(config_path),
-        "RABBITMQ_CONF_ENV_FILE": str(directory / "env"),
-        "RABBITMQ_ENABLED_PLUGINS_FILE": str(directory / "enabled_plugins"),
-        "RABBITMQ_MNESIA_BASE": str(directory / "mnesia"),
-        "RABBITMQ_LOG_BASE": str(directory / "logs"),
-        "RABBITMQ_PID_FILE": str(directory / "rabbit.pid"),
-        "RABBITMQ_PLUGINS_EXPAND_DIR": str(directory / "plugins"),
-        "RABBITMQ_FEATURE_FLAGS_FILE": str(directory / "flags"),
-        "RABBITMQ_NODENAME": f"readpilot_{token_hex(8)}@localhost",
-        "RABBITMQ_DIST_PORT": str(distribution_port),
-        "RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS": (
-            "-start_epmd false -kernel inet_dist_use_interface {127,0,0,1} +S 2:2 +SDcpu 1 +SDio 1"
-        ),
-    }
-    ports = (epmd_port, distribution_port, amqp_port)
-    try:
-        with process(
-            [str(epmd_bin), "-address", "127.0.0.1", "-port", str(epmd_port)],
-            directory / "epmd.log",
-            env=env,
-            cwd=directory,
-        ) as epmd:
-
-            def portmapper_ready() -> bool:
-                if epmd.poll() is not None:
-                    raise RuntimeError("private EPMD failed to start")
-                return loopback_listener_present(epmd_port)
-
-            wait_until(portmapper_ready, timeout=3)
-            with process(
-                [str(server_bin)], directory / "broker.log", env=env, cwd=directory, stop_timeout=12
-            ) as server:
-                connection: BlockingConnection | None = None
-
-                def broker_ready() -> bool:
-                    nonlocal connection
-                    if server.poll() is not None:
-                        raise RuntimeError("private RabbitMQ failed to start")
-                    if not loopback_listener_present(amqp_port):
-                        return False
-                    try:
-                        connection = pika.BlockingConnection(
-                            pika.ConnectionParameters(
-                                host="127.0.0.1",
-                                port=amqp_port,
-                                virtual_host=config.vhost,
-                                credentials=pika.PlainCredentials(config.username, config.password),
-                                connection_attempts=1,
-                                socket_timeout=0.5,
-                                stack_timeout=0.8,
-                                blocked_connection_timeout=2,
-                            )
-                        )
-                    except pika.exceptions.AMQPConnectionError:
-                        return False
-                    return True
-
-                wait_until(broker_ready, timeout=14)
-                assert connection is not None
-                with connection:
-                    assert all(loopback_listener_present(port) for port in ports)
-                    yield config, connection.channel()
-
-    finally:
-        assert not any(loopback_listener_present(port) for port in ports), (
-            "private broker listeners remain after shutdown"
-        )
 
 
 @dataclass(frozen=True)
@@ -285,10 +157,7 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
             redis_environment = rust_quota_environment(quota)
             counters = {user.id: QuotaCounter(db, quota, user.id) for user in measured_users}
         baseline: dict[str, object] = {}
-        queues = [f"user_activity_shard{n + 1}" for n in range(broker.shards)]
-        for queue in queues:
-            result = channel.queue_declare(queue=queue, durable=True)
-            assert result.method.message_count == result.method.consumer_count == 0
+        activity = ActivityObserver(channel, broker.shards)
 
         def read(case: ActivityCase) -> tuple[int, str]:
             counter = counters.get(case.user_id)
@@ -307,34 +176,14 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
                 if case.query == "list_realm_domains":
                     document["domains"].sort(key=lambda row: row["domain"])
                 assert document == baseline.setdefault(case.path, document), (case.label, "body")
-            queue = queues[case.user_id % broker.shards]
-
-            def consume() -> bool:
-                method, properties, body = channel.basic_get(queue=queue, auto_ack=False)
-                if method is None:
-                    return False
-                assert properties is not None and body is not None
-                assert not method.redelivered and properties.delivery_mode == 2, case.label
-                event = json.loads(body)
-                timestamp = event.pop("time")
-                assert isinstance(timestamp, int) and start - 1 <= timestamp <= int(time.time()) + 1
-                assert event == {
-                    "query": case.query,
-                    "user_profile_id": case.user_id,
-                    "client_id": case.client_id,
-                }, (case.label, "unexpected activity")
-                channel.basic_ack(method.delivery_tag)
-                return True
-
-            wait_until(consume, timeout=3)
+            activity.expect(
+                user_id=case.user_id,
+                client_id=case.client_id,
+                query=case.query,
+                since=start,
+                label=case.label,
+            )
             return response[0], peer
-
-        def assert_both_queues_empty() -> None:
-            for _ in range(3):
-                for queue in queues:
-                    report = channel.queue_declare(queue=queue, passive=True)
-                    assert report.method.message_count == 0, (queue, "unexpected extra activity")
-                time.sleep(0.05)
 
         def wait_for_target(target: str) -> None:
             consecutive = 0
@@ -357,7 +206,7 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
         def check_phase(upstream: str, label: str) -> None:
             for case in cases:
                 assert read(case) == (case.status, upstream), (label, case.label)
-            assert_both_queues_empty()
+            activity.assert_empty()
             evidence = "one activity on its expected shard"
             if counters:
                 evidence += " and one Redis charge"
@@ -376,10 +225,7 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
                 "ZULIP_RUST_SESSION_COOKIE_NAME": settings.SESSION_COOKIE_NAME,
                 "ZULIP_RUST_CSRF_COOKIE_NAME": settings.CSRF_COOKIE_NAME,
                 "ZULIP_RUST_CLIENT_IP_SOURCE": "proxy",
-                "ZULIP_RUST_AMQP_URL": (
-                    f"amqp://{broker.username}:{broker.password}@127.0.0.1:{broker.port}/{broker.vhost}"
-                ),
-                "ZULIP_RUST_USER_ACTIVITY_SHARDS": str(broker.shards),
+                **rust_activity_environment(broker),
                 **redis_environment,
             }
         ) as rust_port:
@@ -402,7 +248,7 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
                 assert json.loads(failed[1]) == json.loads(proxy.error_body())
             after = {user_id: counter.sample().arrival for user_id, counter in counters.items()}
             assert after == before, "Rust-down probes charged quota"
-            assert_both_queues_empty()
+            activity.assert_empty()
             print(
                 "2 normal Rust-down reads returned 502 without quota or activity changes.",
                 flush=True,

@@ -4,6 +4,13 @@ const readline = require("node:readline");
 const [modulePath, chrome, profile, origin] = process.argv.slice(2);
 const puppeteer = require(modulePath);
 
+const quotaHeaders = [
+    "x-ratelimit-limit",
+    "x-ratelimit-remaining",
+    "x-ratelimit-reset",
+    "retry-after",
+];
+
 async function run() {
     const browser = await puppeteer.launch({
         executablePath: chrome,
@@ -67,19 +74,27 @@ async function run() {
                 assert.equal(cookie.domain, "zulip.testserver");
                 session = cookie.value;
                 assert.ok(session.length > 0);
-                console.log(JSON.stringify({loggedIn: true}));
+                const headers = response.headers();
+                const quota = Object.fromEntries(
+                    quotaHeaders.map((header) => [header, headers[header] ?? null]),
+                );
+                console.log(JSON.stringify({loggedIn: true, status: response.status(), quota}));
             } else if (command.action === "read") {
                 assert.ok(session);
                 const result = await page.evaluate(
-                    async (path, marker) => {
+                    async (path, marker, headers) => {
                         const response = await fetch(path, {
                             credentials: "same-origin",
                             headers: {"X-Pilot-Case": marker},
                         });
-                        return {status: response.status, body: await response.json()};
+                        const quota = Object.fromEntries(
+                            headers.map((header) => [header, response.headers.get(header)]),
+                        );
+                        return {status: response.status, body: await response.json(), quota};
                     },
                     command.path,
                     command.marker,
+                    quotaHeaders,
                 );
                 assert.ok((await sessionCookie())?.value === session, "browser session changed");
                 console.log(JSON.stringify(result));

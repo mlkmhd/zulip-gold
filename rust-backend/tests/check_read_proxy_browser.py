@@ -13,13 +13,20 @@ import socket
 import ssl
 import subprocess
 import tempfile
+import time
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager, suppress
+from contextlib import contextmanager, nullcontext, suppress
+from functools import partial
 from pathlib import Path
 from secrets import token_urlsafe
 
 import django
 from django.conf import settings
+from read_activity_fixture import (
+    ActivityObserver,
+    private_activity_broker,
+    rust_activity_environment,
+)
 from read_proxy_fixture import (
     private_read_proxy,
     validate_fixture,
@@ -27,13 +34,19 @@ from read_proxy_fixture import (
     verify_private_database,
     wait_until,
 )
+from read_quota_fixture import QuotaCounter, QuotaSample, private_redis, rust_quota_environment
 
 from zerver.lib.test_rust_http import rust_http_service
 
 ROOT = Path(__file__).resolve().parents[2]
 HOST = "zulip.testserver:8880"
 ORIGIN = f"https://{HOST}"
-READS = ("/json/saved_snippets", "/json/scheduled_messages", "/json/realm/domains")
+ACTIVITY_QUERIES = {
+    "/json/saved_snippets": "get_saved_snippets",
+    "/json/scheduled_messages": "fetch_scheduled_messages",
+    "/json/realm/domains": "list_realm_domains",
+}
+READS = tuple(ACTIVITY_QUERIES)
 MAPS = ("saved-snippets-web-map.conf", "scheduled-messages-map.conf", "realm-domains-map.conf")
 ROUTES = (
     (1, ("saved-snippets-web-routes.conf",)),
@@ -165,9 +178,11 @@ def errors_last(directory: Path) -> str:
 
 def pilot(args: argparse.Namespace, directory: Path) -> None:
     from zerver.models import UserProfile
+    from zerver.models.clients import get_client
 
     member = UserProfile.objects.get(realm__string_id="zulip", delivery_email="hamlet@zulip.com")
     assert member.realm.host == "zulip.testserver"
+    assert not member.is_bot and member.is_active and member.rate_limits == ""
     assert settings.SESSION_COOKIE_NAME == "__Host-sessionid" and settings.SESSION_COOKIE_SECURE
     assert settings.CSRF_COOKIE_NAME == "__Host-csrftoken" and settings.CSRF_COOKIE_SECURE
     assert "zproject.backends.EmailAuthBackend" in settings.AUTHENTICATION_BACKENDS
@@ -176,14 +191,35 @@ def pilot(args: argparse.Namespace, directory: Path) -> None:
     member.set_password(password)
     member.save(update_fields=["password"])
     try:
-        run_session(args, directory, member.delivery_email, password)
+        run_session(
+            args, directory, member.delivery_email, password, member.id, get_client("website").id
+        )
     finally:
         member.password = previous_password
         member.save(update_fields=["password"])
 
 
-def run_session(args: argparse.Namespace, directory: Path, username: str, password: str) -> None:
+def run_session(
+    args: argparse.Namespace,
+    directory: Path,
+    username: str,
+    password: str,
+    user_id: int,
+    client_id: int,
+) -> None:
+    redis_context = (
+        private_redis(directory, args.redis_server)
+        if args.redis_server is not None
+        else nullcontext()
+    )
+    broker_context = (
+        private_activity_broker(directory / "rabbit", args.rabbitmq_server, args.epmd)
+        if args.rabbitmq_server is not None
+        else nullcontext()
+    )
     with (
+        redis_context as redis_fixture,
+        broker_context as activity_fixture,
         private_read_proxy(
             ROOT,
             directory,
@@ -193,19 +229,84 @@ def run_session(args: argparse.Namespace, directory: Path, username: str, passwo
             MAPS,
             openssl_bin=args.openssl,
             browser_login=True,
+            quota=redis_fixture[1] if redis_fixture is not None else None,
+            activity=activity_fixture[0] if activity_fixture is not None else None,
         ) as proxy,
         chrome(args, directory) as browser,
     ):
+        counter = QuotaCounter(*redis_fixture, user_id) if redis_fixture is not None else None
+        activity = (
+            ActivityObserver(activity_fixture[1], activity_fixture[0].shards)
+            if activity_fixture is not None
+            else None
+        )
+        service_environment: dict[str, str] = {}
+        if redis_fixture is not None and activity_fixture is not None:
+            service_environment = {
+                **rust_quota_environment(redis_fixture[1]),
+                **rust_activity_environment(activity_fixture[0]),
+            }
+
+        def record(
+            before: QuotaSample | None,
+            response: dict[str, object],
+            path: str,
+            started: int,
+        ) -> None:
+            quota = response.pop("quota")
+            if counter is not None:
+                assert before is not None and isinstance(quota, dict)
+                headers = {
+                    name: quota[name.lower()]
+                    for name in (
+                        "X-RateLimit-Limit",
+                        "X-RateLimit-Remaining",
+                        "X-RateLimit-Reset",
+                        "Retry-After",
+                    )
+                }
+                counter.record_allowed(before, (200, b"", headers, None), path)
+            if activity is not None:
+                activity.expect(
+                    user_id=user_id,
+                    client_id=client_id,
+                    query=ACTIVITY_QUERIES[path],
+                    since=started,
+                    label=path,
+                )
+
         wait_until(lambda: proxy.request("OPTIONS", HOST, {}, READS[0])[0] == 204)
-        assert browser({"action": "login", "username": username, "password": password}) == {
-            "loggedIn": True,
-        }
+        before = counter.sample() if counter is not None else None
+        started = int(time.time())
+        login = browser({"action": "login", "username": username, "password": password})
+        assert login.pop("loggedIn") is True and login["status"] == 200
+        # The real form redirects to one successful saved-snippet read.
+        record(before, login, READS[0], started)
+        if activity is not None:
+            activity.assert_empty()
 
         def observe(path: str) -> tuple[dict[str, object], str]:
             proxy.marker += 1
             marker = str(proxy.marker)
             start = proxy.access_log.stat().st_size
+            before = counter.sample() if counter is not None else None
+            started = int(time.time())
             result = browser({"action": "read", "path": path, "marker": marker})
+            if result["status"] == 200:
+                record(before, result, path, started)
+            else:
+                assert result.pop("quota") == dict.fromkeys(
+                    (
+                        "x-ratelimit-limit",
+                        "x-ratelimit-remaining",
+                        "x-ratelimit-reset",
+                        "retry-after",
+                    )
+                )
+                if counter is not None:
+                    assert before is not None and counter.sample().arrival == before.arrival
+                if activity is not None:
+                    activity.assert_empty()
             routes: list[str] = []
 
             def logged() -> bool:
@@ -229,18 +330,27 @@ def run_session(args: argparse.Namespace, directory: Path, username: str, passwo
                 data["domains"].sort(key=lambda row: row["domain"])
             return result, routes[3]
 
-        def wait_for_route(peer: str) -> None:
-            consecutive = 0
+        def current_workers() -> set[str]:
+            master_pid = (directory / "nginx.pid").read_text().strip()
+            assert master_pid.isdecimal()
+            return set(Path(f"/proc/{master_pid}/task/{master_pid}/children").read_text().split())
 
-            def ready() -> bool:
-                nonlocal consecutive
-                if all(observe(path)[1] == peer for path in READS):
-                    consecutive += 1
-                else:
-                    consecutive = 0
-                return consecutive >= 2
+        def reconfigure(change: Callable[[], None]) -> None:
+            previous = current_workers()
+            assert len(previous) == 1
+            change()
 
-            wait_until(ready, timeout=6)
+            def settled() -> bool:
+                current = current_workers()
+                return len(current) == 1 and current.isdisjoint(previous)
+
+            # Observe the private worker generation without adding HTTP traffic.
+            try:
+                wait_until(settled, timeout=6)
+            except RuntimeError as error:
+                raise RuntimeError(
+                    f"private reload did not settle: old={sorted(previous)}, current={sorted(current_workers())}"
+                ) from error
 
         original = {}
         for path in READS:
@@ -257,12 +367,14 @@ def run_session(args: argparse.Namespace, directory: Path, username: str, passwo
                 "ZULIP_RUST_SESSION_COOKIE_NAME": settings.SESSION_COOKIE_NAME,
                 "ZULIP_RUST_CSRF_COOKIE_NAME": settings.CSRF_COOKIE_NAME,
                 "ZULIP_RUST_CLIENT_IP_SOURCE": "proxy",
+                **service_environment,
             }
         ) as rust_port:
             rust_address = f"127.0.0.1:{rust_port}"
             for count, routes in ROUTES:
-                proxy.enable_routes(routes, rust_port, upstreams_per_route=count)
-            wait_for_route(rust_address)
+                reconfigure(
+                    partial(proxy.enable_routes, routes, rust_port, upstreams_per_route=count)
+                )
             for path, expected in original.items():
                 assert observe(path) == (expected, rust_address), path
 
@@ -274,10 +386,17 @@ def run_session(args: argparse.Namespace, directory: Path, username: str, passwo
             }, path
         for _, routes in ROUTES:
             for route in routes:
-                proxy.disable_route(route)
-        wait_for_route(proxy.django_address)
+                reconfigure(partial(proxy.disable_route, route))
         for path, expected in original.items():
             assert observe(path) == (expected, proxy.django_address), path
+        if counter is not None and activity is not None:
+            counter.verify_total(1 + 3 * len(READS))
+            assert activity.count == 1 + 3 * len(READS)
+            activity.assert_empty()
+            print(
+                "Ten successful browser reads each charged once and produced one activity; three outage reads did neither.",
+                flush=True,
+            )
         print(
             "One Chrome password-form login retained its secure session across nine routed reads and three outage checks.",
             flush=True,
@@ -297,7 +416,14 @@ def main() -> None:
         "puppeteer",
     ):
         parser.add_argument(f"--{option}", type=Path, required=True)
+    for option in ("redis-server", "rabbitmq-server", "epmd"):
+        parser.add_argument(f"--{option}", type=Path)
     args = parser.parse_args()
+    services = (args.redis_server, args.rabbitmq_server, args.epmd)
+    if any(services) and not all(path is not None and path.is_absolute() for path in services):
+        parser.error(
+            "combined acceptance requires absolute --redis-server, --rabbitmq-server and --epmd paths"
+        )
     if not all(
         getattr(args, name).is_absolute()
         for name in ("nginx", "openssl", "uwsgi", "venv", "chrome", "node", "puppeteer")

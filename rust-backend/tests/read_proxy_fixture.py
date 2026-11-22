@@ -346,9 +346,11 @@ def private_read_proxy(
     )
     maps = "\n".join(f"    include {stage / name};" for name in map_files)
     login_location = "location / { include uwsgi_params; }" if browser_login else ""
+    shutdown_timeout = "worker_shutdown_timeout 2s;" if browser_login else ""
     conf.write_text(
         f"""
 worker_processes 1;
+{shutdown_timeout}
 pid {directory}/nginx.pid;
 error_log {nginx_log};
 events {{ worker_connections 128; }}
