@@ -5571,3 +5571,27 @@ Django tests in an isolated test database:
 The differential test checks both HTTP handlers and both authentication
 styles, and exercises PGroonga when enabled in the test configuration.
 This bridge does not add independently served HTTP operations.
+
+### Assemble user-directory cards through Rust
+
+Set `ZULIP_RUST_USER_DIRECTORY=1` on the Django worker to assemble an
+entire batch of already prepared user cards in Rust. This includes both
+directory listings and single-user responses that use the same formatter.
+Django still selects visible users and placeholders, checks delivery email
+visibility, resolves the avatar and its omission, and sets date and
+timezone disclosure. Rust assembles those prepared fields, preserving
+absent versus null fields and the existing order.
+
+The setting defaults to off. A missing or older extension, or an
+unsupported row, uses the original Python formatter for the entire
+batch. Unset the setting and restart the Django worker to return to
+Python. There is no HTTP routing change.
+
+With a locally built extension on the Python path, run
+the directory differential tests against an isolated test database:
+
+```bash
+./tools/test-backend zerver.tests.test_user_directory_rust
+```
+
+This bridge does not add independently served HTTP operations.

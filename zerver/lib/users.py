@@ -19,10 +19,12 @@ from django_otp.middleware import is_verified
 from typing_extensions import NotRequired
 from zulip_bots.custom_exceptions import ConfigValidationError
 
+from zerver.lib import native_user_directory
 from zerver.lib.avatar import avatar_url, get_avatar_field, get_avatar_for_inaccessible_user
 from zerver.lib.cache import cache_with_key, get_cross_realm_dicts_key
 from zerver.lib.create_user import get_dummy_email_address_for_display_regex
 from zerver.lib.exceptions import JsonableError, OrganizationOwnerRequiredError
+from zerver.lib.native_user_directory import UserRowPresentation
 from zerver.lib.string_validation import check_string_is_printable
 from zerver.lib.timestamp import timestamp_to_datetime
 from zerver.lib.timezone import canonicalize_timezone
@@ -623,45 +625,43 @@ def format_user_row(
     argument is used for permissions checks.
     """
 
+    return _render_user_row_presentation(
+        _prepare_user_row_presentation(
+            realm_id,
+            acting_user,
+            row,
+            client_gravatar,
+            user_avatar_url_field_optional,
+            custom_profile_field_data,
+        )
+    )
+
+
+def _prepare_user_row_presentation(
+    realm_id: int,
+    acting_user: UserProfile | None,
+    row: RawUserDict,
+    client_gravatar: bool,
+    user_avatar_url_field_optional: bool,
+    custom_profile_field_data: dict[str, Any] | None,
+) -> UserRowPresentation:
     is_admin = is_administrator_role(row["role"])
     is_owner = row["role"] == UserProfile.ROLE_REALM_OWNER
     is_guest = row["role"] == UserProfile.ROLE_GUEST
     is_bot = row["is_bot"]
-
     delivery_email = None
     if acting_user is not None and can_access_delivery_email(
         acting_user, row["id"], row["email_address_visibility"]
     ):
         delivery_email = row["delivery_email"]
 
-    result = APIUserDict(
-        email=row["email"],
-        user_id=row["id"],
-        avatar_source=row["avatar_source"],
-        avatar_version=row["avatar_version"],
-        is_admin=is_admin,
-        is_owner=is_owner,
-        is_guest=is_guest,
-        role=row["role"],
-        is_bot=is_bot,
-        full_name=row["full_name"],
-        timezone=canonicalize_timezone(row["timezone"]),
-        is_active=row["is_active"],
-        # Only send day level precision date_joined data to spectators.
-        date_joined=row["date_joined"].date().isoformat()
+    timezone = canonicalize_timezone(row["timezone"])
+    # Spectators get only day precision and no timezone field.
+    date_joined = (
+        row["date_joined"].date().isoformat()
         if acting_user is None
-        else row["date_joined"].isoformat(timespec="minutes"),
-        delivery_email=delivery_email,
-        is_imported_stub=row["is_imported_stub"],
+        else row["date_joined"].isoformat(timespec="minutes")
     )
-
-    if row["is_deleted"]:
-        result["is_deleted"] = True
-
-    if acting_user is None:
-        # Remove data about other users which are not useful to spectators
-        # or can reveal personal information about a user.
-        del result["timezone"]
 
     # Zulip clients that support using `GET /avatar/{user_id}` as a
     # fallback if we didn't send an avatar URL in the user object pass
@@ -681,27 +681,80 @@ def format_user_row(
     # bandwidth).  At present, the server looks at `long_term_idle` to
     # decide which users to include avatars for, piggy-backing on a
     # different optimization for organizations with 10,000s of users.
-    include_avatar_url = not user_avatar_url_field_optional or not row["long_term_idle"]
-    if include_avatar_url:
-        result["avatar_url"] = get_avatar_field(
-            user_id=row["id"],
-            realm_id=realm_id,
-            email=row["delivery_email"],
-            avatar_source=row["avatar_source"],
-            avatar_version=row["avatar_version"],
-            medium=False,
-            client_gravatar=client_gravatar,
+    avatar = None
+    if not user_avatar_url_field_optional or not row["long_term_idle"]:
+        avatar = (
+            get_avatar_field(
+                user_id=row["id"],
+                realm_id=realm_id,
+                email=row["delivery_email"],
+                avatar_source=row["avatar_source"],
+                avatar_version=row["avatar_version"],
+                medium=False,
+                client_gravatar=client_gravatar,
+            ),
         )
 
+    bot = None
     if is_bot:
-        result["bot_type"] = row["bot_type"]
-        if is_cross_realm_bot_email(row["email"]):
-            result["is_system_bot"] = True
+        # Legacy bots may not have an owner.
+        bot = (row["bot_type"], is_cross_realm_bot_email(row["email"]), row["bot_owner_id"])
 
-        # Note that bot_owner_id can be None with legacy data.
-        result["bot_owner_id"] = row["bot_owner_id"]
-    elif custom_profile_field_data is not None:
-        result["profile_data"] = custom_profile_field_data
+    return UserRowPresentation(
+        email=row["email"],
+        user_id=row["id"],
+        avatar_source=row["avatar_source"],
+        avatar_version=row["avatar_version"],
+        is_admin=is_admin,
+        is_owner=is_owner,
+        is_guest=is_guest,
+        role=row["role"],
+        is_bot=is_bot,
+        full_name=row["full_name"],
+        timezone=None if acting_user is None else timezone,
+        is_active=row["is_active"],
+        date_joined=date_joined,
+        delivery_email=delivery_email,
+        is_imported_stub=row["is_imported_stub"],
+        is_deleted=row["is_deleted"],
+        avatar=avatar,
+        bot=bot,
+        profile_data=None if is_bot else custom_profile_field_data,
+    )
+
+
+def _render_user_row_presentation(facts: UserRowPresentation) -> APIUserDict:
+    result = APIUserDict(
+        email=facts.email,
+        user_id=facts.user_id,
+        avatar_source=facts.avatar_source,
+        avatar_version=facts.avatar_version,
+        is_admin=facts.is_admin,
+        is_owner=facts.is_owner,
+        is_guest=facts.is_guest,
+        role=facts.role,
+        is_bot=facts.is_bot,
+        full_name=facts.full_name,
+        timezone="" if facts.timezone is None else facts.timezone,
+        is_active=facts.is_active,
+        date_joined=facts.date_joined,
+        delivery_email=facts.delivery_email,
+        is_imported_stub=facts.is_imported_stub,
+    )
+    if facts.is_deleted:
+        result["is_deleted"] = True
+    if facts.timezone is None:
+        del result["timezone"]
+    if facts.avatar is not None:
+        (result["avatar_url"],) = facts.avatar
+    if facts.bot is not None:
+        bot_type, system_bot, bot_owner = facts.bot
+        result["bot_type"] = bot_type
+        if system_bot:
+            result["is_system_bot"] = True
+        result["bot_owner_id"] = bot_owner
+    elif facts.profile_data is not None:
+        result["profile_data"] = facts.profile_data
     return result
 
 
@@ -1116,7 +1169,6 @@ def get_users_for_api(
     target_user is None, we fetch all users in the realm.
     """
     profiles_by_user_id = None
-    custom_profile_field_data = None
     # target_user is an optional parameter which is passed when user data of a specific user
     # is required. It is 'None' otherwise.
     accessible_user_dicts: list[RawUserDict] = []
@@ -1139,22 +1191,33 @@ def get_users_for_api(
             custom_profile_field_values = base_query.filter(field__realm_id=realm.id)
         profiles_by_user_id = get_custom_profile_field_values(custom_profile_field_values)
 
-    result = {}
-    for row in accessible_user_dicts:
-        if profiles_by_user_id is not None:
-            custom_profile_field_data = profiles_by_user_id.get(row["id"], {})
-        client_gravatar_for_user = (
-            client_gravatar
-            and row["email_address_visibility"] == UserProfile.EMAIL_ADDRESS_VISIBILITY_EVERYONE
-        )
-        result[row["id"]] = format_user_row(
-            realm.id,
-            acting_user=acting_user,
-            row=row,
-            client_gravatar=client_gravatar_for_user,
-            user_avatar_url_field_optional=user_avatar_url_field_optional,
-            custom_profile_field_data=custom_profile_field_data,
-        )
+    def presentations() -> Iterable[UserRowPresentation]:
+        for row in accessible_user_dicts:
+            profile = (
+                None if profiles_by_user_id is None else profiles_by_user_id.get(row["id"], {})
+            )
+            client_gravatar_for_user = (
+                client_gravatar
+                and row["email_address_visibility"] == UserProfile.EMAIL_ADDRESS_VISIBILITY_EVERYONE
+            )
+            yield _prepare_user_row_presentation(
+                realm.id,
+                acting_user,
+                row,
+                client_gravatar_for_user,
+                user_avatar_url_field_optional,
+                profile,
+            )
+
+    prepared = presentations()
+    result = None
+    if native_user_directory.available():
+        batch = list(prepared)
+        result = native_user_directory.assemble(batch)
+        # The Python fallback reuses the same authorized snapshot.
+        prepared = iter(batch)
+    if result is None:
+        result = {facts.user_id: _render_user_row_presentation(facts) for facts in prepared}
 
     if not user_list_incomplete:
         for inaccessible_user_row in inaccessible_user_dicts:

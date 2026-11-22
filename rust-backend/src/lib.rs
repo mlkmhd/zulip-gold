@@ -210,6 +210,8 @@ mod python_channel_payload;
 mod python_search_highlights;
 #[cfg(feature = "python")]
 mod python_thumbnail_status;
+#[cfg(feature = "python")]
+mod python_user_directory;
 
 #[cfg(feature = "python")]
 mod python_settings_payload;

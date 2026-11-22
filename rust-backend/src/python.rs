@@ -340,6 +340,9 @@ mod _zulip_backend {
     use crate::python_search_highlights::assemble_search_highlights;
 
     #[pymodule_export]
+    use crate::python_user_directory::assemble_user_directory;
+
+    #[pymodule_export]
     use crate::python_recent_conversations::{
         assemble_recent_conversations, finalize_recent_conversations,
     };
