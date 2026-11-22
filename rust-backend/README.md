@@ -1532,8 +1532,27 @@ rollback restores Django while Rust remains stopped.
 
 This checks the healthy local broker path. It does not guarantee
 exactly-once delivery during failures, run production activity workers,
-or exercise the production broker, ingress, or a combined quota/activity
-deployment. Run those checks separately before any production opt-in.
+or exercise the production broker or ingress.
+
+#### Verify quota and activity together over private HTTPS
+
+Add `--redis-server /usr/bin/redis-server --openssl /usr/bin/openssl`
+to the activity rehearsal. This runs the same six read routes with
+Redis and RabbitMQ enabled together. For each of 36 healthy GET and HEAD
+requests, the harness verifies one Redis charge in the requesting user's
+bucket and one matching activity event on that user's shard. JSON and
+empty HEAD responses are checked before, during and after the route change.
+Each synthetic account uses 18 of its 100 test requests.
+
+While the Rust process is stopped but the route includes still point to
+it, one authenticated Basic GET and one session GET return the standard
+JSON `502`. Neither Redis bucket changes and neither activity queue receives
+an event. Removing the includes and reloading restores Django without
+resetting the accounting.
+
+This gate is local. It does not test real ingress or browser login,
+deployed workers, production load, or broker/cache failures. Confirm
+those separately on the intended staging topology before production opt-in.
 
 ### Enable saved-snippet web creation
 

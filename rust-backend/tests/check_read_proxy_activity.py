@@ -12,7 +12,7 @@ import tempfile
 import time
 from base64 import b64encode
 from collections.abc import Iterator
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from secrets import token_hex
@@ -31,6 +31,7 @@ from read_proxy_fixture import (
     verify_private_database,
     wait_until,
 )
+from read_quota_fixture import LIMIT, QuotaCounter, private_redis, rust_quota_environment
 
 from zerver.lib.test_rust_http import rust_http_service
 
@@ -248,7 +249,19 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
         for path, query in PATHS
     ]
 
+    measured_users = (member, browser_user)
+    assert all(user.rate_limits == "" for user in (*measured_users, readiness_user))
+    assert all(
+        3 * sum(case.user_id == user.id for case in cases) < LIMIT // 2 for user in measured_users
+    )
+    redis_service = (
+        private_redis(directory, args.redis_server)
+        if args.redis_server is not None
+        else nullcontext()
+    )
+
     with (
+        redis_service as quota_fixture,
         private_activity_broker(directory / "rabbit", args.rabbitmq_server, args.epmd) as (
             broker,
             channel,
@@ -262,20 +275,38 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
             MAPS,
             openssl_bin=args.openssl,
             activity=broker,
+            quota=quota_fixture[1] if quota_fixture is not None else None,
         ) as proxy,
     ):
+        counters: dict[int, QuotaCounter] = {}
+        redis_environment: dict[str, str] = {}
+        if quota_fixture is not None:
+            db, quota = quota_fixture
+            redis_environment = rust_quota_environment(quota)
+            counters = {user.id: QuotaCounter(db, quota, user.id) for user in measured_users}
+        baseline: dict[str, object] = {}
         queues = [f"user_activity_shard{n + 1}" for n in range(broker.shards)]
         for queue in queues:
             result = channel.queue_declare(queue=queue, durable=True)
             assert result.method.message_count == result.method.consumer_count == 0
 
         def read(case: ActivityCase) -> tuple[int, str]:
+            counter = counters.get(case.user_id)
+            before = counter.sample() if counter is not None else None
             start = int(time.time())
             response, peer = proxy.observe(case.method, case.host, case.headers, case.path)
             if response[0] != case.status:
                 return response[0], peer
+            if counter is not None:
+                assert before is not None
+                counter.record_allowed(before, response, case.label)
             if case.method == "HEAD":
                 assert response[1] == b"", case.label
+            else:
+                document = json.loads(response[1])
+                if case.query == "list_realm_domains":
+                    document["domains"].sort(key=lambda row: row["domain"])
+                assert document == baseline.setdefault(case.path, document), (case.label, "body")
             queue = queues[case.user_id % broker.shards]
 
             def consume() -> bool:
@@ -327,10 +358,10 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
             for case in cases:
                 assert read(case) == (case.status, upstream), (label, case.label)
             assert_both_queues_empty()
-            print(
-                f"{label}: {len(cases)} reads, exactly one activity on its expected shard each.",
-                flush=True,
-            )
+            evidence = "one activity on its expected shard"
+            if counters:
+                evidence += " and one Redis charge"
+            print(f"{label}: {len(cases)} reads, {evidence} each.", flush=True)
 
         wait_for_target(proxy.django_address)
         proxy.assert_untrusted_tls_rejected(member.realm.host, "/api/v1/saved_snippets")
@@ -349,6 +380,7 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
                     f"amqp://{broker.username}:{broker.password}@127.0.0.1:{broker.port}/{broker.vhost}"
                 ),
                 "ZULIP_RUST_USER_ACTIVITY_SHARDS": str(broker.shards),
+                **redis_environment,
             }
         ) as rust_port:
             rust_address = f"127.0.0.1:{rust_port}"
@@ -357,12 +389,37 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
             wait_for_target(rust_address)
             check_phase(rust_address, "Rust opt-in")
 
+        if counters:
+            # The read include still points to Rust, but the process has
+            # stopped. A normal request should not reach another backend.
+            before = {user_id: counter.sample().arrival for user_id, counter in counters.items()}
+            for user in measured_users:
+                case = next(
+                    case for case in cases if case.user_id == user.id and case.method == "GET"
+                )
+                failed, peer = proxy.observe(case.method, case.host, case.headers, case.path)
+                assert peer == rust_address and failed[0] == 502, case.label
+                assert json.loads(failed[1]) == json.loads(proxy.error_body())
+            after = {user_id: counter.sample().arrival for user_id, counter in counters.items()}
+            assert after == before, "Rust-down probes charged quota"
+            assert_both_queues_empty()
+            print(
+                "2 normal Rust-down reads returned 502 without quota or activity changes.",
+                flush=True,
+            )
+
         for _, routes in ROUTE_GROUPS:
             for route in routes:
                 proxy.disable_route(route)
         wait_for_target(proxy.django_address)
         check_phase(proxy.django_address, "Django restored")
-        print(f"Verified {3 * len(cases)} ordinary reads across both activity shards.", flush=True)
+        for user_id, counter in counters.items():
+            counter.verify_total(3 * sum(case.user_id == user_id for case in cases))
+        label = " and both quota buckets" if counters else ""
+        print(
+            f"Verified {3 * len(cases)} ordinary reads across both activity shards{label}.",
+            flush=True,
+        )
 
 
 def main() -> None:
@@ -374,9 +431,12 @@ def main() -> None:
     )
     parser.add_argument("--rabbitmq-server", type=Path, required=True)
     parser.add_argument("--epmd", type=Path, required=True)
+    parser.add_argument("--redis-server", type=Path, help="also verify shared Redis accounting")
     parser.add_argument("--uwsgi", type=Path, required=True)
     parser.add_argument("--venv", type=Path, required=True)
     args = parser.parse_args()
+    if args.redis_server is not None and args.openssl is None:
+        parser.error("the combined quota and activity gate requires --openssl")
     root = args.fixture_root.resolve(strict=True)
     validate_local_root(root)
     if any(name.startswith("ZULIP_RUST_") and name != "ZULIP_RUST_HTTP_BIN" for name in os.environ):

@@ -6609,3 +6609,25 @@ Basic و نشست Django از دو عضو مصنوعی در دو shard استف�
 این مرحله بررسی نشدند. مسیریابی و پیش‌فرض‌ها تغییر نکردند. پوشش
 مستقل همان ۲۸/۱۷۱ OpenAPI (۱۶٫۴٪) و ۲۸/۱۹۰ وب (۱۴٫۷٪) است؛
 درصد کل backend اندازه‌گیری نشده است.
+
+## تأیید هم‌زمان Redis و RabbitMQ روی HTTPS خصوصی
+
+در سه خانوادهٔ خواندن saved snippets، scheduled messages و realm
+domains همان mapها و includeها روی nginx خصوصی با TLS اجرا شدند.
+Redis و RabbitMQ واقعی و موقتی هم‌زمان فعال بودند؛ Django با uWSGI
+روی Unix socket و Rust روی loopback باقی ماندند. دو عضو مصنوعی با
+Basic و نشست در دو shard و دو bucket مجزا آزمایش شدند.
+
+۳۶ خواندن مجاز GET/HEAD در سه وضعیت (۱۲ Django، ۱۲ Rust، ۱۲ Django
+بازگردانی‌شده) هر کدام یک بار مصرف Redis و یک رویداد مربوط در
+shard درست داشتند. JSON و HEAD بی‌بدنه یکسان ماندند؛ در هر bucket
+۱۸ درخواست ثبت شد. وقتی Rust خاموش و includeها هنوز فعال بودند،
+یک GET با Basic و یک GET با نشست پاسخ استاندارد JSON 502 گرفتند و
+هیچ‌یک از دو bucket یا دو صف تغییر نکرد. حذف include و reload،
+Django را با ادامهٔ همان حسابداری برگرداند؛ failover خودکار نبود.
+[نحوهٔ اجرای مشترک](README.md#verify-quota-and-activity-together-over-private-https)
+
+این تأیید محلی جای آزمون ingress واقعی، ورود مرورگر، workerهای
+استقرار، بار تولید و رفتار خرابی Redis یا RabbitMQ نیست. route،
+پیش‌فرض و تنظیمات میزبان تغییر نکردند. پوشش مستقل همان ۲۸/۱۷۱
+OpenAPI (۱۶٫۴٪) و ۲۸/۱۹۰ وب (۱۴٫۷٪) است؛ کل backend اندازه‌گیری نشده است.
