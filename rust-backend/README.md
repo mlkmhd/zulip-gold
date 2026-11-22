@@ -5412,3 +5412,37 @@ The exact host/path/method map leaves writes and other message
 routes on Django. Removing the read-receipts include and reloading nginx
 restores Django while Rust is stopped. There is no automatic failover.
 Live ingress, production load and deployment routing were not tested.
+
+### Rehearse authenticated channel listings and rollback
+
+`ZULIP_RUST_CHANNEL_LIST_READ_PILOT=1` adds loopback-only GET and HEAD for
+`/api/v1/streams` and its `/json/streams` alias. The existing channel
+projection is shared with the detail read. The list keeps the Django
+visibility rules for metadata, content and active subscriptions, including
+archive filtering and the default-channel marker. The owner-subscription
+option reads the authenticated bot's recorded owner only. If an old bot
+has no owner, that option returns the same generic error as Django and
+never returns a partial list. The all-metadata options still take priority.
+
+From a fresh disposable fixture in its private loopback namespace:
+
+```sh
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" "$checkout/rust-backend/tests/check_channel_list.py" \
+  --fixture-root "$fixture_root" --nginx "$nginx" --uwsgi "$uwsgi" --venv "$venv" \
+  --openssl "$openssl"
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" \
+  "$checkout/rust-backend/tests/check_read_proxy_activity.py" --channel-list \
+  --fixture-root "$fixture_root" --nginx "$nginx" --uwsgi "$uwsgi" --venv "$venv" \
+  --openssl "$openssl" --redis-server "$redis_server" \
+  --rabbitmq-server "$rabbitmq_server" --epmd "$epmd"
+```
+
+The test uses Django's usual JSON error handling inside the disposable
+uWSGI process for the ownerless-bot comparisons. The startup language for
+typed-parameter errors is checked on a cold French request. The whitelist
+does not match channel details, writes or other hosts. Remove the route
+include and reload nginx to restore Django while Rust is stopped. There is
+no automatic failover. Django remains the default. Live ingress and
+production load were not tested.

@@ -83,6 +83,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             if enabled("ZULIP_RUST_CHANNEL_DETAILS_READ_PILOT")? {
                 return Err("Channel details read pilot requires ZULIP_RUST_DATABASE_URL".into());
             }
+            if enabled("ZULIP_RUST_CHANNEL_LIST_READ_PILOT")? {
+                return Err("Channel list read pilot requires ZULIP_RUST_DATABASE_URL".into());
+            }
             if enabled("ZULIP_RUST_READ_RECEIPTS_READ_PILOT")? {
                 return Err("Read receipts read pilot requires ZULIP_RUST_DATABASE_URL".into());
             }
@@ -245,6 +248,7 @@ async fn user_read_router(
             subscribed_channels_read_pilot: enabled("ZULIP_RUST_SUBSCRIBED_CHANNELS_READ_PILOT")?,
             channel_members_read_pilot: enabled("ZULIP_RUST_CHANNEL_MEMBERS_READ_PILOT")?,
             channel_details_read_pilot: enabled("ZULIP_RUST_CHANNEL_DETAILS_READ_PILOT")?,
+            channel_list_read_pilot: enabled("ZULIP_RUST_CHANNEL_LIST_READ_PILOT")?,
             read_receipts_read_pilot: enabled("ZULIP_RUST_READ_RECEIPTS_READ_PILOT")?,
             channel_topics_lowercase_file: channel_topics_lowercase_file.as_deref(),
             emoji_url_base: emoji_url_base.as_deref(),

@@ -72,6 +72,7 @@ enum Endpoint {
     SubscribedChannels(Option<i32>),
     ChannelMembers(Option<i64>),
     ChannelDetails(Option<i64>),
+    ChannelList,
     ReadReceipts(Option<i64>),
     UserGroups,
     GroupDetail(DetailKind, Option<i64>),
@@ -131,6 +132,7 @@ impl Endpoint {
             Self::SubscribedChannels(_) => "get_subscribed_channels_backend",
             Self::ChannelMembers(_) => "get_subscribers_backend",
             Self::ChannelDetails(_) => "get_stream_backend",
+            Self::ChannelList => "get_streams_backend",
             Self::ReadReceipts(_) => "read_receipts",
             Self::UserGroups => "get_user_groups",
             Self::GroupDetail(DetailKind::Members, _) => "get_user_group_members",
@@ -332,6 +334,21 @@ impl Endpoint {
                     serde_json::to_string(&roster).expect("user IDs can serialize to JSON");
                 let extra = ignored_parameters(&form, &["client"]);
                 return Ok(format!("\"subscribers\":{roster}{extra}"));
+            }
+            Self::ChannelList => {
+                let form = Form::from_query(query).map_err(ApiError::Form)?;
+                let options = channel_details::ListOptions::parse(&form).map_err(ApiError::Form)?;
+                let streams = channel_details::list(database, user_id, realm_id, options)
+                    .await
+                    .map_err(ApiError::database_unavailable)?;
+                let streams = match streams {
+                    channel_details::ListOutcome::Listed(streams) => streams,
+                    channel_details::ListOutcome::MissingBotOwner => {
+                        return Err(ApiError::ChannelListMissingBotOwner);
+                    }
+                };
+                let extra = ignored_parameters(&form, channel_details::LIST_PARAMETERS);
+                return Ok(format!("\"streams\":{streams}{extra}"));
             }
             Self::ChannelDetails(channel) => {
                 let form = Form::from_query(query).map_err(ApiError::Form)?;
@@ -844,6 +861,7 @@ enum ApiError {
     InvalidNavigationView(&'static str),
     InvalidChannelName(String),
     InvalidChannelId,
+    ChannelListMissingBotOwner,
     InvalidMessage,
     ReadReceiptsDisabled,
     PublicSubscribersUnavailable,
@@ -1075,6 +1093,15 @@ pub(super) async fn get_channel_members(
     }
     let endpoint = Endpoint::ChannelMembers(id.parse().ok());
     respond(state, peer, uri, headers, None, Some(endpoint)).await
+}
+
+pub(super) async fn get_channel_list(
+    State(state): State<UserReads>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    respond(state, peer, uri, headers, None, Some(Endpoint::ChannelList)).await
 }
 
 pub(super) async fn get_channel_details(
@@ -1770,14 +1797,27 @@ async fn respond(
             body,
         )
             .into_response(),
-        Err(error) => error_response(
-            error,
-            &state.locales,
-            language,
-            &headers,
-            uri.path(),
-            browser,
-        ),
+        Err(error) => {
+            // Django evaluates typed-parameter templates at import under its
+            // computed English default, not the later client's language.
+            let error_language = if matches!(endpoint, Endpoint::ChannelList)
+                && matches!(
+                    error,
+                    ApiError::Form(FormError::InvalidJson(_) | FormError::ExpectedBoolean(_))
+                ) {
+                "en"
+            } else {
+                language
+            };
+            error_response(
+                error,
+                &state.locales,
+                error_language,
+                &headers,
+                uri.path(),
+                browser,
+            )
+        }
     };
     let response_headers = response.headers_mut();
     response_headers.insert(header::CONTENT_LANGUAGE, HeaderValue::from_static(language));
@@ -1844,6 +1884,7 @@ fn error_response(
             | Endpoint::SubscribedChannels(_)
             | Endpoint::ChannelMembers(_)
             | Endpoint::ChannelDetails(_)
+            | Endpoint::ChannelList
             | Endpoint::ReadReceipts(_)
             | Endpoint::UserGroups
             | Endpoint::GroupDetail(..)
@@ -1901,6 +1942,11 @@ fn error_response(
             StatusCode::BAD_REQUEST,
             "BAD_REQUEST",
             "Read receipts are disabled in this organization.",
+        ),
+        ApiError::ChannelListMissingBotOwner => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "",
+            "Internal server error",
         ),
         ApiError::InvalidChannelId => {
             (StatusCode::BAD_REQUEST, "BAD_REQUEST", "Invalid channel ID")
@@ -2121,11 +2167,15 @@ fn error_response(
         ApiError::RateLimited(seconds) => {
             (format!(",\"retry-after\":{seconds:?}"), "Accept-Language")
         }
+        ApiError::ChannelListMissingBotOwner if browser => {
+            (String::new(), "Accept-Language, Cookie")
+        }
         ApiError::Form(_)
         | ApiError::SnippetNotFound
         | ApiError::InvalidNavigationView(_)
         | ApiError::InvalidChannelName(_)
         | ApiError::InvalidChannelId
+        | ApiError::ChannelListMissingBotOwner
         | ApiError::InvalidMessage
         | ApiError::ReadReceiptsDisabled
         | ApiError::PublicSubscribersUnavailable
@@ -2153,7 +2203,13 @@ fn error_response(
             (header::CONTENT_TYPE, "application/json"),
             (header::VARY, vary),
         ],
-        format!("{{\"result\":\"error\",\"msg\":{message}{details},\"code\":\"{code}\"{extra}}}\n"),
+        if matches!(error, ApiError::ChannelListMissingBotOwner) {
+            format!("{{\"result\":\"error\",\"msg\":{message}}}\n")
+        } else {
+            format!(
+                "{{\"result\":\"error\",\"msg\":{message}{details},\"code\":\"{code}\"{extra}}}\n"
+            )
+        },
     )
         .into_response();
     if matches!(error, ApiError::Csrf(_)) {

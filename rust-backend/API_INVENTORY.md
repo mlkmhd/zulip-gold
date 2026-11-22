@@ -24,8 +24,8 @@
 
 ## وضعیت مهاجرت
 
-شمار فعلی Rust مستقل و اختیاری: ۴۰ از ۱۷۱ عملیات OpenAPI (۲۳٫۴٪)
-و ۳۹ از ۱۹۰ عملیات صریح وب (۲۰٫۵٪). فهرست‌ها هم‌پوشانی دارند؛
+شمار فعلی Rust مستقل و اختیاری: ۴۱ از ۱۷۱ عملیات OpenAPI (۲۴٫۰٪)
+و ۴۰ از ۱۹۰ عملیات صریح وب (۲۱٫۱٪). فهرست‌ها هم‌پوشانی دارند؛
 `HEAD` متناظر جداگانه شمرده نشده و این اعداد درصد کل backend نیستند.
 
 | عملیات یا جریان                                                                                                       | منطق اختیاری Rust                                                                                     | مسیر HTTP در توسعه و staging                                                      | مسیر پیش‌فرض استقرار |
@@ -73,6 +73,7 @@
 | `GET /api/v1/streams/{stream_id}/members` و alias وب با `HEAD` متناظر                                                 | اعضای فعال کانال پس از مجوز metadata و بررسی مجزای دسترسی اعضا، Basic/نشست، سهمیه و فعالیت            | Rust مستقیم و nginx آزمایشی با پایلوت جداگانه                                     | Django               |
 | `GET /api/v1/streams/{stream_id}` و alias وب با `HEAD` متناظر                                                         | metadata مجاز کانال، گروه‌ها، نشانی تصویر و ترافیک هفتگی؛ Basic/نشست، سهمیه و فعالیت                  | Rust مستقیم و nginx آزمایشی با پایلوت جداگانه                                     | Django               |
 | `GET /api/v1/messages/{message_id}/read_receipts` و alias وب با `HEAD` متناظر                                         | رسید خواندن مجاز پیام با اعمال تنظیمات حریم خصوصی در PostgreSQL، Basic/نشست، سهمیه و فعالیت           | Rust مستقیم و nginx آزمایشی با پایلوت جداگانه                                     | Django               |
+| `GET /api/v1/streams` و alias وب با `HEAD` متناظر                                                                     | فهرست کانال با فیلتر دیدپذیری، اشتراک و بایگانی؛ Basic/نشست، سهمیه و فعالیت                           | Rust مستقیم و nginx آزمایشی با پایلوت جداگانه                                     | Django               |
 | `POST /api/v1/users/me/status`، `POST /api/v1/users/{user_id}/status` و aliasهای وب                                   | قواعد به‌روزرسانی با `ZULIP_RUST_USER_STATUS`                                                         | Django                                                                            | Django               |
 | `POST /api/v1/register` و alias وب                                                                                    | قالب‌بندی وضعیت کاربران با `ZULIP_RUST_USER_STATUS` و پیش‌نویس‌ها با `ZULIP_RUST_DRAFT_SERIALIZATION` | Django                                                                            | Django               |
 | `GET /api/v1/bot_storage` و alias وب با `HEAD` متناظر                                                                 | خواندن همهٔ کلیدها یا کلیدهای درخواست‌شده برای ربات احرازشده                                          | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی                      | Django               |
@@ -616,7 +617,7 @@ audit ایجاد حفظ می‌شود و رویداد `saved_snippets/remove` پ
 | `PATCH`  | `/api/v1/scheduled_messages/{scheduled_message_id}`     | `update-scheduled-message`             | `zerver.views.scheduled_messages.update_scheduled_message_backend`             | Django با افزونهٔ اختیاری Rust |
 | `GET`    | `/api/v1/server_settings`                               | `get-server-settings`                  | `zerver.views.auth.api_get_server_settings`                                    | Django                         |
 | `PATCH`  | `/api/v1/settings`                                      | `update-settings`                      | `zerver.views.user_settings.json_change_settings`                              | Django                         |
-| `GET`    | `/api/v1/streams`                                       | `get-streams`                          | `zerver.views.streams.get_streams_backend`                                     | Django                         |
+| `GET`    | `/api/v1/streams`                                       | `get-streams`                          | `zerver.views.streams.get_streams_backend`                                     | Rust اختیاری                   |
 | `DELETE` | `/api/v1/streams/{stream_id}`                           | `archive-stream`                       | `zerver.views.streams.deactivate_stream_backend`                               | Django                         |
 | `GET`    | `/api/v1/streams/{stream_id}`                           | `get-stream-by-id`                     | `zerver.views.streams.get_stream_backend`                                      | Rust اختیاری                   |
 | `PATCH`  | `/api/v1/streams/{stream_id}`                           | `update-stream`                        | `zerver.views.streams.update_stream_backend`                                   | Django                         |
@@ -823,7 +824,7 @@ audit ایجاد حفظ می‌شود و رویداد `saved_snippets/remove` پ
 | `/json/settings/notifications`                        | `PATCH`                  | Django                                                          |
 | `/json/settings/web_display_preferences`              | `PATCH`                  | Django                                                          |
 | `/json/settings/web_ui_version`                       | `PATCH`                  | Django                                                          |
-| `/json/streams`                                       | `GET`                    | Django                                                          |
+| `/json/streams`                                       | `GET`                    | Rust اختیاری                                                    |
 | `/json/streams/{stream_id}`                           | `DELETE`, `GET`, `PATCH` | GET: Rust اختیاری؛ DELETE/PATCH: Django                         |
 | `/json/streams/{stream_id}/delete_topic`              | `POST`                   | Django                                                          |
 | `/json/streams/{stream_id}/email_address`             | `GET`                    | Django                                                          |

@@ -100,6 +100,11 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
         route_groups = ((2, ("read-receipts-routes.conf",)),)
         paths = ((f"/messages/{message.id}/read_receipts", "read_receipts"),)
         group_pilot = {"ZULIP_RUST_READ_RECEIPTS_READ_PILOT": "1"}
+    elif args.channel_list:
+        maps = ("channel-list-map.conf",)
+        route_groups = ((2, ("channel-list-routes.conf",)),)
+        paths = (("/streams", "get_streams_backend"),)
+        group_pilot = {"ZULIP_RUST_CHANNEL_LIST_READ_PILOT": "1"}
     elif args.channel_details:
         from zerver.models import Stream
 
@@ -422,6 +427,9 @@ def main() -> None:
     group_modes.add_argument(
         "--read-receipts", action="store_true", help="rehearse message read receipts"
     )
+    group_modes.add_argument(
+        "--channel-list", action="store_true", help="rehearse authenticated channel listings"
+    )
     parser.add_argument("--uwsgi", type=Path, required=True)
     parser.add_argument("--venv", type=Path, required=True)
     args = parser.parse_args()
@@ -436,6 +444,7 @@ def main() -> None:
         or args.subscribed_channels
         or args.channel_members
         or args.channel_details
+        or args.channel_list
         or args.read_receipts
     ) and (args.redis_server is None or args.openssl is None):
         parser.error("selected pilot requires --redis-server and --openssl")
@@ -454,6 +463,7 @@ def main() -> None:
         or args.subscribed_channels
         or args.channel_members
         or args.channel_details
+        or args.channel_list
         or args.read_receipts
     ) and socket.if_nameindex() != [(1, "lo")]:
         raise RuntimeError("the selected pilot requires a private loopback-only network namespace")

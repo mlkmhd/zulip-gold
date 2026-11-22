@@ -70,6 +70,7 @@ pub struct UserReadConfig<'a> {
     pub subscribed_channels_read_pilot: bool,
     pub channel_members_read_pilot: bool,
     pub channel_details_read_pilot: bool,
+    pub channel_list_read_pilot: bool,
     pub read_receipts_read_pilot: bool,
     pub channel_topics_lowercase_file: Option<&'a Path>,
     pub rate_limit: Option<RateLimitConfig<'a>>,
@@ -159,6 +160,10 @@ pub async fn router_with_user_reads(
     let channel_details_read_pilot = config.channel_details_read_pilot;
     if channel_details_read_pilot && !browser_enabled {
         return Err("Channel details read pilot requires signed Django sessions".into());
+    }
+    let channel_list_read_pilot = config.channel_list_read_pilot;
+    if channel_list_read_pilot && !browser_enabled {
+        return Err("Channel list read pilot requires signed Django sessions".into());
     }
     let read_receipts_read_pilot = config.read_receipts_read_pilot;
     if read_receipts_read_pilot && !browser_enabled {
@@ -330,6 +335,12 @@ pub async fn router_with_user_reads(
         routes = routes
             .route(channel_details::PATH, read.clone())
             .route(channel_details::SESSION_PATH, read);
+    }
+    if channel_list_read_pilot {
+        let read = get(user_reads::get_channel_list);
+        routes = routes
+            .route(channel_details::LIST_PATH, read.clone())
+            .route(channel_details::LIST_SESSION_PATH, read);
     }
     if read_receipts_read_pilot {
         let read = get(user_reads::get_read_receipts);

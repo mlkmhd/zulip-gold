@@ -312,6 +312,7 @@ def private_read_proxy(
     quota: PrivateQuota | None = None,
     activity: PrivateActivity | None = None,
     browser_login: bool = False,
+    django_json_server_errors: bool = False,
 ) -> Iterator[PrivateReadProxy]:
     if not all(path.is_absolute() for path in (nginx_bin, uwsgi_bin, venv)):
         raise RuntimeError("supply absolute paths to the cached executables")
@@ -319,6 +320,13 @@ def private_read_proxy(
     conf = directory / "site.conf"
     if browser_login and (openssl_bin is None or socket.if_nameindex() != [(1, "lo")]):
         raise RuntimeError("browser login requires private network isolation and TLS")
+    if django_json_server_errors and (
+        openssl_bin is None
+        or socket.if_nameindex() != [(1, "lo")]
+        or not settings.TEST_SUITE
+        or settings.PRODUCTION
+    ):
+        raise RuntimeError("the Django JSON error replay requires private test settings and TLS")
     ssl_listen, ssl_directives, tls_context = private_tls(
         directory, openssl_bin, browser_login=browser_login
     )
@@ -413,11 +421,22 @@ http {{
             "settings.RABBITMQ_USE_TLS = False\n"
             f"settings.USER_ACTIVITY_SHARDS = {activity.shards}\n"
         )
+    # In test suites Django raises an application exception instead of
+    # mapping it to the normal API JSON 500. Opt in after initialization,
+    # only in this private synthetic process, to exercise that mapper.
+    json_server_errors = (
+        "from django.conf import settings\n"
+        "assert settings.TEST_SUITE and not settings.PRODUCTION\n"
+        "settings.TEST_SUITE = False\n"
+        if django_json_server_errors
+        else ""
+    )
     wsgi.write_text(
         "from django.core.wsgi import get_wsgi_application\n"
         + quota_settings
         + activity_settings
         + "application = get_wsgi_application()\n"
+        + json_server_errors
     )
     wsgi.chmod(0o600)
     allowed_env = (
