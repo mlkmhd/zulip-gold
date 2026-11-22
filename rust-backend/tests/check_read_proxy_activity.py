@@ -66,7 +66,11 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
 
     member = UserProfile.objects.get(realm__string_id="zulip", delivery_email="hamlet@zulip.com")
     maps, route_groups, paths, group_pilot = MAPS, ROUTE_GROUPS, PATHS, {}
-    if args.user_groups:
+    if args.reminders:
+        maps = ("reminders-map.conf",)
+        route_groups = ((2, ("reminders-routes.conf",)),)
+        paths = (("/reminders", "fetch_reminders"),)
+    elif args.user_groups:
         maps = ("user-groups-map.conf",)
         route_groups = ((2, ("user-groups-routes.conf",)),)
         paths = (("/user_groups", "get_user_groups"),)
@@ -171,6 +175,11 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
     browser_user = next(user for user in other_members if user.id % 2 != member.id % 2)
     readiness_user = other_members.exclude(id=browser_user.id).first()
     assert readiness_user is not None and member.realm.host == "zulip.testserver"
+    expected_reminders: dict[int, list[dict[str, object]]] = {}
+    if args.reminders:
+        from check_scheduled_messages_read_proxy import seed_reminder_cards
+
+        expected_reminders = seed_reminder_cards(member, (browser_user,), cleanup)
     if args.export_consents:
         # Only these three disposable fixture identities need admin rights.
         UserProfile.objects.filter(id__in=(member.id, browser_user.id, readiness_user.id)).update(
@@ -295,6 +304,8 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
                     document["members"].sort()
                 elif case.query == "get_subgroups_of_user_group":
                     document["subgroups"].sort()
+                if case.query == "fetch_reminders":
+                    assert document["reminders"] == expected_reminders[case.user_id], case.label
                 assert document == baseline.setdefault(case.path, document), (case.label, "body")
             activity.expect(
                 user_id=case.user_id,
@@ -401,6 +412,9 @@ def main() -> None:
     parser.add_argument("--redis-server", type=Path, help="also verify shared Redis accounting")
     group_modes = parser.add_mutually_exclusive_group()
     group_modes.add_argument(
+        "--reminders", action="store_true", help="rehearse authenticated reminder reads"
+    )
+    group_modes.add_argument(
         "--user-groups", action="store_true", help="rehearse only the user-group list pilot"
     )
     group_modes.add_argument(
@@ -449,7 +463,8 @@ def main() -> None:
     parser.add_argument("--venv", type=Path, required=True)
     args = parser.parse_args()
     if (
-        args.user_groups
+        args.reminders
+        or args.user_groups
         or args.user_group_details
         or args.user_group_membership
         or args.channel_id
@@ -469,7 +484,8 @@ def main() -> None:
     root = args.fixture_root.resolve(strict=True)
     validate_local_root(root)
     if (
-        args.user_groups
+        args.reminders
+        or args.user_groups
         or args.user_group_details
         or args.user_group_membership
         or args.channel_id

@@ -16,7 +16,10 @@ these lists. The API uses Basic Auth; the web uses Django-issued signed
 sessions. Django still owns login, password and CSRF handling, account
 and session issuance, writes, OPTIONS, detail paths, and requests
 outside the read maps. The tested configuration does not enable
-write maps, reminder reads, or other route families.
+write maps, reminder reads, or other route families. A
+[separate local reminder rehearsal](README.md#rehearse-reminder-read-routing-and-rollback-locally)
+covers Basic Auth, Django-issued sessions, TLS, Redis/RabbitMQ, and explicit
+rollback. It is not part of this three-family browser gate.
 
 ## Reproduce the local gate
 
@@ -75,6 +78,6 @@ In a separately authorized staging environment with synthetic accounts:
 Actual ingress, SSO, deployed worker processing, representative load,
 and Redis/RabbitMQ failure behavior have not been tested in the local
 gates. Agree on acceptable latency and error thresholds, monitoring,
-and a rollback owner before any real rollout. Coverage is unchanged:
-28/171 OpenAPI and 28/190 explicit web operations, in overlapping
-inventories. Whole-backend completion is unmeasured.
+and a rollback owner before any real rollout. These rehearsals did not
+add independent HTTP operations. See the [API inventory](API_INVENTORY.md)
+for current coverage. Whole-backend completion is unmeasured.

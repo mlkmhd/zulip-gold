@@ -1281,6 +1281,27 @@ private process fixture but use separate routing definitions and test data.
 The harness reports short local throughput and p95 samples, not production
 performance.
 
+### Rehearse reminder read routing and rollback locally
+
+With the same disposable PostgreSQL fixture and private network namespace,
+run `check_scheduled_messages_read_proxy.py` with
+`--reminders --openssl /usr/bin/openssl` and omit `--requests`. It verifies
+the existing read-only map for `/api/v1/reminders` and `/json/reminders`,
+using Basic Auth and a Django-issued test session. The expected cards
+include pending and failed reminders in delivery-time order, but exclude
+delivered reminders and scheduled messages. Other owners see only their own
+cards. OPTIONS, detail requests, and other hosts stay on Django. The
+method check does not send write requests to either application.
+
+Run `check_read_proxy_activity.py` with `--reminders`, the
+[private Redis and RabbitMQ arguments](#verify-quota-and-activity-together-over-private-https),
+and the same fixture settings. It verifies full reminder cards on healthy
+GETs and empty HEAD responses, one Redis charge and one matching activity
+per ordinary read, and no charge or activity on Rust-down probes. Removing
+the existing reminder read include and reloading the private nginx
+restores Django while Rust stays stopped. This does not exercise delivery
+or deletion, browser login, or an actual staging or production deployment.
+
 ## Delete scheduled messages and reminders through Rust
 
 Set `ZULIP_RUST_SCHEDULED_MESSAGE_DELETES=1` or
