@@ -33,6 +33,7 @@ use super::{
     locale::Locales,
     navigation_views::{self, NavigationViewUpdate, UpdateOutcome},
     rate_limit::{RateLimit, RateLimiter},
+    read_receipts::{self, Outcome as ReadReceipts},
     realm_domains, realm_emoji,
     saved_snippets::{self, SnippetEvent},
     scheduled_messages::{self, JobKind},
@@ -71,6 +72,7 @@ enum Endpoint {
     SubscribedChannels(Option<i32>),
     ChannelMembers(Option<i64>),
     ChannelDetails(Option<i64>),
+    ReadReceipts(Option<i64>),
     UserGroups,
     GroupDetail(DetailKind, Option<i64>),
     GroupMembership(Option<i64>, Option<i32>),
@@ -129,6 +131,7 @@ impl Endpoint {
             Self::SubscribedChannels(_) => "get_subscribed_channels_backend",
             Self::ChannelMembers(_) => "get_subscribers_backend",
             Self::ChannelDetails(_) => "get_stream_backend",
+            Self::ReadReceipts(_) => "read_receipts",
             Self::UserGroups => "get_user_groups",
             Self::GroupDetail(DetailKind::Members, _) => "get_user_group_members",
             Self::GroupDetail(DetailKind::Subgroups, _) => "get_subgroups_of_user_group",
@@ -339,6 +342,18 @@ impl Endpoint {
                     .ok_or(ApiError::InvalidChannelId)?;
                 let extra = ignored_parameters(&form, &["client"]);
                 return Ok(format!("\"stream\":{stream}{extra}"));
+            }
+            Self::ReadReceipts(id) => {
+                let form = Form::from_query(query).map_err(ApiError::Form)?;
+                let id = id.ok_or(ApiError::InvalidMessage)?;
+                let users = match read_receipts::read(database, user_id, realm_id, id).await? {
+                    ReadReceipts::NoMessage => return Err(ApiError::InvalidMessage),
+                    ReadReceipts::Disabled => return Err(ApiError::ReadReceiptsDisabled),
+                    ReadReceipts::Visible(users) => users,
+                };
+                let users = serde_json::to_string(&users).expect("user IDs can serialize to JSON");
+                let extra = ignored_parameters(&form, &["client"]);
+                return Ok(format!("\"user_ids\":{users}{extra}"));
             }
             Self::ChannelFolders => {
                 let form = Form::from_query(query).map_err(ApiError::Form)?;
@@ -829,6 +844,8 @@ enum ApiError {
     InvalidNavigationView(&'static str),
     InvalidChannelName(String),
     InvalidChannelId,
+    InvalidMessage,
+    ReadReceiptsDisabled,
     PublicSubscribersUnavailable,
     PrivateSubscribersUnavailable,
     NavigationViewNotFound,
@@ -1071,6 +1088,19 @@ pub(super) async fn get_channel_details(
         return StatusCode::NOT_FOUND.into_response();
     }
     let endpoint = Endpoint::ChannelDetails(id.parse().ok());
+    respond(state, peer, uri, headers, None, Some(endpoint)).await
+}
+pub(super) async fn get_read_receipts(
+    State(state): State<UserReads>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    Path(id): Path<String>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    if !numeric_group_path(&id) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let endpoint = Endpoint::ReadReceipts(id.parse().ok());
     respond(state, peer, uri, headers, None, Some(endpoint)).await
 }
 
@@ -1814,6 +1844,7 @@ fn error_response(
             | Endpoint::SubscribedChannels(_)
             | Endpoint::ChannelMembers(_)
             | Endpoint::ChannelDetails(_)
+            | Endpoint::ReadReceipts(_)
             | Endpoint::UserGroups
             | Endpoint::GroupDetail(..)
             | Endpoint::GroupMembership(..)
@@ -1865,6 +1896,12 @@ fn error_response(
         ApiError::BadRequest(message) | ApiError::InvalidNavigationView(message) => {
             (StatusCode::BAD_REQUEST, "BAD_REQUEST", message)
         }
+        ApiError::InvalidMessage => (StatusCode::BAD_REQUEST, "BAD_REQUEST", "Invalid message(s)"),
+        ApiError::ReadReceiptsDisabled => (
+            StatusCode::BAD_REQUEST,
+            "BAD_REQUEST",
+            "Read receipts are disabled in this organization.",
+        ),
         ApiError::InvalidChannelId => {
             (StatusCode::BAD_REQUEST, "BAD_REQUEST", "Invalid channel ID")
         }
@@ -2089,6 +2126,8 @@ fn error_response(
         | ApiError::InvalidNavigationView(_)
         | ApiError::InvalidChannelName(_)
         | ApiError::InvalidChannelId
+        | ApiError::InvalidMessage
+        | ApiError::ReadReceiptsDisabled
         | ApiError::PublicSubscribersUnavailable
         | ApiError::PrivateSubscribersUnavailable
         | ApiError::NavigationViewNotFound

@@ -5381,3 +5381,34 @@ address routes. No write requests are forwarded by the diagnostic map
 check. Removing the route include and reloading nginx restores Django
 while Rust is offline; there is no automatic failover. Live ingress,
 production load and deployment routing are not part of this pilot.
+
+### Rehearse authenticated message read receipts and rollback
+
+`ZULIP_RUST_READ_RECEIPTS_READ_PILOT=1` adds loopback-only GET and HEAD
+for `/api/v1/messages/{message_id}/read_receipts` and its `/json/` alias
+using the existing Basic and signed Django session authentication. Django
+remains the default. Rust reads the message access rule, organization's live
+read-receipt setting, and each reader's sharing setting in one database
+statement. It checks the applicable channel or direct-message access before
+returning any IDs. The sender, inactive users, and users muted in either
+direction remain excluded. OpenAPI does not prescribe an order for the IDs.
+
+From a fresh disposable fixture in its private loopback namespace:
+
+```sh
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" "$checkout/rust-backend/tests/check_read_receipts.py" \
+  --fixture-root "$fixture_root" --nginx "$nginx" --uwsgi "$uwsgi" --venv "$venv" \
+  --openssl "$openssl"
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" \
+  "$checkout/rust-backend/tests/check_read_proxy_activity.py" --read-receipts \
+  --fixture-root "$fixture_root" --nginx "$nginx" --uwsgi "$uwsgi" --venv "$venv" \
+  --openssl "$openssl" --redis-server "$redis_server" \
+  --rabbitmq-server "$rabbitmq_server" --epmd "$epmd"
+```
+
+The exact host/path/method map leaves writes and other message
+routes on Django. Removing the read-receipts include and reloading nginx
+restores Django while Rust is stopped. There is no automatic failover.
+Live ingress, production load and deployment routing were not tested.

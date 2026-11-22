@@ -92,6 +92,14 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
         query = urlencode({"stream": "Pilot lookup Café"})
         paths = ((f"/get_stream_id?{query}", "json_get_stream_id"),)
         group_pilot = {"ZULIP_RUST_CHANNEL_ID_READ_PILOT": "1"}
+    elif args.read_receipts:
+        from check_read_receipts import seed_accounting_message
+
+        message = seed_accounting_message(member)
+        maps = ("read-receipts-map.conf",)
+        route_groups = ((2, ("read-receipts-routes.conf",)),)
+        paths = ((f"/messages/{message.id}/read_receipts", "read_receipts"),)
+        group_pilot = {"ZULIP_RUST_READ_RECEIPTS_READ_PILOT": "1"}
     elif args.channel_details:
         from zerver.models import Stream
 
@@ -411,6 +419,9 @@ def main() -> None:
     group_modes.add_argument(
         "--channel-details", action="store_true", help="rehearse authenticated channel details"
     )
+    group_modes.add_argument(
+        "--read-receipts", action="store_true", help="rehearse message read receipts"
+    )
     parser.add_argument("--uwsgi", type=Path, required=True)
     parser.add_argument("--venv", type=Path, required=True)
     args = parser.parse_args()
@@ -425,6 +436,7 @@ def main() -> None:
         or args.subscribed_channels
         or args.channel_members
         or args.channel_details
+        or args.read_receipts
     ) and (args.redis_server is None or args.openssl is None):
         parser.error("selected pilot requires --redis-server and --openssl")
     if args.redis_server is not None and args.openssl is None:
@@ -442,6 +454,7 @@ def main() -> None:
         or args.subscribed_channels
         or args.channel_members
         or args.channel_details
+        or args.read_receipts
     ) and socket.if_nameindex() != [(1, "lo")]:
         raise RuntimeError("the selected pilot requires a private loopback-only network namespace")
     if any(name.startswith("ZULIP_RUST_") and name != "ZULIP_RUST_HTTP_BIN" for name in os.environ):

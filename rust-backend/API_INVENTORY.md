@@ -24,8 +24,8 @@
 
 ## وضعیت مهاجرت
 
-شمار فعلی Rust مستقل و اختیاری: ۳۹ از ۱۷۱ عملیات OpenAPI (۲۲٫۸٪)
-و ۳۸ از ۱۹۰ عملیات صریح وب (۲۰٫۰٪). فهرست‌ها هم‌پوشانی دارند؛
+شمار فعلی Rust مستقل و اختیاری: ۴۰ از ۱۷۱ عملیات OpenAPI (۲۳٫۴٪)
+و ۳۹ از ۱۹۰ عملیات صریح وب (۲۰٫۵٪). فهرست‌ها هم‌پوشانی دارند؛
 `HEAD` متناظر جداگانه شمرده نشده و این اعداد درصد کل backend نیستند.
 
 | عملیات یا جریان                                                                                                       | منطق اختیاری Rust                                                                                     | مسیر HTTP در توسعه و staging                                                      | مسیر پیش‌فرض استقرار |
@@ -72,6 +72,7 @@
 | `GET /api/v1/users/{user_id}/channels` و alias وب با `HEAD` متناظر                                                    | شناسهٔ اشتراک‌های فعال هدف در کانال‌های قابل‌مشاهده، Basic/نشست، سهمیه و فعالیت                       | Rust مستقیم و nginx آزمایشی با پایلوت جداگانه                                     | Django               |
 | `GET /api/v1/streams/{stream_id}/members` و alias وب با `HEAD` متناظر                                                 | اعضای فعال کانال پس از مجوز metadata و بررسی مجزای دسترسی اعضا، Basic/نشست، سهمیه و فعالیت            | Rust مستقیم و nginx آزمایشی با پایلوت جداگانه                                     | Django               |
 | `GET /api/v1/streams/{stream_id}` و alias وب با `HEAD` متناظر                                                         | metadata مجاز کانال، گروه‌ها، نشانی تصویر و ترافیک هفتگی؛ Basic/نشست، سهمیه و فعالیت                  | Rust مستقیم و nginx آزمایشی با پایلوت جداگانه                                     | Django               |
+| `GET /api/v1/messages/{message_id}/read_receipts` و alias وب با `HEAD` متناظر                                         | رسید خواندن مجاز پیام با اعمال تنظیمات حریم خصوصی در PostgreSQL، Basic/نشست، سهمیه و فعالیت           | Rust مستقیم و nginx آزمایشی با پایلوت جداگانه                                     | Django               |
 | `POST /api/v1/users/me/status`، `POST /api/v1/users/{user_id}/status` و aliasهای وب                                   | قواعد به‌روزرسانی با `ZULIP_RUST_USER_STATUS`                                                         | Django                                                                            | Django               |
 | `POST /api/v1/register` و alias وب                                                                                    | قالب‌بندی وضعیت کاربران با `ZULIP_RUST_USER_STATUS` و پیش‌نویس‌ها با `ZULIP_RUST_DRAFT_SERIALIZATION` | Django                                                                            | Django               |
 | `GET /api/v1/bot_storage` و alias وب با `HEAD` متناظر                                                                 | خواندن همهٔ کلیدها یا کلیدهای درخواست‌شده برای ربات احرازشده                                          | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی                      | Django               |
@@ -563,7 +564,7 @@ audit ایجاد حفظ می‌شود و رویداد `saved_snippets/remove` پ
 | `GET`    | `/api/v1/messages/{message_id}/history`                 | `get-message-history`                  | `zerver.views.message_edit.get_message_edit_history`                           | Django                         |
 | `DELETE` | `/api/v1/messages/{message_id}/reactions`               | `remove-reaction`                      | `zerver.views.reactions.remove_reaction`                                       | Django                         |
 | `POST`   | `/api/v1/messages/{message_id}/reactions`               | `add-reaction`                         | `zerver.views.reactions.add_reaction`                                          | Django                         |
-| `GET`    | `/api/v1/messages/{message_id}/read_receipts`           | `get-read-receipts`                    | `zerver.views.read_receipts.read_receipts`                                     | Django                         |
+| `GET`    | `/api/v1/messages/{message_id}/read_receipts`           | `get-read-receipts`                    | `zerver.views.read_receipts.read_receipts`                                     | Rust اختیاری                   |
 | `POST`   | `/api/v1/messages/{message_id}/report`                  | `report-message`                       | `zerver.views.message_report.report_message_backend`                           | Django                         |
 | `POST`   | `/api/v1/messages/{message_id}/typing`                  | `set-typing-status-for-message-edit`   | `zerver.views.typing.send_message_edit_notification_backend`                   | Django                         |
 | `POST`   | `/api/v1/mobile_push/e2ee/test_notification`            | `e2ee-test-notify`                     | `zerver.views.push_notifications.send_e2ee_test_push_notification_api`         | Django                         |
@@ -779,7 +780,7 @@ audit ایجاد حفظ می‌شود و رویداد `saved_snippets/remove` پ
 | `/json/messages/{message_id}`                         | `DELETE`, `GET`, `PATCH` | Django                                                          |
 | `/json/messages/{message_id}/history`                 | `GET`                    | Django                                                          |
 | `/json/messages/{message_id}/reactions`               | `DELETE`, `POST`         | Django                                                          |
-| `/json/messages/{message_id}/read_receipts`           | `GET`                    | Django                                                          |
+| `/json/messages/{message_id}/read_receipts`           | `GET`                    | Rust اختیاری                                                    |
 | `/json/messages/{message_id}/report`                  | `POST`                   | Django                                                          |
 | `/json/messages/{message_id}/typing`                  | `POST`                   | Django                                                          |
 | `/json/mobile_push/e2ee/test_notification`            | `POST`                   | Django                                                          |
