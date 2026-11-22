@@ -12,7 +12,7 @@ from email.headerregistry import Address
 from importlib import import_module, util
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from test_mobile_reply_links import PLAIN, REPLY, load_reply_links
 
@@ -241,7 +241,7 @@ class MessagePayloadParityTest(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "callback failed"):
             self.extension.finalize_message_payload_content(obj, True, False, "legacy", failure)
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls, [ANY])
         self.assertEqual(obj["content"], obj["rendered_content"])
         self.assertEqual(obj["content_type"], "text/html")
 

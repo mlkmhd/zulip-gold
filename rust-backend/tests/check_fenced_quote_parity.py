@@ -13,7 +13,7 @@ from importlib import import_module
 from pathlib import Path
 from types import FunctionType, SimpleNamespace
 from typing import cast
-from unittest.mock import Mock
+from unittest.mock import ANY, Mock
 
 import lxml.html
 from django.utils.html import escape
@@ -137,7 +137,7 @@ class FencedSpoilerParity(unittest.TestCase):
             self.assertIs(error, original)
             result = (type(error), error.args)
         except TypeError as error:
-            self.assertEqual(len(seen), 3)
+            self.assertEqual(seen, [ANY, ANY, ANY])
             result = (type(error), error.args)
         return result, seen
 

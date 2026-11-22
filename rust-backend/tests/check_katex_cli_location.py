@@ -21,7 +21,7 @@ def load_tex() -> ModuleType:
     assert spec is not None and spec.loader is not None
     tex = importlib.util.module_from_spec(spec)
     storage = ModuleType("zerver.lib.storage")
-    storage.static_path = lambda name: name  # type: ignore[attr-defined]
+    storage.static_path = lambda name: name  # type: ignore[attr-defined] # minimal storage lookup stub
     with patch.dict(sys.modules, {"zerver.lib.storage": storage}):
         spec.loader.exec_module(tex)
     return tex
