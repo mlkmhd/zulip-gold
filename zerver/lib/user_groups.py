@@ -11,6 +11,7 @@ from django.utils.translation import gettext as _
 from django_cte import CTE, with_cte
 from psycopg2.sql import SQL, Literal
 
+from zerver.lib import native_group_payload
 from zerver.lib.exceptions import (
     CannotDeactivateGroupInUseError,
     JsonableError,
@@ -651,13 +652,27 @@ def get_members_and_subgroups_of_groups(
         member_id=F("subgroup_id"),
     )
 
+    all_members: Iterable[tuple[str, int, int]] = user_members.union(group_subgroups).values_list(
+        "member_type", "group_id", "member_id"
+    )
+    if native_group_payload.membership_available() and type(group_ids) in (
+        set,
+        frozenset,
+        list,
+        tuple,
+    ):
+        materialized = list(all_members)
+        native = native_group_payload.assemble_membership(
+            list(group_ids), materialized, UserGroupMembersData
+        )
+        if native is not None:
+            return native
+        all_members = materialized
+
     group_members_dict: dict[int, UserGroupMembersData] = dict()
     for group_id in group_ids:
         group_members_dict[group_id] = UserGroupMembersData(direct_members=[], direct_subgroups=[])
 
-    all_members = user_members.union(group_subgroups).values_list(
-        "member_type", "group_id", "member_id"
-    )
     for member_type, group_id, member_id in all_members:
         members_dict = group_members_dict[group_id]
         if member_type == "user":
@@ -724,6 +739,16 @@ def user_groups_in_realm_serialized(
     group_ids_to_fetch_members = set(realm_group_ids | group_settings_ids | anonymous_group_ids)
 
     group_members_dict = get_members_and_subgroups_of_groups(group_ids_to_fetch_members)
+    native = native_group_payload.assemble_group_payload(
+        realm_groups,
+        realm_group_ids,
+        group_members_dict,
+        anonymous_group_ids,
+        datetime_to_timestamp,
+    )
+    if native is not None:
+        api_groups, system_groups, anonymous_membership = native
+        return RealmUserGroupsData(api_groups, system_groups, anonymous_membership)
 
     group_dicts: dict[int, UserGroupDict] = {}
     system_groups_name_dict: dict[int, str] = {}

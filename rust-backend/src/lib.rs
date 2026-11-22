@@ -207,6 +207,12 @@ mod python_settings_payload;
 #[cfg(feature = "python")]
 mod python_event_queue;
 
+#[cfg(feature = "python")]
+mod python_group_payload;
+
+#[cfg(any(feature = "python", test))]
+mod group_membership;
+
 #[cfg(any(feature = "python", test))]
 mod channel_traffic;
 

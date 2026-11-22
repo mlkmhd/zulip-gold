@@ -1214,6 +1214,12 @@ class UserGroupAPITestCase(UserGroupTestCase):
             response_dict["user_groups"],
             NamedUserGroup.objects.filter(realm_for_sharding=user_profile.realm).count(),
         )
+        mobile = self.api_get(user_profile, "/api/v1/user_groups")
+        self.assertEqual(
+            self.assert_json_success(mobile)["user_groups"], response_dict["user_groups"]
+        )
+        ids = [item["id"] for item in response_dict["user_groups"]]
+        self.assertEqual(ids, sorted(ids))
 
     def test_user_group_update(self) -> None:
         hamlet = self.example_user("hamlet")

@@ -2311,7 +2311,7 @@ class NormalActionsTest(BaseAction):
         self.assertEqual(events[0]["group"]["can_join_group"], nobody_group.id)
         self.assertEqual(
             events[0]["group"]["can_manage_group"],
-            UserGroupMembersDict(direct_members=[12], direct_subgroups=[]),
+            UserGroupMembersDict(direct_members=[othello.id], direct_subgroups=[]),
         )
         everyone_group = NamedUserGroup.objects.get(
             name=SystemGroups.EVERYONE,

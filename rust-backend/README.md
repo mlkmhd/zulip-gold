@@ -4642,3 +4642,24 @@ PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
 ./tools/test-backend zerver.tests.test_event_queue.EventQueueTest \
   zerver.tests.test_event_system.GetEventsTest
 ```
+
+## Assemble user group memberships and responses through Rust
+
+Set `ZULIP_RUST_GROUP_PAYLOAD=1` to bucket and sort already-selected
+membership rows, and build the ordered user-group payload used by
+GET user groups, register and browser bootstrap. The same membership
+helper serves channel settings. It preserves empty groups, direct
+membership and subgroup arrays, system names, and the distinction
+between a named setting group ID and its expanded unnamed member data.
+
+Django still decides who may list groups, which realm and deactivated
+groups are included, and which membership rows to read. This is a
+prerequisite for the standalone route, not an independent route.
+The switch is off by default; an older extension or unsupported shape
+uses the Python implementation.
+
+```sh
+PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
+  python -m unittest discover -s rust-backend/tests -p test_group_payload_parity.py
+./tools/test-backend zerver.tests.test_user_groups.UserGroupAPITestCase.test_user_group_get
+```

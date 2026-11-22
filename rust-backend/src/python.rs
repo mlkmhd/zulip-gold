@@ -306,6 +306,9 @@ mod _zulip_backend {
     use crate::python_unread::{aggregate_unread_payload, format_unread_details};
 
     #[pymodule_export]
+    use crate::python_group_payload::{assemble_group_membership, assemble_realm_group_payload};
+
+    #[pymodule_export]
     use crate::python_event_queue::{
         classify_queued_event, fold_queued_flag_event, merge_queued_events,
     };
