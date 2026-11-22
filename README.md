@@ -19,6 +19,19 @@ _The Modern interface in dark mode, showing a sample launch-planning conversatio
 - **Calendar, time zone, and fonts**. Choose a Jalali, Gregorian, Islamic civil, or Hebrew calendar. Set a display time zone or follow your device, and pick a Persian font such as Vazir, Sahel, or Samim.
 - **Drafts saved before reload**. Keep in-progress messages when the web app reloads to apply an update.
 
+## Backend migration: Python and Rust
+
+Zulip Gold is migrating its backend from Python/Django to Rust in stages. Django remains the default and the reference for compatibility. Django can call Rust through a Python extension for selected tasks while still handling those requests. An opt-in Rust HTTP service can handle some operations directly.
+
+| Verified standalone Rust HTTP coverage |        Operations |
+| -------------------------------------- | ----------------: |
+| OpenAPI inventory                      | 28 of 171 (16.4%) |
+| Explicit web operation inventory       | 28 of 190 (14.7%) |
+
+These inventories overlap, so the counts should not be added. They exclude Rust code called from Django and do not measure how much of the whole backend has migrated.
+
+In an isolated test of the read-only routes for saved snippets, disabling Rust routing and reloading nginx restored Django. Requests did not automatically fall back while the Rust service was unavailable. See the [migration handoff](rust-backend/MIGRATION_HANDOFF.md) for verification details and remaining work.
+
 ## Getting started
 
 - **Use this fork**. Start with the [fork’s releases](https://github.com/mlkmhd/zulip-gold/releases).
