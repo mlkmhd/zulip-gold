@@ -1487,7 +1487,7 @@ the selected cases. It is not a deployment approval. Before any
 production opt-in, verify the intended proxy and certificate chain,
 production Redis integration, RabbitMQ activity and its routing, and
 rehearse rollback on the intended topology. These
-fixtures do not test public ingress, browser login, or production load.
+TLS transport checks alone do not test public ingress, browser login, or production load.
 The timed requests open a new connection each time, so the TLS samples
 include connection setup and should not be compared to production capacity.
 
@@ -1553,6 +1553,30 @@ resetting the accounting.
 This gate is local. It does not test real ingress or browser login,
 deployed workers, production load, or broker/cache failures. Confirm
 those separately on the intended staging topology before production opt-in.
+
+#### Verify a browser session across the three read routes
+
+Use the private fixture with `check_read_proxy_browser.py` instead of the
+saved-snippet script. The entire fixture must run in a separate, unprivileged
+Linux network namespace with only loopback enabled and no external routes.
+Use a cached Chrome, Node and Puppeteer with their ordinary browser security
+settings. Replace `--requests 32` with absolute `--chrome`, `--node`, and
+`--puppeteer` paths, and specify `--openssl /usr/bin/openssl`. Use the secure
+cookie settings from the TLS rehearsal.
+
+The script creates a temporary NSS profile trust store for the disposable
+certificate and uses the existing `zulip.testserver:8880` allowlist in the
+private namespace. The real Django password form and CSRF token issue the
+signed session. Chrome checks the Secure and HttpOnly host cookie and uses
+it without another login for three web reads in each nginx state. The
+script compares the JSON and checks the upstream from the private routing
+log. When Rust stops, the same session sees the standard `502` on each
+route and then reads successfully after manual rollback.
+
+This does not exercise SSO, actual ingress, real user accounts, production
+browser assets or load. It never changes the user's Chrome profile or
+system trust. The test browser, temporary credentials, database and proxy
+are discarded after the rehearsal.
 
 ### Enable saved-snippet web creation
 

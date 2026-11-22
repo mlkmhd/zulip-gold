@@ -240,7 +240,7 @@ class PrivateReadProxy:
 
 
 def private_tls(
-    directory: Path, openssl_bin: Path | None
+    directory: Path, openssl_bin: Path | None, *, browser_login: bool = False
 ) -> tuple[str, str, ssl.SSLContext | None]:
     if openssl_bin is None:
         return "", "", None
@@ -261,7 +261,11 @@ def private_tls(
             "-subj",
             "/CN=Zulip test loopback",
             "-addext",
-            "subjectAltName=IP:127.0.0.1",
+            (
+                "subjectAltName=IP:127.0.0.1,DNS:zulip.testserver"
+                if browser_login
+                else "subjectAltName=IP:127.0.0.1"
+            ),
             "-keyout",
             str(key),
             "-out",
@@ -307,12 +311,17 @@ def private_read_proxy(
     openssl_bin: Path | None = None,
     quota: PrivateQuota | None = None,
     activity: PrivateActivity | None = None,
+    browser_login: bool = False,
 ) -> Iterator[PrivateReadProxy]:
     if not all(path.is_absolute() for path in (nginx_bin, uwsgi_bin, venv)):
         raise RuntimeError("supply absolute paths to the cached executables")
     assert all(Path(name).name == name for name in map_files)
     conf = directory / "site.conf"
-    ssl_listen, ssl_directives, tls_context = private_tls(directory, openssl_bin)
+    if browser_login and (openssl_bin is None or socket.if_nameindex() != [(1, "lo")]):
+        raise RuntimeError("browser login requires private network isolation and TLS")
+    ssl_listen, ssl_directives, tls_context = private_tls(
+        directory, openssl_bin, browser_login=browser_login
+    )
     stage = repo / "rust-backend/staging/nginx"
     puppet = repo / "puppet/zulip/files/nginx"
     include = directory / "includes"
@@ -327,7 +336,7 @@ def private_read_proxy(
     )
     (directory / "uwsgi_params").write_bytes((puppet / "uwsgi_params").read_bytes())
     socket_path = directory / "uwsgi.sock"
-    port = reserve_port()
+    port = 8880 if browser_login else reserve_port()
     access_log = directory / "routes.log"
     nginx_log = directory / "nginx.log"
     nginx = [str(nginx_bin), "-p", f"{directory}/", "-c", str(conf), "-e", str(nginx_log)]
@@ -336,6 +345,7 @@ def private_read_proxy(
         for name in ("client_body", "proxy", "uwsgi", "fastcgi", "scgi")
     )
     maps = "\n".join(f"    include {stage / name};" for name in map_files)
+    login_location = "location / { include uwsgi_params; }" if browser_login else ""
     conf.write_text(
         f"""
 worker_processes 1;
@@ -370,6 +380,7 @@ http {{
             default_type application/json;
             alias {include}/api_5xx.json;
         }}
+        {login_location}
         include {route_dir}/*.conf;
     }}
 }}
