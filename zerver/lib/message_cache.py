@@ -6,10 +6,11 @@ from typing import Any, TypedDict
 
 import orjson
 
+from zerver.lib import native_message_payload
 from zerver.lib.avatar import get_avatar_field, get_avatar_for_inaccessible_user
 from zerver.lib.cache import cache_set_many, cache_with_key, to_dict_cache_key, to_dict_cache_key_id
 from zerver.lib.display_recipient import bulk_fetch_display_recipients
-from zerver.lib.markdown import render_message_markdown, topic_links
+from zerver.lib.markdown import render_message_markdown, reply_links, topic_links
 from zerver.lib.markdown import version as markdown_version
 from zerver.lib.markdown.reply_links import plain_reply_link_fields
 from zerver.lib.query_helpers import query_for_ids
@@ -18,6 +19,8 @@ from zerver.lib.topic import DB_TOPIC_NAME, TOPIC_LINKS, TOPIC_NAME
 from zerver.lib.types import DisplayRecipientT, EditHistoryEvent, UserDisplayRecipient
 from zerver.models import Message, Reaction, Realm, Recipient, Stream, SubMessage, UserProfile
 from zerver.models.realms import get_fake_email_domain
+
+_REFERENCE_REPLY_FIELDS = plain_reply_link_fields
 
 
 class RawReactionRow(TypedDict):
@@ -34,6 +37,10 @@ def sew_messages_and_reactions(
     """Given an iterable of messages and reactions stitch reactions
     into messages.
     """
+    native = native_message_payload.assemble_reactions(messages, reactions)
+    if native is not None:
+        return native
+
     # Add all messages with empty reaction item
     for message in messages:
         message["reactions"] = []
@@ -50,6 +57,9 @@ def sew_messages_and_reactions(
 def sew_messages_and_submessages(
     messages: list[dict[str, Any]], submessages: list[dict[str, Any]]
 ) -> None:
+    if native_message_payload.assemble_submessages(messages, submessages):
+        return
+
     # This is super similar to sew_messages_and_reactions.
     for message in messages:
         message["submessages"] = []
@@ -251,29 +261,47 @@ class MessageDict:
             ).addr_spec
 
         MessageDict.set_sender_avatar(obj, client_gravatar, can_access_sender)
-        if apply_markdown:
-            obj["content_type"] = "text/html"
-            obj["content"] = obj["rendered_content"]
-        else:
-            obj["content_type"] = "text/x-markdown"
+        native_callbacks = (
+            native_message_payload.is_enabled()
+            and type(plain_reply_links) is bool
+            and (
+                not plain_reply_links
+                or (
+                    plain_reply_link_fields is _REFERENCE_REPLY_FIELDS
+                    and reply_links.uses_reference_reply_renderer()
+                )
+            )
+        )
+        if not native_callbacks or not native_message_payload.finalize_content(
+            obj,
+            apply_markdown=apply_markdown,
+            allow_empty_topic=allow_empty_topic_name,
+            empty_topic_fallback=Message.EMPTY_TOPIC_FALLBACK_NAME,
+            plain_reply_fields=plain_reply_link_fields if plain_reply_links else None,
+        ):
+            if apply_markdown:
+                obj["content_type"] = "text/html"
+                obj["content"] = obj["rendered_content"]
+            else:
+                obj["content_type"] = "text/x-markdown"
 
-        if plain_reply_links:
-            html_fields = ("content", "match_content") if apply_markdown else ("match_content",)
-            obj.update(plain_reply_link_fields(obj, *html_fields))
-            if "edit_history" in obj:
-                obj["edit_history"] = [
-                    {**item, **plain_reply_link_fields(item, "prev_rendered_content")}
-                    for item in obj["edit_history"]
-                ]
+            if plain_reply_links:
+                html_fields = ("content", "match_content") if apply_markdown else ("match_content",)
+                obj.update(plain_reply_link_fields(obj, *html_fields))
+                if "edit_history" in obj:
+                    obj["edit_history"] = [
+                        {**item, **plain_reply_link_fields(item, "prev_rendered_content")}
+                        for item in obj["edit_history"]
+                    ]
 
-        for item in obj.get("edit_history", []):
-            if "prev_rendered_content_version" in item:
-                del item["prev_rendered_content_version"]
-            if not allow_empty_topic_name:
-                if "prev_topic" in item and item["prev_topic"] == "":
-                    item["prev_topic"] = Message.EMPTY_TOPIC_FALLBACK_NAME
-                if "topic" in item and item["topic"] == "":
-                    item["topic"] = Message.EMPTY_TOPIC_FALLBACK_NAME
+            for item in obj.get("edit_history", []):
+                if "prev_rendered_content_version" in item:
+                    del item["prev_rendered_content_version"]
+                if not allow_empty_topic_name:
+                    if "prev_topic" in item and item["prev_topic"] == "":
+                        item["prev_topic"] = Message.EMPTY_TOPIC_FALLBACK_NAME
+                    if "topic" in item and item["topic"] == "":
+                        item["topic"] = Message.EMPTY_TOPIC_FALLBACK_NAME
 
         if not keep_rendered_content:
             del obj["rendered_content"]

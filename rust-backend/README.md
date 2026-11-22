@@ -4400,3 +4400,40 @@ message-event reply regression in a disposable backend database in
 both modes. For the native mode, set `ZULIP_RUST_MARKDOWN_TOPIC_LINKS=1`
 with the same extension on `PYTHONPATH`. These tests do not follow any
 matched URLs.
+
+## Assemble message payload content and annotations through Rust
+
+Set `ZULIP_RUST_MESSAGE_PAYLOAD=1` to use the opt-in PyO3 assembly used
+by message fetch, event delivery, and outgoing-webhook formatting.
+Rust selects HTML or Markdown for the response, removes internal edit
+rendering versions, and applies the empty topic label for older
+clients. It also assembles reaction and submessage arrays from Django
+rows. The existing lazy reaction query still runs only after message
+buckets are initialized. Stable order, shared annotation objects,
+repeated message IDs, and the distinct handling of missing reaction
+versus submessage targets follow the Python behavior.
+
+Django still chooses and authorizes messages, hydrates users and
+recipients, applies sender redaction and avatar policy, and removes
+private internal payload fields. The existing plain reply-link helper
+runs when requested and retains its separate flag. Neither cached
+message HTML nor database contents are changed by the formatter.
+
+Ordinary dictionaries and lists can use Rust directly while retaining
+the existing shallow-copy and in-place mutation semantics. Old wheels,
+custom callbacks and unsupported shapes use the Python path. Native
+declines happen before any writing to caller containers; an exception
+after the callback has started propagates without retry. The switch is
+off by default.
+
+With the new extension available on `PYTHONPATH`, run:
+
+```sh
+PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
+  python rust-backend/tests/test_message_payload_parity.py -v
+```
+
+For actual application checks, run `test_message_dict`, the fetch and
+event regressions, and the mocked outgoing-webhook payload test in a
+disposable test database with the flag off and on. Include both the
+Python and Rust plain reply-link modes while the payload flag is on.

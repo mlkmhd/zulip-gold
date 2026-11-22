@@ -182,6 +182,9 @@ mod python_media;
 
 #[cfg(feature = "python")]
 mod python_highlight;
+
+#[cfg(feature = "python")]
+mod python_message_payload;
 #[cfg(feature = "python")]
 mod python_tex;
 

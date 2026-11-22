@@ -298,6 +298,11 @@ mod _zulip_backend {
     use crate::python_inline_checkpoint::MarkdownInlineCheckpoint;
 
     #[pymodule_export]
+    use crate::python_message_payload::{
+        assemble_message_reactions, assemble_message_submessages, finalize_message_payload_content,
+    };
+
+    #[pymodule_export]
     use crate::markdown_reply_links::{
         mobile_client_needs_plain_reply_links, mobile_plain_reply_link_fields,
         render_mobile_plain_reply_links,

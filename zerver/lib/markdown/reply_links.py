@@ -65,14 +65,17 @@ def render_plain_reply_links(html: str) -> str:
 _REFERENCE_RENDERER = render_plain_reply_links
 
 
-def plain_reply_link_fields(data: Mapping[str, str | None], *fields: str) -> dict[str, str]:
-    native = getattr(_rust_reply_links, "mobile_plain_reply_link_fields", None)
-    if (
-        native is not None
-        and render_plain_reply_links is _REFERENCE_RENDERER
+def uses_reference_reply_renderer() -> bool:
+    return (
+        render_plain_reply_links is _REFERENCE_RENDERER
         and REPLY_LINK_RE is _REFERENCE_REGEXES[0]
         and REPLY_LABEL_RE is _REFERENCE_REGEXES[1]
-    ):
+    )
+
+
+def plain_reply_link_fields(data: Mapping[str, str | None], *fields: str) -> dict[str, str]:
+    native = getattr(_rust_reply_links, "mobile_plain_reply_link_fields", None)
+    if native is not None and uses_reference_reply_renderer():
         rendered = native(data, fields)
         if rendered is not None:
             return rendered
