@@ -97,7 +97,24 @@ pub(crate) const CHANNEL_TOPIC_HISTORY_SQL: &str = concat!(
      ORDER BY history.max_id DESC"
 );
 
-pub(crate) const DIRECT_RECIPIENTS_SQL: &str = "
+// Both draft and status reads use the same test for shared active recipients.
+// Stream subscriptions require active users; direct-message groups retain
+// membership independently of a participant's stream subscription state.
+macro_rules! shares_recipient {
+    () => {
+        "EXISTS (
+                   SELECT 1 FROM zulip.zerver_subscription AS target
+                   JOIN zulip.zerver_subscription AS own USING (recipient_id)
+                   JOIN zulip.zerver_recipient AS r ON r.id = own.recipient_id
+                   WHERE target.user_profile_id = u.id AND target.active
+                     AND own.user_profile_id = actor.id AND own.active
+                     AND (r.type = 3 OR (r.type = 2 AND target.is_user_active))
+               )"
+    };
+}
+
+pub(crate) const DIRECT_RECIPIENTS_SQL: &str = concat!(
+    "
     WITH RECURSIVE actor AS (
         SELECT %s::integer AS id, %s::integer AS realm_id, %s::boolean AS is_guest
     ), member_groups(id) AS (
@@ -117,21 +134,20 @@ pub(crate) const DIRECT_RECIPIENTS_SQL: &str = "
                    SELECT 1 FROM member_groups AS g
                    WHERE g.id = sender_realm.can_access_all_users_group_id
                ) THEN TRUE
-               ELSE EXISTS (
-                   SELECT 1 FROM zulip.zerver_subscription AS target
-                   JOIN zulip.zerver_subscription AS own USING (recipient_id)
-                   JOIN zulip.zerver_recipient AS r ON r.id = own.recipient_id
-                   WHERE target.user_profile_id = u.id AND target.active
-                     AND own.user_profile_id = actor.id AND own.active
-                     AND (r.type = 3 OR (r.type = 2 AND target.is_user_active))
-               )
+               ELSE ",
+    shares_recipient!(),
+    "
            END
     FROM zulip.zerver_userprofile AS u
     JOIN zulip.zerver_realm AS realm ON realm.id = u.realm_id
     CROSS JOIN actor
     JOIN zulip.zerver_realm AS sender_realm ON sender_realm.id = actor.realm_id
     WHERE u.id = ANY(%s::bigint[])
-";
+"
+);
+
+#[cfg(feature = "http")]
+pub(crate) use shares_recipient;
 
 pub(crate) struct DirectRecipient {
     pub id: i32,

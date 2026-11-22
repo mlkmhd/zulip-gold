@@ -44,6 +44,7 @@ mod tornado_routing;
 mod unicode_lowercase;
 mod user_agent;
 mod user_reads;
+mod user_status_read;
 
 pub fn router(locale_dir: &Path) -> Result<Router, Box<dyn Error>> {
     Ok(compatibility_router(locale::Locales::load(locale_dir)?))
@@ -57,6 +58,7 @@ pub struct UserReadConfig<'a> {
     pub user_group_detail_read_pilot: bool,
     pub user_group_membership_read_pilot: bool,
     pub channel_id_read_pilot: bool,
+    pub user_status_read_pilot: bool,
     pub channel_topics_lowercase_file: Option<&'a Path>,
     pub rate_limit: Option<RateLimitConfig<'a>>,
     pub activity: Option<ActivityConfig<'a>>,
@@ -125,6 +127,10 @@ pub async fn router_with_user_reads(
     let channel_id_read_pilot = config.channel_id_read_pilot;
     if channel_id_read_pilot && !browser_enabled {
         return Err("Channel ID read pilot requires signed Django sessions".into());
+    }
+    let user_status_read_pilot = config.user_status_read_pilot;
+    if user_status_read_pilot && !browser_enabled {
+        return Err("User status read pilot requires signed Django sessions".into());
     }
     let channel_topics = config.channel_topics_lowercase_file.is_some();
     let emoji_reads = config.emoji_url_base.is_some();
@@ -262,6 +268,12 @@ pub async fn router_with_user_reads(
         routes = routes
             .route(channel_id::PATH, get(user_reads::get))
             .route(channel_id::SESSION_PATH, get(user_reads::get));
+    }
+    if user_status_read_pilot {
+        let status = get(user_reads::get_user_status);
+        routes = routes
+            .route(user_status_read::PATH, status.clone())
+            .route(user_status_read::SESSION_PATH, status);
     }
     if channel_topics {
         routes = routes.route(channel_topics::PATH, get(user_reads::get_channel_topics));

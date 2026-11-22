@@ -36,6 +36,7 @@ use super::{
     scheduled_messages::{self, JobKind},
     session::{SessionLookup, Sessions},
     unicode_lowercase::UnicodeLowercase,
+    user_status_read::{self, ReadOutcome as StatusReadOutcome},
 };
 
 use crate::draft_input::{self, ParseError};
@@ -61,6 +62,7 @@ enum Endpoint {
     ChannelFolders,
     ChannelId,
     ChannelTopics(Option<i64>),
+    UserStatus(Option<i32>),
     UserGroups,
     GroupDetail(DetailKind, Option<i64>),
     GroupMembership(Option<i64>, Option<i32>),
@@ -114,6 +116,7 @@ impl Endpoint {
             Self::ChannelFolders => "get_channel_folders",
             Self::ChannelId => "json_get_stream_id",
             Self::ChannelTopics(_) => "get_topics_backend",
+            Self::UserStatus(_) => "get_status_backend",
             Self::UserGroups => "get_user_groups",
             Self::GroupDetail(DetailKind::Members, _) => "get_user_group_members",
             Self::GroupDetail(DetailKind::Subgroups, _) => "get_subgroups_of_user_group",
@@ -242,6 +245,19 @@ impl Endpoint {
                 let topics = serde_json::to_string(&topics).expect("topics can serialize to JSON");
                 let extra = ignored_parameters(&form, &[channel_topics::ALLOW_EMPTY, "client"]);
                 return Ok(format!("\"topics\":{topics}{extra}"));
+            }
+            Self::UserStatus(target) => {
+                let Some(target) = target else {
+                    return Err(ApiError::MissingTargetUser);
+                };
+                match user_status_read::read(database, user_id, realm_id, target).await? {
+                    StatusReadOutcome::NotFound => return Err(ApiError::MissingTargetUser),
+                    StatusReadOutcome::Deactivated => return Err(ApiError::DeactivatedTargetUser),
+                    StatusReadOutcome::Restricted => return Err(ApiError::RestrictedTargetUser),
+                    StatusReadOutcome::Visible(status) => {
+                        ("status", serde_json::to_string(&status))
+                    }
+                }
             }
             Self::ChannelFolders => {
                 let form = Form::from_query(query).map_err(ApiError::Form)?;
@@ -723,8 +739,9 @@ enum ApiError {
     UserGroupGuest,
     InvalidUserGroup,
     DeactivatedUserGroup,
-    MissingGroupTargetUser,
-    DeactivatedGroupTargetUser,
+    MissingTargetUser,
+    DeactivatedTargetUser,
+    RestrictedTargetUser,
     BotRequired,
     BotStorageKeyNotFound,
     BotStorageLimitExceeded { excess: i128, limit: u64 },
@@ -771,8 +788,8 @@ fn group_detail_error(error: DetailReadError, parameter: &'static str) -> ApiErr
         DetailReadError::Request(error) => group_read_error(error, parameter),
         DetailReadError::InvalidGroup => ApiError::InvalidUserGroup,
         DetailReadError::DeactivatedGroup => ApiError::DeactivatedUserGroup,
-        DetailReadError::MissingTargetUser => ApiError::MissingGroupTargetUser,
-        DetailReadError::DeactivatedTargetUser => ApiError::DeactivatedGroupTargetUser,
+        DetailReadError::MissingTargetUser => ApiError::MissingTargetUser,
+        DetailReadError::DeactivatedTargetUser => ApiError::DeactivatedTargetUser,
     }
 }
 
@@ -901,6 +918,20 @@ pub(super) async fn get_channel_topics(
         return StatusCode::NOT_FOUND.into_response();
     }
     let endpoint = Endpoint::ChannelTopics(channel_id.parse().ok());
+    respond(state, peer, uri, headers, None, Some(endpoint)).await
+}
+
+pub(super) async fn get_user_status(
+    State(state): State<UserReads>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    Path(id): Path<String>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    if !numeric_group_path(&id) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let endpoint = Endpoint::UserStatus(id.parse().ok());
     respond(state, peer, uri, headers, None, Some(endpoint)).await
 }
 
@@ -1639,6 +1670,7 @@ fn error_response(
             | Endpoint::ChannelFolders
             | Endpoint::ChannelId
             | Endpoint::ChannelTopics(_)
+            | Endpoint::UserStatus(_)
             | Endpoint::UserGroups
             | Endpoint::GroupDetail(..)
             | Endpoint::GroupMembership(..)
@@ -1711,13 +1743,16 @@ fn error_response(
             "BAD_REQUEST",
             "User group is deactivated.",
         ),
-        ApiError::MissingGroupTargetUser => {
-            (StatusCode::BAD_REQUEST, "BAD_REQUEST", "No such user")
-        }
-        ApiError::DeactivatedGroupTargetUser => (
+        ApiError::MissingTargetUser => (StatusCode::BAD_REQUEST, "BAD_REQUEST", "No such user"),
+        ApiError::DeactivatedTargetUser => (
             StatusCode::BAD_REQUEST,
             "BAD_REQUEST",
             "User is deactivated",
+        ),
+        ApiError::RestrictedTargetUser => (
+            StatusCode::BAD_REQUEST,
+            "BAD_REQUEST",
+            "Insufficient permission",
         ),
         ApiError::DeactivatedUser => (
             StatusCode::UNAUTHORIZED,
@@ -1906,8 +1941,9 @@ fn error_response(
         | ApiError::UserGroupGuest
         | ApiError::InvalidUserGroup
         | ApiError::DeactivatedUserGroup
-        | ApiError::MissingGroupTargetUser
-        | ApiError::DeactivatedGroupTargetUser
+        | ApiError::MissingTargetUser
+        | ApiError::DeactivatedTargetUser
+        | ApiError::RestrictedTargetUser
         | ApiError::BotRequired
         | ApiError::BotStorageKeyNotFound
         | ApiError::BotStorageLimitExceeded { .. }

@@ -5222,3 +5222,37 @@ ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
 Removing the route include and reloading nginx restores Django while Rust
 is offline. There is no automatic failover. Production ingress and load
 were not tested; deployment routing remains unchanged.
+
+### Rehearse authenticated user status reads and rollback
+
+`ZULIP_RUST_USER_STATUS_READ_PILOT=1` adds loopback-only GET and HEAD
+for `/api/v1/users/{user_id}/status` and `/json/users/{user_id}/status`
+with a configured database and signed Django sessions. Django stays the
+default. The read uses the same realm, human-target and active-account
+checks as Django. It preserves the Everyone/Members visibility setting
+and reuses the shared-recipient check and Rust status formatter. No
+status fields are returned for a target outside the caller's visibility.
+
+Use a fresh disposable synthetic fixture in the private loopback
+namespace. The first command seeds the ordinary status and recipient
+cases; the second reuses the synthetic identities for accounting:
+
+```sh
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" "$checkout/rust-backend/tests/check_user_status_read.py" \
+  --fixture-root "$fixture_root" --nginx "$nginx" --uwsgi "$uwsgi" --venv "$venv" \
+  --openssl "$openssl"
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" \
+  "$checkout/rust-backend/tests/check_read_proxy_activity.py" --user-status \
+  --fixture-root "$fixture_root" --nginx "$nginx" --uwsgi "$uwsgi" --venv "$venv" \
+  --openssl "$openssl" --redis-server "$redis_server" \
+  --rabbitmq-server "$rabbitmq_server" --epmd "$epmd"
+```
+
+The separate staging map and route include select only these two numeric
+read paths on the test host. Status updates and OPTIONS stay in Django;
+the POST selection check runs without forwarding to either application.
+If Rust stops, remove the route include and reload nginx to restore
+Django. There is no automatic failover. Live ingress and production load
+were not tested and deployment routing is unchanged.

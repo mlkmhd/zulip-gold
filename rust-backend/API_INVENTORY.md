@@ -24,8 +24,8 @@
 
 ## وضعیت مهاجرت
 
-شمار فعلی Rust مستقل و اختیاری: ۳۴ از ۱۷۱ عملیات OpenAPI (۱۹٫۹٪)
-و ۳۳ از ۱۹۰ عملیات صریح وب (۱۷٫۴٪). فهرست‌ها هم‌پوشانی دارند؛
+شمار فعلی Rust مستقل و اختیاری: ۳۵ از ۱۷۱ عملیات OpenAPI (۲۰٫۵٪)
+و ۳۴ از ۱۹۰ عملیات صریح وب (۱۷٫۹٪). فهرست‌ها هم‌پوشانی دارند؛
 `HEAD` متناظر جداگانه شمرده نشده و این اعداد درصد کل backend نیستند.
 
 | عملیات یا جریان                                                                         | منطق اختیاری Rust                                                      | مسیر HTTP در توسعه و staging                                    | مسیر پیش‌فرض استقرار |
@@ -67,7 +67,8 @@
 | `GET /api/v1/reminders` و alias وب با `HEAD` متناظر | یادآوری‌های تحویل‌نشدهٔ کاربر از PostgreSQL | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی | Django |
 | `DELETE /api/v1/scheduled_messages/{scheduled_message_id}` و alias وب | حذف پیام زمان‌بندی‌شدهٔ مالک و پیوندهای پیوست در یک تراکنش | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی | Django |
 | `DELETE /api/v1/reminders/{reminder_id}` و alias وب | حذف یادآوری مالک و پیوندهای پیوست در یک تراکنش | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی | Django |
-| `POST /api/v1/users/me/status`، `GET/POST /api/v1/users/{user_id}/status` و aliasهای وب | ساخت بخشی از پاسخ و قواعد به‌روزرسانی با `ZULIP_RUST_USER_STATUS`      | Django                                                          | Django               |
+| `GET /api/v1/users/{user_id}/status` و alias وب با `HEAD` متناظر | خواندن وضعیت کاربر قابل‌مشاهده با Basic/نشست، سهمیه و فعالیت | Rust مستقیم و nginx آزمایشی با پایلوت جداگانه | Django |
+| `POST /api/v1/users/me/status`، `POST /api/v1/users/{user_id}/status` و aliasهای وب | قواعد به‌روزرسانی با `ZULIP_RUST_USER_STATUS` | Django | Django |
 | `POST /api/v1/register` و alias وب | قالب‌بندی وضعیت کاربران با `ZULIP_RUST_USER_STATUS` و پیش‌نویس‌ها با `ZULIP_RUST_DRAFT_SERIALIZATION` | Django | Django |
 | `GET /api/v1/bot_storage` و alias وب با `HEAD` متناظر | خواندن همهٔ کلیدها یا کلیدهای درخواست‌شده برای ربات احرازشده | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی | Django |
 | `DELETE /api/v1/bot_storage` و alias وب | حذف اتمیک کلیدهای ربات احرازشده با `ZULIP_RUST_BOT_STORAGE_DELETES` | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی | Django |
@@ -670,7 +671,7 @@ audit ایجاد حفظ می‌شود و رویداد `saved_snippets/remove` پ
 | `PATCH`  | `/api/v1/users/{user_id}`                               | `update-user`                          | `zerver.views.users.update_user_by_id_api`                                     | Django         |
 | `GET`    | `/api/v1/users/{user_id}/channels`                      | `get-user-channels`                    | `zerver.views.users.get_subscribed_channels_backend`                           | Django         |
 | `POST`   | `/api/v1/users/{user_id}/reactivate`                    | `reactivate-user`                      | `zerver.views.users.reactivate_user_backend`                                   | Django         |
-| `GET`    | `/api/v1/users/{user_id}/status`                        | `get-user-status`                      | `zerver.views.presence.get_status_backend`                                     | Django         |
+| `GET`    | `/api/v1/users/{user_id}/status`                        | `get-user-status`                      | `zerver.views.presence.get_status_backend`                                     | Rust اختیاری |
 | `POST`   | `/api/v1/users/{user_id}/status`                        | `update-status-for-user`               | `zerver.views.presence.update_user_status_admin`                               | Django         |
 | `GET`    | `/api/v1/users/{user_id}/subscriptions/{stream_id}`     | `get-subscription-status`              | `zerver.views.users.get_subscription_backend`                                  | Django         |
 | `POST`   | `/zulip-outgoing-webhook`                               | `zulip-outgoing-webhooks`              | —                                                                              | مستندات        |
@@ -858,7 +859,7 @@ audit ایجاد حفظ می‌شود و رویداد `saved_snippets/remove` پ
 | `/json/users/{user_id}`                               | `DELETE`, `GET`, `PATCH` | Django            |
 | `/json/users/{user_id}/channels`                      | `GET`                    | Django            |
 | `/json/users/{user_id}/reactivate`                    | `POST`                   | Django            |
-| `/json/users/{user_id}/status`                        | `GET`, `POST`            | Django            |
+| `/json/users/{user_id}/status`                        | `GET`, `POST`            | GET: Rust اختیاری؛ POST: Django |
 | `/json/users/{user_id}/subscriptions/{stream_id}`     | `GET`                    | Django            |
 | `/json/zcommand`                                      | `POST`                   | Django            |
 
