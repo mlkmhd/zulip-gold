@@ -274,6 +274,13 @@ def private_tls(
     return " ssl", directives, ssl.create_default_context(cafile=str(certificate))
 
 
+@dataclass(frozen=True)
+class PrivateQuota:
+    port: int
+    window: int
+    limit: int
+
+
 @contextmanager
 def private_read_proxy(
     repo: Path,
@@ -284,6 +291,7 @@ def private_read_proxy(
     map_files: tuple[str, ...],
     *,
     openssl_bin: Path | None = None,
+    quota: PrivateQuota | None = None,
 ) -> Iterator[PrivateReadProxy]:
     if not all(path.is_absolute() for path in (nginx_bin, uwsgi_bin, venv)):
         raise RuntimeError("supply absolute paths to the cached executables")
@@ -353,8 +361,21 @@ http {{
 """
     )
     wsgi = directory / "pilot_wsgi.py"
+    quota_settings = ""
+    if quota is not None:
+        quota_settings = (
+            "from django.conf import settings\n"
+            "settings.REDIS_HOST = '127.0.0.1'\n"
+            f"settings.REDIS_PORT = {quota.port}\n"
+            "settings.REDIS_PASSWORD = None\n"
+            "settings.RATE_LIMITING = True\n"
+            "settings.RATE_LIMITING_RULES = {**settings.RATE_LIMITING_RULES, "
+            f"'api_by_user': [({quota.window}, {quota.limit})]}}\n"
+        )
     wsgi.write_text(
-        "from django.core.wsgi import get_wsgi_application\napplication = get_wsgi_application()\n"
+        "from django.core.wsgi import get_wsgi_application\n"
+        + quota_settings
+        + "application = get_wsgi_application()\n"
     )
     allowed_env = (
         "PATH",
@@ -366,6 +387,8 @@ http {{
         "PYTHONDONTWRITEBYTECODE",
     )
     env = {name: os.environ[name] for name in allowed_env if name in os.environ}
+    # A scrubbed process needs UTF-8 to read the existing Redis Lua source.
+    env["LC_ALL"] = "C.UTF-8"
     uwsgi = [
         str(uwsgi_bin),
         "--socket",

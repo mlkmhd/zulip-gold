@@ -6565,3 +6565,25 @@ Django بازگردانی‌شده، ۱۳ مقایسهٔ مستقیم، چهار
 Redis، RabbitMQ و ingress واقعی در این مرحله بررسی نشدند. پوشش
 مستقل همان ۲۸/۱۷۱ OpenAPI (۱۶٫۴٪) و ۲۸/۱۹۰ وب (۱۴٫۷٪) است؛
 درصد کل backend اندازه‌گیری نشده است.
+
+## تأیید حسابداری Redis برای خواندن‌های مجاز
+
+در nginx خصوصی و Redis واقعی، GET و HEAD عادی saved snippets،
+scheduled messages و realm domains با Basic و نشست Django بررسی
+شدند. هر backend به Redis تازه روی loopback همان fixture وصل شد؛
+بررسی bucket از Unix socket فقط قابل‌دسترسی برای صاحب fixture
+انجام شد. دادهٔ واقعی، Redis میزبان و تنظیمات سرویس دست نخوردند.
+
+در هر اجرای HTTP یا TLS، ۱۲ درخواست مجاز برای هر یک از Django
+پیش‌فرض، Rust فعال و Django برگشته اجرا شد. برای هر درخواست، یک
+بار مصرف در همان bucket و headerهای limit، remaining و reset
+تأیید شد. با ظرفیت آزمایشی ۱۰۰، پس از سه مرحله به‌ترتیب ۸۸، ۷۶ و
+۶۴ باقی ماند؛ تغییر مسیر یا بازگردانی bucket را پاک نکرد. حساب
+مصنوعی دیگری probeهای محدود readiness را انجام داد.
+[فرمان و محدودیت‌ها](README.md#verify-shared-quota-accounting-for-successful-reads)
+
+این نتیجه فقط درخواست‌های مجاز و عادی با فاصله از سقف را پوشش
+می‌دهد؛ رد درخواست، بار، Redis تولید، RabbitMQ activity و ingress
+واقعی آزمایش نشدند. مسیر و پیش‌فرض تغییر نکردند. پوشش مستقل همان
+۲۸/۱۷۱ OpenAPI (۱۶٫۴٪) و ۲۸/۱۹۰ وب (۱۴٫۷٪) است؛ کل backend
+اندازه‌گیری نشده است.

@@ -1485,11 +1485,32 @@ the isolated Django settings can use `__Host-sessionid` and
 Passing this gate demonstrates local TLS read and rollback parity for
 the selected cases. It is not a deployment approval. Before any
 production opt-in, verify the intended proxy and certificate chain,
-Redis quota and its once-per-request behavior, RabbitMQ activity and
-its routing, and rehearse rollback on the intended topology. These
+production Redis integration, RabbitMQ activity and its routing, and
+rehearse rollback on the intended topology. These
 fixtures do not test public ingress, browser login, or production load.
 The timed requests open a new connection each time, so the TLS samples
 include connection setup and should not be compared to production capacity.
+
+#### Verify shared quota accounting for successful reads
+
+From the same private fixture, invoke `check_read_proxy_quota.py` instead
+of the saved-snippet script, replace `--requests 32` with
+`--redis-server /usr/bin/redis-server`, and optionally keep
+`--openssl /usr/bin/openssl`. The harness starts a new Redis process
+on a private loopback port and observes its bucket through an owner-only
+Unix socket. It never connects to an existing Redis service.
+
+A fresh synthetic member, using Basic Auth and a Django session, makes
+12 successful GET/HEAD requests per state across saved snippets,
+scheduled messages, and realm domains. The harness checks each advances
+the same real Redis bucket exactly once and returns matching remaining
+and reset headers. The bucket is not reset when nginx opts into Rust or
+when Django is restored with Rust stopped. A separate synthetic account
+performs the bounded readiness probes.
+
+This gate tests ordinary successful requests well below the fixture
+limit. It does not test exhaustion, rejection or exceptional traffic,
+RabbitMQ activity, public ingress, or production Redis configuration.
 
 ### Enable saved-snippet web creation
 
