@@ -11,6 +11,7 @@ from django.test import SimpleTestCase, override_settings
 from typing_extensions import override
 
 from zerver.lib import tex
+from zerver.lib.partial import partial
 
 
 @override_settings(KATEX_SERVER=True, KATEX_SERVER_PORT=9755, SHARED_SECRET="test-secret")
@@ -65,6 +66,11 @@ class KatexRequestRustTest(SimpleTestCase):
                     self.assertEqual(response.call_count, int(response_enabled))
 
     def test_request_failures_preserve_exception_context(self) -> None:
+        def warning(
+            seen: list[tuple[BaseException | None, tuple[object, ...]]], /, *args: object
+        ) -> None:
+            seen.append((sys.exception(), args))
+
         for at_factory in [False, True]:
             for failure in [
                 requests.ReadTimeout("timeout"),
@@ -78,13 +84,10 @@ class KatexRequestRustTest(SimpleTestCase):
                     )
                     seen: list[tuple[BaseException | None, tuple[object, ...]]] = []
 
-                    def warning(*args: object) -> None:
-                        seen.append((sys.exception(), args))
-
                     with (
                         patch.object(tex, "_rust_katex_response", self.extension),
                         patch.object(tex, "KatexSession", factory),
-                        patch.object(logging, "warning", side_effect=warning),
+                        patch.object(logging, "warning", side_effect=partial(warning, seen)),
                     ):
                         self.assertIsNone(tex.render_tex("α😀x"))
                     expected = (
@@ -194,6 +197,7 @@ class KatexRequestRustTest(SimpleTestCase):
                 ),
             ],
         )
+
     @override_settings(KATEX_SERVER=False, DEPLOY_ROOT="/missing-katex")
     def test_cli_never_requests_the_service(self) -> None:
         with (

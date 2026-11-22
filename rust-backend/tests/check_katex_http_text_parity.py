@@ -56,7 +56,12 @@ def main() -> None:
                 check(bytes(values))
         for _ in range(20_000):
             check(rng.randbytes(rng.randrange(300)))
-        for body in [b"", b"\xef\xbb\xbf x \xef\xbb\xbf", b"\x00\r\n", b"x" * (8 * 1024 * 1024 + 1)]:
+        for body in [
+            b"",
+            b"\xef\xbb\xbf x \xef\xbb\xbf",
+            b"\x00\r\n",
+            b"x" * (8 * 1024 * 1024 + 1),
+        ]:
             check(body)
     assert extension.__file__ is not None
     repository = Path(__file__).resolve().parents[2]

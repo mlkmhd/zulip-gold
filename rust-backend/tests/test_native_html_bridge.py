@@ -28,8 +28,10 @@ class NativeHtmlBridgeTest(unittest.TestCase):
         self.assertEqual(
             plan[0][1][2],
             (
-                "\x02wzxhzdk:9999\x03 \x02wzxhzdk:10000\x03 "
-                "\x02wzxhzdk:10001\x03 \x02wzxhzdk:10002\x03",
+                (
+                    "\x02wzxhzdk:9999\x03 \x02wzxhzdk:10000\x03 "
+                    "\x02wzxhzdk:10001\x03 \x02wzxhzdk:10002\x03"
+                ),
                 False,
             ),
         )

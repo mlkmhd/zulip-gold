@@ -66,6 +66,8 @@ class KatexInputRustTest(SimpleTestCase):
         encodings = []
 
         class Content(str):
+            __slots__ = ()
+
             @override
             def encode(self, encoding: str = "utf-8", errors: str = "strict") -> bytes:
                 encodings.append((encoding, errors))
