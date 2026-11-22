@@ -1152,6 +1152,52 @@ mod _zulip_backend {
     }
 
     #[pyfunction]
+    fn replay_markdown_block_plan<'py>(
+        processor: &Bound<'py, PyAny>,
+        output: &Bound<'py, PyList>,
+        lines: Vec<Bound<'py, PyAny>>,
+        default_language: Option<Bound<'py, PyAny>>,
+        context: &Bound<'py, PyDict>,
+        list_handlers: &Bound<'py, PyTuple>,
+    ) -> PyResult<bool> {
+        // Decline unsupported inputs before invoking any replay callback.
+        if !output.is_exact_instance_of::<PyList>() {
+            return Ok(false);
+        }
+        let Some(lines) = lines
+            .iter()
+            .map(|line| line.cast_exact::<PyString>().ok()?.to_str().ok())
+            .collect::<Option<Vec<_>>>()
+        else {
+            return Ok(false);
+        };
+        let default_language = match default_language.as_ref() {
+            Some(language) => match language.cast_exact::<PyString>() {
+                Ok(language) => Some(language),
+                Err(_) => return Ok(false),
+            },
+            None => None,
+        };
+        let Some(default_language) = normalize_fenced_default(default_language) else {
+            return Ok(false);
+        };
+        let steps = markdown_blocks::plan_lines(
+            &lines,
+            default_language
+                .as_ref()
+                .map(|(original, lower)| (*original, lower.as_str())),
+        );
+        crate::python_highlight::apply_fenced_block_steps(
+            processor,
+            output,
+            steps,
+            context,
+            list_handlers,
+        )?;
+        Ok(true)
+    }
+
+    #[pyfunction]
     fn possible_markdown_user_mentions(
         content: &Bound<'_, PyString>,
     ) -> Option<(HashSet<String>, bool, bool)> {

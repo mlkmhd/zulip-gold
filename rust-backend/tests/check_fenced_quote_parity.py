@@ -411,6 +411,7 @@ def load_fence_stack(
         "SpoilerHandler",
         "CodeHandler",
         "TexHandler",
+        "_BLOCK_PLAN_LIST_HANDLERS",
         "FencedBlockPreprocessor",
     }
     body = []
@@ -935,6 +936,69 @@ FENCED_RENDER_SAMPLES = {
 
 
 class FencedMarkdownRenderingParity(unittest.TestCase):
+    def test_native_plan_replay_matches_legacy_plan(self) -> None:
+        replay = Mock(wraps=EXTENSION.replay_markdown_block_plan)
+        current = make_fenced_render_fixture(
+            None, block_planner=SimpleNamespace(replay_markdown_block_plan=replay)
+        )
+        old = make_fenced_render_fixture(
+            None, block_planner=SimpleNamespace(plan_markdown_blocks=EXTENSION.plan_markdown_blocks)
+        )
+        sample = FENCED_RENDER_SAMPLES["nested"]
+        self.assertEqual(render_fenced_fixture(current, sample), render_fenced_fixture(old, sample))
+        replay.assert_called_once()
+
+    def test_native_plan_rereads_stack_for_custom_output(self) -> None:
+        def replay(blocks: object) -> tuple[list[str], list[str]]:
+            scope = load_fence_stack(None, extra={"_rust_markdown_blocks": blocks})
+            processor = cast(type, scope["FencedBlockPreprocessor"])(Markdown())
+            factory = cast(Callable[..., object], scope["generic_handler"])
+            captured: list[str] = []
+
+            class CustomOutput(list):
+                def append(self, value: str) -> None:
+                    captured.append(value)
+                    processor.pop()
+
+            def custom_factory(*args: object) -> object:
+                handler = factory(*args)
+                setattr(handler, "lines", CustomOutput())  # noqa: B010
+                return handler
+
+            scope["generic_handler"] = custom_factory
+            output: list[str] = []
+            processor.handle_lines(["~~~python", "one", "two", "three"], output, None)
+            return output, captured
+
+        old = SimpleNamespace(plan_markdown_blocks=EXTENSION.plan_markdown_blocks)
+        self.assertEqual(replay(EXTENSION), replay(old))
+        self.assertEqual(replay(EXTENSION), (["two", "three"], ["one"]))
+
+    def test_decline_is_before_effects_and_callback_failure_is_not_retried(self) -> None:
+        replay = EXTENSION.replay_markdown_block_plan
+
+        class CustomLine(str):
+            __slots__ = ()
+
+        output: list[str] = []
+        processor = Mock()
+        for lines in (["one", "\ud800"], ["one", CustomLine("two")], ["one", object()]):
+            self.assertFalse(replay(processor, output, lines, None, {}, ()))
+            self.assertEqual(output, [])
+            self.assertEqual(processor.mock_calls, [])
+
+        legacy = Mock(side_effect=AssertionError("legacy plan must not retry"))
+        backend = SimpleNamespace(replay_markdown_block_plan=replay, plan_markdown_blocks=legacy)
+        scope = load_fence_stack(None, extra={"_rust_markdown_blocks": backend})
+        processor = cast(type, scope["FencedBlockPreprocessor"])(Markdown())
+        error = ValueError("format callback")
+        processor.format_code = Mock(side_effect=error)
+        with self.assertRaises(ValueError) as caught:
+            processor.handle_lines(["~~~python", "one", "two", "~~~"], output, None)
+        self.assertIs(caught.exception, error)
+        processor.format_code.assert_called_once()
+        legacy.assert_not_called()
+
     def test_fixture_rendering_matches_python_and_old_wheel(self) -> None:
         old_wheel = SimpleNamespace(parse_markdown_fence=EXTENSION.parse_markdown_fence)
         rng = random.Random(390544)

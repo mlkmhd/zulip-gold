@@ -554,6 +554,9 @@ class CodeHilite(codehilite.CodeHilite):
         self.src = "\n".join(lines).strip("\n")
 
 
+_BLOCK_PLAN_LIST_HANDLERS = (OuterHandler, CodeHandler, QuoteHandler, SpoilerHandler, TexHandler)
+
+
 class FencedBlockPreprocessor(Preprocessor):
     def __init__(self, md: Markdown, run_content_validators: bool = False) -> None:
         super().__init__(md)
@@ -575,7 +578,19 @@ class FencedBlockPreprocessor(Preprocessor):
         self.push(OuterHandler(self, output, self.run_content_validators, default_language))
         if _rust_markdown_blocks is not None:
             lines = list(lines)
-            steps = _rust_markdown_blocks.plan_markdown_blocks(lines, default_language)
+            replay = getattr(_rust_markdown_blocks, "replay_markdown_block_plan", None)
+            steps = None
+            if (
+                replay is not None
+                and type(self) is FencedBlockPreprocessor
+                and type(output) is list
+            ):
+                if replay(
+                    self, output, lines, default_language, globals(), _BLOCK_PLAN_LIST_HANDLERS
+                ):
+                    return
+            else:
+                steps = _rust_markdown_blocks.plan_markdown_blocks(lines, default_language)
             if steps is not None:
                 for kind, text, language, header, block_default_language in steps:
                     handler = self.handlers[-1]

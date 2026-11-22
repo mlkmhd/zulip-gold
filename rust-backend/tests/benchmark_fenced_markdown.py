@@ -66,7 +66,10 @@ def convert(md: FencedFixtureMarkdown, sample: str) -> str:
 
 def main() -> None:
     samples = FENCED_RENDER_SAMPLES | {
-        "batch": "\n\n".join([FENCED_RENDER_SAMPLES["code"], FENCED_RENDER_SAMPLES["nested"]] * 8)
+        "batch": "\n\n".join([FENCED_RENDER_SAMPLES["code"], FENCED_RENDER_SAMPLES["nested"]] * 8),
+        "long-code": "~~~python\n"
+        + "\n".join(f"print({i}, 'message text')" for i in range(100))
+        + "\n~~~",
     }
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--iterations", type=int, default=100)
@@ -77,6 +80,7 @@ def main() -> None:
     isolation.add_argument("--isolate-exports", action="store_true")
     isolation.add_argument("--isolate-parser-factory", action="store_true")
     isolation.add_argument("--compare-planner", action="store_true")
+    isolation.add_argument("--compare-native-replay", action="store_true")
     parser.add_argument("--report", type=Path, help="also write paired measurements to a JSON file")
     args = parser.parse_args()
     if args.iterations < 1 or args.repeats < 1:
@@ -106,9 +110,14 @@ def main() -> None:
         mode: omit_exports(omitted) for mode, omitted in omissions.items()
     }
     planner_modes: set[str] = set()
+    scalar_planner = None
     if args.compare_planner:
         backends.update(rust_planner=None, rust_planner_and_scalar=EXTENSION)
         planner_modes.update(("rust_planner", "rust_planner_and_scalar"))
+    if args.compare_native_replay:
+        backends = dict(python=None, rust=None, rust_scalar_plan=None)
+        planner_modes.update(("rust", "rust_scalar_plan"))
+        scalar_planner = omit_exports(frozenset({"replay_markdown_block_plan"}))
     pairs = [(mode, "python") for mode in backends if mode != "python"]
     if args.isolate_exports:
         pairs.extend(
@@ -139,6 +148,8 @@ def main() -> None:
                 ("rust_planner_and_scalar", "rust_planner"),
             ]
         )
+    if args.compare_native_replay:
+        pairs.append(("rust", "rust_scalar_plan"))
     highlighting = (False, True) if args.highlight == "both" else (args.highlight == "on",)
     modes = list(backends)
     results = []
@@ -149,7 +160,13 @@ def main() -> None:
                 default_language="javascript",
                 highlight=highlight,
                 python_parser=mode in python_parsers,
-                block_planner=EXTENSION if mode in planner_modes else None,
+                block_planner=(
+                    scalar_planner
+                    if mode == "rust_scalar_plan"
+                    else EXTENSION
+                    if mode in planner_modes
+                    else None
+                ),
             )
             for mode, backend in backends.items()
         }
@@ -167,7 +184,9 @@ def main() -> None:
                 mode: timeit.Timer(partial(convert, md, sample)) for mode, md in renderers.items()
             }
             timings_us: dict[str, list[float]] = {mode: [] for mode in modes}
-            iterations = max(1, args.iterations // 16) if name == "batch" else args.iterations
+            iterations = (
+                max(1, args.iterations // 16) if name in {"batch", "long-code"} else args.iterations
+            )
             for repeat in range(args.repeats):
                 for mode in execution_order(modes, repeat):
                     elapsed = timers[mode].timeit(number=iterations)

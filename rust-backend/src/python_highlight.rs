@@ -3,6 +3,7 @@ use pyo3::exceptions::PyNameError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyString, PyTuple, PyType};
 
+use crate::markdown_blocks::BlockStep;
 use crate::{markdown_code, markdown_code_header};
 
 #[pyfunction]
@@ -161,6 +162,101 @@ pub(crate) fn dispatch_fenced_input_lines(
         let handle_line = handler.getattr("handle_line")?;
         drop(handler);
         handle_line.call1((&line,))?;
+    }
+    Ok(())
+}
+
+fn replay_global<'py>(
+    context: &Bound<'py, PyDict>,
+    name: &Bound<'py, PyString>,
+) -> PyResult<Bound<'py, PyAny>> {
+    context
+        .get_item(name)?
+        .ok_or_else(|| PyNameError::new_err(format!("name '{name}' is not defined")))
+}
+
+fn fenced_plan_target<'py>(
+    handler: &Bound<'py, PyAny>,
+    output: &Bound<'py, PyList>,
+    outer: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    if handler.is_instance(outer)? {
+        Ok(output.clone().into_any())
+    } else {
+        handler.getattr(pyo3::intern!(handler.py(), "lines"))
+    }
+}
+
+pub(crate) fn apply_fenced_block_steps<'py>(
+    processor: &Bound<'py, PyAny>,
+    output: &Bound<'py, PyList>,
+    steps: Vec<BlockStep<'_>>,
+    context: &Bound<'py, PyDict>,
+    list_handlers: &Bound<'py, PyTuple>,
+) -> PyResult<()> {
+    let py = processor.py();
+    let outer_name = pyo3::intern!(py, "OuterHandler");
+    let handler_name = pyo3::intern!(py, "handlers");
+    let standard_outer = list_handlers.get_item(0).ok();
+    let mut steps = steps.into_iter().peekable();
+    while let Some(step) = steps.next() {
+        let handler = processor.getattr(handler_name)?.get_item(-1)?;
+        match step {
+            BlockStep::Close => {
+                handler.call_method0(pyo3::intern!(py, "done"))?;
+            }
+            BlockStep::Open {
+                fence,
+                language,
+                header,
+                default_language,
+            } => {
+                let target =
+                    fenced_plan_target(&handler, output, &replay_global(context, outer_name)?)?;
+                // Bind push before the live factory and its arguments are evaluated.
+                let push = processor.getattr(pyo3::intern!(py, "push"))?;
+                let factory = replay_global(context, pyo3::intern!(py, "generic_handler"))?;
+                let validators = if handler.is_instance(&replay_global(context, outer_name)?)? {
+                    processor.getattr(pyo3::intern!(py, "run_content_validators"))?
+                } else {
+                    false.into_pyobject(py)?.to_owned().into_any()
+                };
+                let next_handler = factory.call1((
+                    processor,
+                    target,
+                    fence,
+                    language,
+                    header,
+                    validators,
+                    default_language,
+                ))?;
+                push.call1((next_handler,))?;
+            }
+            BlockStep::Line(line) => {
+                let outer = replay_global(context, outer_name)?;
+                let target = fenced_plan_target(&handler, output, &outer)?;
+                // Only plain lists on known handlers cannot change the stack
+                // during append. Otherwise the next step must read it afresh.
+                if matches!(steps.peek(), Some(BlockStep::Line(_)))
+                    && target.is_exact_instance_of::<PyList>()
+                    && standard_outer.as_ref().is_some_and(|class| outer.is(class))
+                    && {
+                        let handler_class = handler.get_type();
+                        list_handlers.iter().any(|class| handler_class.is(&class))
+                    }
+                {
+                    let mut lines = vec![line];
+                    while let Some(BlockStep::Line(next)) =
+                        steps.next_if(|step| matches!(step, BlockStep::Line(_)))
+                    {
+                        lines.push(next);
+                    }
+                    target.call_method1(pyo3::intern!(py, "extend"), (PyList::new(py, lines)?,))?;
+                } else {
+                    target.call_method1(pyo3::intern!(py, "append"), (line,))?;
+                }
+            }
+        }
     }
     Ok(())
 }

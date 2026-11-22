@@ -4272,3 +4272,31 @@ The check refuses non-test settings or a PostgreSQL listener on TCP,
 and blocks Python socket connections other than the guarded libpq
 connection. It does not exercise the complete Zulip test suite, client
 requests, or deployment-level performance.
+
+### Replay fenced block plans in Rust
+
+When `ZULIP_RUST_MARKDOWN_BLOCKS=1`, a wheel with the new replay export
+can execute the plan inside Rust for standard fenced preprocessors and
+plain output lists. It applies text, open and close operations without
+building a Python tuple for every line. Adjacent text lines are appended
+in bulk only for standard handlers and exact list destinations. Custom
+destinations are appended one line at a time against the live stack.
+Python still owns handler creation, content validation, HTML stash,
+formatting (including Pygments and TeX), and EOF behavior. Unsupported
+input declines before replay effects; callback exceptions propagate
+without retry. Old wheels and custom preprocessors retain scalar replay.
+
+The optimized sample comparison uses identical code and disables only
+the replay export for the scalar reference:
+
+```sh
+python rust-backend/tests/benchmark_fenced_markdown.py --compare-native-replay \
+  --samples plain code nested batch long-code --highlight both \
+  --iterations 360 --repeats 12 --report fenced-native-replay.json
+```
+
+On one local run, the 100-line non-highlighted code sample took about 6%
+less time than the old Rust planner with scalar Python replay. Its
+highlighted counterpart was effectively unchanged and the mixed batch
+took about 1% more time. This is a migration behind the existing flag,
+not a general performance improvement or a change to production defaults.
