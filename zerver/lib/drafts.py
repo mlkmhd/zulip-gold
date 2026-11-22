@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from importlib import import_module
-from typing import Annotated, Concatenate, Literal, Never, TypedDict, cast
+from typing import Annotated, Concatenate, Literal, NoReturn, TypedDict, cast
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -149,7 +149,7 @@ class RustDraftInput(TypedDict):
 RustDraftInputError = tuple[str, list[str | int]]
 
 
-def raise_draft_input_error(error: RustDraftInputError) -> Never:
+def raise_draft_input_error(error: RustDraftInputError) -> NoReturn:
     kind, path = error
     context: dict[str, object] = {}
     if kind == "model_type":
