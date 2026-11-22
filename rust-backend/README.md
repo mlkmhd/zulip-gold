@@ -5446,3 +5446,35 @@ does not match channel details, writes or other hosts. Remove the route
 include and reload nginx to restore Django while Rust is stopped. There is
 no automatic failover. Django remains the default. Live ingress and
 production load were not tested.
+
+### Rehearse administrator export-consent reads and rollback
+
+`ZULIP_RUST_EXPORT_CONSENTS_READ_PILOT=1` adds loopback-only GET and HEAD
+for `/api/v1/export/realm/consents` and its `/json/` alias.
+The live owner or administrator role and same-organization records
+are checked in one PostgreSQL statement. The response carries only
+the documented numeric user ID, consent flag, and email visibility
+setting for active users who are not bots. It never reads email
+addresses or exported content. Non-administrators get Django's
+existing error.
+
+From a fresh disposable fixture in its private loopback namespace:
+
+```sh
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" "$checkout/rust-backend/tests/check_export_consents.py" \
+  --fixture-root "$fixture_root" --nginx "$nginx" --uwsgi "$uwsgi" --venv "$venv" \
+  --openssl "$openssl"
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" \
+  "$checkout/rust-backend/tests/check_read_proxy_activity.py" --export-consents \
+  --fixture-root "$fixture_root" --nginx "$nginx" --uwsgi "$uwsgi" --venv "$venv" \
+  --openssl "$openssl" --redis-server "$redis_server" \
+  --rabbitmq-server "$rabbitmq_server" --epmd "$epmd"
+```
+
+Listing, creating, downloading or deleting exports is not part of this
+pilot. This pilot does not change anyone's settings or consent. Remove the
+route include and reload nginx to restore Django while Rust is stopped.
+There is no automatic failover. Django remains the default; live ingress
+and production load were not tested.

@@ -25,7 +25,7 @@ use super::{
     channel_members::{self, Outcome as ChannelMembers},
     channel_topics, custom_profile_fields,
     database::Database,
-    draft_writes, drafts,
+    draft_writes, drafts, export_consents,
     form::{Form, FormError},
     group_detail_request::{self, DetailKind, DetailReadError},
     group_listing_request::{self, ReadError as GroupReadError},
@@ -74,6 +74,7 @@ enum Endpoint {
     ChannelDetails(Option<i64>),
     ChannelList,
     ReadReceipts(Option<i64>),
+    ExportConsents,
     UserGroups,
     GroupDetail(DetailKind, Option<i64>),
     GroupMembership(Option<i64>, Option<i32>),
@@ -134,6 +135,7 @@ impl Endpoint {
             Self::ChannelDetails(_) => "get_stream_backend",
             Self::ChannelList => "get_streams_backend",
             Self::ReadReceipts(_) => "read_receipts",
+            Self::ExportConsents => "get_users_export_consents",
             Self::UserGroups => "get_user_groups",
             Self::GroupDetail(DetailKind::Members, _) => "get_user_group_members",
             Self::GroupDetail(DetailKind::Subgroups, _) => "get_subgroups_of_user_group",
@@ -359,6 +361,13 @@ impl Endpoint {
                     .ok_or(ApiError::InvalidChannelId)?;
                 let extra = ignored_parameters(&form, &["client"]);
                 return Ok(format!("\"stream\":{stream}{extra}"));
+            }
+            Self::ExportConsents => {
+                // Django's untyped endpoint ignores extra query parameters.
+                let consents = export_consents::read(database, user_id, realm_id)
+                    .await?
+                    .ok_or(ApiError::AdministratorRequired)?;
+                ("export_consents", serde_json::to_string(&consents))
             }
             Self::ReadReceipts(id) => {
                 let form = Form::from_query(query).map_err(ApiError::Form)?;
@@ -850,6 +859,7 @@ enum ApiError {
     Unauthorized(&'static str),
     BadRequest(&'static str),
     UserGroupGuest,
+    AdministratorRequired,
     InvalidUserGroup,
     DeactivatedUserGroup,
     MissingTargetUser,
@@ -1117,6 +1127,23 @@ pub(super) async fn get_channel_details(
     let endpoint = Endpoint::ChannelDetails(id.parse().ok());
     respond(state, peer, uri, headers, None, Some(endpoint)).await
 }
+pub(super) async fn get_export_consents(
+    State(state): State<UserReads>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    respond(
+        state,
+        peer,
+        uri,
+        headers,
+        None,
+        Some(Endpoint::ExportConsents),
+    )
+    .await
+}
+
 pub(super) async fn get_read_receipts(
     State(state): State<UserReads>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
@@ -1886,6 +1913,7 @@ fn error_response(
             | Endpoint::ChannelDetails(_)
             | Endpoint::ChannelList
             | Endpoint::ReadReceipts(_)
+            | Endpoint::ExportConsents
             | Endpoint::UserGroups
             | Endpoint::GroupDetail(..)
             | Endpoint::GroupMembership(..)
@@ -1965,6 +1993,11 @@ fn error_response(
             StatusCode::BAD_REQUEST,
             "BAD_REQUEST",
             "Invalid channel name '{channel_name}'",
+        ),
+        ApiError::AdministratorRequired => (
+            StatusCode::BAD_REQUEST,
+            "UNAUTHORIZED_PRINCIPAL",
+            "Must be an organization administrator",
         ),
         ApiError::UserGroupGuest => (
             StatusCode::BAD_REQUEST,
@@ -2178,6 +2211,7 @@ fn error_response(
         | ApiError::ChannelListMissingBotOwner
         | ApiError::InvalidMessage
         | ApiError::ReadReceiptsDisabled
+        | ApiError::AdministratorRequired
         | ApiError::PublicSubscribersUnavailable
         | ApiError::PrivateSubscribersUnavailable
         | ApiError::NavigationViewNotFound

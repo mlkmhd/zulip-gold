@@ -24,8 +24,8 @@
 
 ## وضعیت مهاجرت
 
-شمار فعلی Rust مستقل و اختیاری: ۴۱ از ۱۷۱ عملیات OpenAPI (۲۴٫۰٪)
-و ۴۰ از ۱۹۰ عملیات صریح وب (۲۱٫۱٪). فهرست‌ها هم‌پوشانی دارند؛
+شمار فعلی Rust مستقل و اختیاری: ۴۲ از ۱۷۱ عملیات OpenAPI (۲۴٫۶٪)
+و ۴۱ از ۱۹۰ عملیات صریح وب (۲۱٫۶٪). فهرست‌ها هم‌پوشانی دارند؛
 `HEAD` متناظر جداگانه شمرده نشده و این اعداد درصد کل backend نیستند.
 
 | عملیات یا جریان                                                                                                       | منطق اختیاری Rust                                                                                     | مسیر HTTP در توسعه و staging                                                      | مسیر پیش‌فرض استقرار |
@@ -74,6 +74,7 @@
 | `GET /api/v1/streams/{stream_id}` و alias وب با `HEAD` متناظر                                                         | metadata مجاز کانال، گروه‌ها، نشانی تصویر و ترافیک هفتگی؛ Basic/نشست، سهمیه و فعالیت                  | Rust مستقیم و nginx آزمایشی با پایلوت جداگانه                                     | Django               |
 | `GET /api/v1/messages/{message_id}/read_receipts` و alias وب با `HEAD` متناظر                                         | رسید خواندن مجاز پیام با اعمال تنظیمات حریم خصوصی در PostgreSQL، Basic/نشست، سهمیه و فعالیت           | Rust مستقیم و nginx آزمایشی با پایلوت جداگانه                                     | Django               |
 | `GET /api/v1/streams` و alias وب با `HEAD` متناظر                                                                     | فهرست کانال با فیلتر دیدپذیری، اشتراک و بایگانی؛ Basic/نشست، سهمیه و فعالیت                           | Rust مستقیم و nginx آزمایشی با پایلوت جداگانه                                     | Django               |
+| `GET /api/v1/export/realm/consents` و alias وب با `HEAD` متناظر                                                       | گواهی رضایت اعضای فعال همان سازمان فقط برای مدیر یا مالک؛ Basic/نشست، سهمیه و فعالیت                  | Rust مستقیم و nginx آزمایشی با پایلوت جداگانه                                     | Django               |
 | `POST /api/v1/users/me/status`، `POST /api/v1/users/{user_id}/status` و aliasهای وب                                   | قواعد به‌روزرسانی با `ZULIP_RUST_USER_STATUS`                                                         | Django                                                                            | Django               |
 | `POST /api/v1/register` و alias وب                                                                                    | قالب‌بندی وضعیت کاربران با `ZULIP_RUST_USER_STATUS` و پیش‌نویس‌ها با `ZULIP_RUST_DRAFT_SERIALIZATION` | Django                                                                            | Django               |
 | `GET /api/v1/bot_storage` و alias وب با `HEAD` متناظر                                                                 | خواندن همهٔ کلیدها یا کلیدهای درخواست‌شده برای ربات احرازشده                                          | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی                      | Django               |
@@ -539,7 +540,7 @@ audit ایجاد حفظ می‌شود و رویداد `saved_snippets/remove` پ
 | `GET`    | `/api/v1/events`                                        | `get-events`                           | `zerver.tornado.views.get_events`                                              | Tornado                        |
 | `GET`    | `/api/v1/export/realm`                                  | `get-realm-exports`                    | `zerver.views.realm_export.get_realm_exports`                                  | Django                         |
 | `POST`   | `/api/v1/export/realm`                                  | `export-realm`                         | `zerver.views.realm_export.export_realm`                                       | Django                         |
-| `GET`    | `/api/v1/export/realm/consents`                         | `get-realm-export-consents`            | `zerver.views.realm_export.get_users_export_consents`                          | Django                         |
+| `GET`    | `/api/v1/export/realm/consents`                         | `get-realm-export-consents`            | `zerver.views.realm_export.get_users_export_consents`                          | Rust اختیاری                   |
 | `DELETE` | `/api/v1/export/realm/{export_id}`                      | `delete-realm-export`                  | `zerver.views.realm_export.delete_realm_export`                                | Django                         |
 | `POST`   | `/api/v1/fetch_api_key`                                 | `fetch-api-key`                        | `zerver.views.auth.api_fetch_api_key`                                          | Django                         |
 | `GET`    | `/api/v1/get_stream_id`                                 | `get-stream-id`                        | `zerver.views.streams.json_get_stream_id`                                      | Rust اختیاری                   |
@@ -760,7 +761,7 @@ audit ایجاد حفظ می‌شود و رویداد `saved_snippets/remove` پ
 | `/json/drafts/{draft_id}`                             | `DELETE`, `PATCH`        | Rust اختیاری برای هر روش                                        |
 | `/json/events`                                        | `DELETE`, `GET`          | Tornado                                                         |
 | `/json/export/realm`                                  | `GET`, `POST`            | Django                                                          |
-| `/json/export/realm/consents`                         | `GET`                    | Django                                                          |
+| `/json/export/realm/consents`                         | `GET`                    | Rust اختیاری                                                    |
 | `/json/export/realm/{export_id}`                      | `DELETE`                 | Django                                                          |
 | `/json/fetch_api_key`                                 | `POST`                   | Django (مخصوص وب)                                               |
 | `/json/get_stream_id`                                 | `GET`                    | Rust اختیاری                                                    |

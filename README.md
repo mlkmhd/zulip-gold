@@ -25,8 +25,8 @@ Zulip Gold is migrating its backend from Python/Django to Rust in stages. Django
 
 | Verified standalone Rust HTTP coverage |        Operations |
 | -------------------------------------- | ----------------: |
-| OpenAPI inventory                      | 41 of 171 (24.0%) |
-| Explicit web operation inventory       | 40 of 190 (21.1%) |
+| OpenAPI inventory                      | 42 of 171 (24.6%) |
+| Explicit web operation inventory       | 41 of 190 (21.6%) |
 
 These inventories overlap, so the counts should not be added. They exclude Rust code called from Django and do not measure how much of the whole backend has migrated.
 

@@ -100,6 +100,11 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
         route_groups = ((2, ("read-receipts-routes.conf",)),)
         paths = ((f"/messages/{message.id}/read_receipts", "read_receipts"),)
         group_pilot = {"ZULIP_RUST_READ_RECEIPTS_READ_PILOT": "1"}
+    elif args.export_consents:
+        maps = ("export-consents-map.conf",)
+        route_groups = ((2, ("export-consents-routes.conf",)),)
+        paths = (("/export/realm/consents", "get_users_export_consents"),)
+        group_pilot = {"ZULIP_RUST_EXPORT_CONSENTS_READ_PILOT": "1"}
     elif args.channel_list:
         maps = ("channel-list-map.conf",)
         route_groups = ((2, ("channel-list-routes.conf",)),)
@@ -166,6 +171,11 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
     browser_user = next(user for user in other_members if user.id % 2 != member.id % 2)
     readiness_user = other_members.exclude(id=browser_user.id).first()
     assert readiness_user is not None and member.realm.host == "zulip.testserver"
+    if args.export_consents:
+        # Only these three disposable fixture identities need admin rights.
+        UserProfile.objects.filter(id__in=(member.id, browser_user.id, readiness_user.id)).update(
+            role=UserProfile.ROLE_REALM_ADMINISTRATOR
+        )
 
     def basic(user: UserProfile) -> dict[str, str]:
         token = b64encode(f"{user.delivery_email}:{user.api_key}".encode()).decode()
@@ -275,6 +285,8 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
                 document = json.loads(response[1])
                 if case.query == "list_realm_domains":
                     document["domains"].sort(key=lambda row: row["domain"])
+                elif case.query == "get_users_export_consents":
+                    document["export_consents"].sort(key=lambda row: row["user_id"])
                 elif case.query == "get_subscribers_backend":
                     document["subscribers"].sort()
                 elif case.query == "get_subscribed_channels_backend":
@@ -430,6 +442,9 @@ def main() -> None:
     group_modes.add_argument(
         "--channel-list", action="store_true", help="rehearse authenticated channel listings"
     )
+    group_modes.add_argument(
+        "--export-consents", action="store_true", help="rehearse administrator export-consent reads"
+    )
     parser.add_argument("--uwsgi", type=Path, required=True)
     parser.add_argument("--venv", type=Path, required=True)
     args = parser.parse_args()
@@ -446,6 +461,7 @@ def main() -> None:
         or args.channel_details
         or args.channel_list
         or args.read_receipts
+        or args.export_consents
     ) and (args.redis_server is None or args.openssl is None):
         parser.error("selected pilot requires --redis-server and --openssl")
     if args.redis_server is not None and args.openssl is None:
@@ -465,6 +481,7 @@ def main() -> None:
         or args.channel_details
         or args.channel_list
         or args.read_receipts
+        or args.export_consents
     ) and socket.if_nameindex() != [(1, "lo")]:
         raise RuntimeError("the selected pilot requires a private loopback-only network namespace")
     if any(name.startswith("ZULIP_RUST_") and name != "ZULIP_RUST_HTTP_BIN" for name in os.environ):

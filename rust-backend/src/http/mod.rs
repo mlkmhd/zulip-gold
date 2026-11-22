@@ -25,6 +25,7 @@ mod custom_profile_fields;
 mod database;
 mod draft_writes;
 mod drafts;
+mod export_consents;
 mod form;
 #[doc(hidden)]
 pub mod group_detail_request;
@@ -72,6 +73,7 @@ pub struct UserReadConfig<'a> {
     pub channel_details_read_pilot: bool,
     pub channel_list_read_pilot: bool,
     pub read_receipts_read_pilot: bool,
+    pub export_consents_read_pilot: bool,
     pub channel_topics_lowercase_file: Option<&'a Path>,
     pub rate_limit: Option<RateLimitConfig<'a>>,
     pub activity: Option<ActivityConfig<'a>>,
@@ -168,6 +170,10 @@ pub async fn router_with_user_reads(
     let read_receipts_read_pilot = config.read_receipts_read_pilot;
     if read_receipts_read_pilot && !browser_enabled {
         return Err("Read receipts read pilot requires signed Django sessions".into());
+    }
+    let export_consents_read_pilot = config.export_consents_read_pilot;
+    if export_consents_read_pilot && !browser_enabled {
+        return Err("Export consents read pilot requires signed Django sessions".into());
     }
     let channel_topics = config.channel_topics_lowercase_file.is_some();
     let emoji_reads = config.emoji_url_base.is_some();
@@ -347,6 +353,12 @@ pub async fn router_with_user_reads(
         routes = routes
             .route(read_receipts::PATH, read.clone())
             .route(read_receipts::SESSION_PATH, read);
+    }
+    if export_consents_read_pilot {
+        let read = get(user_reads::get_export_consents);
+        routes = routes
+            .route(export_consents::PATH, read.clone())
+            .route(export_consents::SESSION_PATH, read);
     }
     if channel_topics {
         routes = routes.route(channel_topics::PATH, get(user_reads::get_channel_topics));
