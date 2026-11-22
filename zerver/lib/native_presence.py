@@ -1,0 +1,56 @@
+"""Opt-in presence formatting for rows already selected by Django."""
+
+import os
+from datetime import datetime, timezone
+from importlib import import_module
+from typing import TypeAlias, cast
+
+LegacySpec: TypeAlias = tuple[int, str, str]
+_DATE_POLICY = (datetime, timezone.utc)
+
+try:
+    _backend = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_PRESENCE_FORMAT") == "1"
+        else None
+    )
+except ModuleNotFoundError as error:
+    if error.name != "_zulip_backend":
+        raise
+    _backend = None
+
+
+def is_enabled() -> bool:
+    return _backend is not None
+
+
+def format_rows(rows: object, spec: LegacySpec | None) -> dict[str, dict[str, object]] | None:
+    native = getattr(_backend, "format_presence_rows", None)
+    if native is None:
+        return None
+    return cast(dict[str, dict[str, object]] | None, native(rows, _DATE_POLICY, spec))
+
+
+def format_information(
+    active: datetime,
+    connected: datetime,
+    spec: LegacySpec | None = None,
+    *,
+    aggregate: bool = False,
+) -> dict[str, object] | None:
+    native = getattr(_backend, "format_presence_information", None)
+    if native is None:
+        return None
+    return cast(
+        dict[str, object] | None,
+        native(active, connected, _DATE_POLICY, spec, aggregate),
+    )
+
+
+def finish_single_user(
+    modern: object, legacy: object, duration: int, offline_threshold: int
+) -> dict[str, object] | None:
+    native = getattr(_backend, "finish_single_user_presence", None)
+    if native is None:
+        return None
+    return cast(dict[str, object] | None, native(modern, legacy, duration, offline_threshold))

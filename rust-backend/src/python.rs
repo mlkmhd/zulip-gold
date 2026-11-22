@@ -298,6 +298,11 @@ mod _zulip_backend {
     use crate::python_inline_checkpoint::MarkdownInlineCheckpoint;
 
     #[pymodule_export]
+    use crate::python_presence::{
+        finish_single_user_presence, format_presence_information, format_presence_rows,
+    };
+
+    #[pymodule_export]
     use crate::python_message_payload::{
         adapt_mobile_message_events, assemble_cached_message_frame, assemble_message_reactions,
         assemble_message_submessages, finalize_message_payload_content,

@@ -4468,3 +4468,39 @@ PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
 In an isolated Django test database, the existing message dictionary,
 fetch and event tests and the mocked outgoing-webhook payload test can
 exercise all three flag combinations from the previous section.
+
+## Format presence snapshots and events through Rust
+
+Set `ZULIP_RUST_PRESENCE_FORMAT=1` to format already-filtered presence
+rows and event details through PyO3. Rust implements the slim and
+legacy shapes, missing active/connected times using the join date,
+and the inclusive legacy activity cutoff at microsecond precision.
+It also finalizes the single-user presence response, where only the
+aggregate legacy status changes to `offline` after the existing
+threshold and the old client/pushable fields are removed.
+
+Django still selects and authorizes users, queries the database,
+manages update cursors and history limits, obtains the current time,
+and decides when and to whom events are published. The same preference
+and visibility policies apply in either mode.
+
+The datetime bridge accepts ordinary datetime objects using
+`timezone.utc`. It limits timestamp conversion to the region where
+CPython's float-based conversion cannot round across a second boundary;
+the final integer truncation also preserves pre-epoch fractional
+seconds. Unsupported dates, unusual rows, replaced callbacks,
+nonstandard offsets, and older wheels use the Python implementation.
+Unsetting the flag restores the Python path.
+
+With the cached extension on `PYTHONPATH`:
+
+```sh
+PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
+  python rust-backend/tests/test_presence_format_parity.py -v
+```
+
+Use the ordinary presence tests and legacy/modern presence-event
+tests in a disposable test database to verify both modes. Freshly
+seeded fixture users should have an older join time to exercise
+the legacy idle cases; this is a test fixture requirement, not a
+change to production data or settings.

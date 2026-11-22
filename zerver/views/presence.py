@@ -10,6 +10,7 @@ from pydantic import Json, StringConstraints
 from zerver.actions.presence import update_user_presence
 from zerver.actions.user_status import do_update_user_status
 from zerver.decorator import human_users_only
+from zerver.lib import native_presence
 from zerver.lib.exceptions import JsonableError
 from zerver.lib.presence import get_presence_dicts_for_rows, get_presence_response
 from zerver.lib.request import RequestNotes
@@ -81,7 +82,17 @@ def get_presence_backend(
     # The modern format leaves that computation to the client.
     aggregated_info = legacy_presence["aggregated"]
     aggr_status_duration = datetime_to_timestamp(timezone_now()) - aggregated_info["timestamp"]
-    if aggr_status_duration > settings.OFFLINE_THRESHOLD_SECS:
+    offline_threshold = settings.OFFLINE_THRESHOLD_SECS
+    if native_presence.is_enabled():
+        native = native_presence.finish_single_user(
+            modern_presence, legacy_presence, aggr_status_duration, offline_threshold
+        )
+        if native is not None:
+            return json_success(
+                request, data={"presence": native, "server_timestamp": server_timestamp}
+            )
+
+    if aggr_status_duration > offline_threshold:
         aggregated_info["status"] = "offline"
     for val in legacy_presence.values():
         val.pop("client", None)

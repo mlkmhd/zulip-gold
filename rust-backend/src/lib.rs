@@ -183,8 +183,14 @@ mod python_media;
 #[cfg(feature = "python")]
 mod python_highlight;
 
+#[cfg(any(feature = "python", test))]
+mod presence;
+
 #[cfg(feature = "python")]
 mod python_message_payload;
+
+#[cfg(feature = "python")]
+mod python_presence;
 #[cfg(feature = "python")]
 mod python_tex;
 

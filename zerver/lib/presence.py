@@ -7,6 +7,7 @@ from typing import Any
 from django.conf import settings
 from django.utils.timezone import now as timezone_now
 
+from zerver.lib import native_presence
 from zerver.lib.timestamp import datetime_to_timestamp
 from zerver.lib.users import check_user_can_access_all_users, get_accessible_user_ids
 from zerver.models import Realm, UserPresence, UserProfile
@@ -22,6 +23,28 @@ def get_presence_dicts_for_rows(
     # 2) `POST /register` when presence data is requested:
     #    https://zulip.com/api/register-queue
     # 3) `GET /users/{user_id_or_email}/presence`: https://zulip.com/api/get-user-presence
+    if (
+        native_presence.is_enabled()
+        and type(all_rows) is list
+        and type(slim_presence) is bool
+        and datetime_to_timestamp is _REFERENCE_TIMESTAMP
+        and user_presence_datetime_with_date_joined_default is _REFERENCE_DATE_DEFAULT
+        and (
+            (slim_presence and get_modern_user_presence_info is _REFERENCE_MODERN)
+            or (
+                not slim_presence
+                and timedelta is _REFERENCE_TIMEDELTA
+                and get_legacy_user_presence_info is _REFERENCE_LEGACY
+                and format_legacy_presence_dict is _REFERENCE_LEGACY_DETAILS
+            )
+        )
+    ):
+        spec = None if slim_presence or not all_rows else _legacy_spec()
+        if slim_presence or not all_rows or spec is not None:
+            native = native_presence.format_rows(all_rows, spec)
+            if native is not None:
+                return native
+
     if slim_presence:
         # Stringify user_id here, since it's gonna be turned
         # into a string anyway by JSON, and it keeps mypy happy.
@@ -75,6 +98,10 @@ def user_presence_datetime_with_date_joined_default(
 def get_modern_user_presence_info(
     last_active_time: datetime, last_connected_time: datetime
 ) -> dict[str, Any]:
+    if native_presence.is_enabled() and datetime_to_timestamp is _REFERENCE_TIMESTAMP:
+        native = native_presence.format_information(last_active_time, last_connected_time)
+        if native is not None:
+            return native
     # TODO: Do further bandwidth optimizations to this structure.
     result = {}
     result["active_timestamp"] = datetime_to_timestamp(last_active_time)
@@ -90,6 +117,20 @@ def get_legacy_user_presence_info(
     API clients can still access presence data.
     We expect this code to remain mostly unchanged until we can delete it.
     """
+
+    if (
+        native_presence.is_enabled()
+        and datetime_to_timestamp is _REFERENCE_TIMESTAMP
+        and timedelta is _REFERENCE_TIMEDELTA
+        and format_legacy_presence_dict is _REFERENCE_LEGACY_DETAILS
+    ):
+        spec = _legacy_spec()
+        if spec is not None:
+            native = native_presence.format_information(
+                last_active_time, last_connected_time, spec, aggregate=True
+            )
+            if native is not None:
+                return native
 
     # Now we put things together in the legacy presence format with
     # one client + an `aggregated` field.
@@ -121,6 +162,17 @@ def format_legacy_presence_dict(
     and is not meant to be used on old presence data.
     """
     if (
+        native_presence.is_enabled()
+        and datetime_to_timestamp is _REFERENCE_TIMESTAMP
+        and timedelta is _REFERENCE_TIMEDELTA
+    ):
+        spec = _legacy_spec()
+        if spec is not None:
+            native = native_presence.format_information(last_active_time, last_connected_time, spec)
+            if native is not None:
+                return native
+
+    if (
         last_active_time
         + timedelta(seconds=settings.PRESENCE_LEGACY_EVENT_OFFSET_FOR_ACTIVITY_SECONDS)
         >= last_connected_time
@@ -136,6 +188,23 @@ def format_legacy_presence_dict(
     pushable = False
 
     return dict(client="website", status=status, timestamp=timestamp, pushable=pushable)
+
+
+def _legacy_spec() -> native_presence.LegacySpec | None:
+    active = vars(UserPresence).get("LEGACY_STATUS_ACTIVE")
+    idle = vars(UserPresence).get("LEGACY_STATUS_IDLE")
+    offset = settings.PRESENCE_LEGACY_EVENT_OFFSET_FOR_ACTIVITY_SECONDS
+    if type(active) is not str or type(idle) is not str or type(offset) is not int:
+        return None
+    return offset, active, idle
+
+
+_REFERENCE_TIMESTAMP = datetime_to_timestamp
+_REFERENCE_TIMEDELTA = timedelta
+_REFERENCE_DATE_DEFAULT = user_presence_datetime_with_date_joined_default
+_REFERENCE_MODERN = get_modern_user_presence_info
+_REFERENCE_LEGACY = get_legacy_user_presence_info
+_REFERENCE_LEGACY_DETAILS = format_legacy_presence_dict
 
 
 def get_presence_for_user(
