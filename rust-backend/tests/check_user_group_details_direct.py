@@ -1,5 +1,5 @@
 # ruff: noqa: INP001
-"""Compare the opt-in direct user-group detail handlers with isolated Django."""
+"""Verify direct and optional proxy user-group detail reads with isolated Django."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import subprocess
 import tempfile
 from base64 import b64encode
 from contextlib import ExitStack, closing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from http.client import HTTPConnection
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -23,8 +23,12 @@ from django.db import connection
 from psycopg2.extensions import make_dsn
 from read_proxy_fixture import (
     ReadCase,
+    ReadResult,
     compare_read_headers,
+    exercise_paired_read_routes,
     private_read_proxy,
+    process,
+    reserve_port,
     validate_fixture,
     validate_local_root,
     verify_private_database,
@@ -39,6 +43,9 @@ if TYPE_CHECKING:
 ROOT = Path(__file__).resolve().parents[2]
 PILOT = "ZULIP_RUST_USER_GROUP_DETAIL_READ_PILOT"
 LIST_PILOT = "ZULIP_RUST_USER_GROUP_READ_PILOT"
+MAP = "user-group-details-map.conf"
+ROUTES = "user-group-details-routes.conf"
+STAGING = ROOT / "rust-backend/staging/nginx"
 
 
 @dataclass(frozen=True)
@@ -177,6 +184,143 @@ def make_cases(root: Path, cleanup: ExitStack) -> list[DetailCase]:
     return cases
 
 
+def validate(case: DetailCase, result: ReadResult) -> None:
+    assert result[0] == case.status, (case.label, result[0], case.status)
+    if case.method == "HEAD":
+        assert result[1] == b"", case.label
+
+
+def compare(case: DetailCase, actual: ReadResult, expected: ReadResult) -> None:
+    validate(case, actual)
+    if case.method == "GET":
+        candidate, target = json.loads(actual[1]), json.loads(expected[1])
+        if case.status == 200 and case.kind in candidate and case.kind in target:
+            candidate[case.kind].sort()
+            target[case.kind].sort()
+        assert candidate == target, case.label
+    else:
+        assert actual[1] == expected[1], case.label
+    compare_read_headers(actual, expected, case.label)
+
+
+def verify_method_map(nginx: Path, stage: Path, cases: tuple[DetailCase, ...]) -> None:
+    # Load the exact versioned map without an app, upstream, credentials, or body.
+    # Every method terminates with 204 in this separate diagnostic server.
+    stage.mkdir(mode=0o700)
+    listen = reserve_port()
+    conf = stage / "method-map.conf"
+    log = stage / "nginx.log"
+    command = [str(nginx), "-p", f"{stage}/", "-c", str(conf), "-e", str(log)]
+    temp_dirs = "\n".join(
+        f"    {name}_temp_path {stage}/{name}-temp;"
+        for name in ("client_body", "proxy", "uwsgi", "fastcgi", "scgi")
+    )
+    conf.write_text(
+        f"""
+worker_processes 1;
+pid {stage}/nginx.pid;
+error_log {log};
+events {{ worker_connections 32; }}
+http {{
+{temp_dirs}
+    access_log off;
+    include {STAGING / MAP};
+    server {{
+        listen 127.0.0.1:{listen};
+        location / {{
+            add_header X-Test-Selection $zulip_rust_user_group_details always;
+            return 204;
+        }}
+    }}
+}}
+"""
+    )
+    subprocess.run([*command, "-t"], check=True, timeout=8)
+
+    def marker(case: DetailCase, method: str) -> str | None:
+        with closing(HTTPConnection("127.0.0.1", listen, timeout=5)) as client:
+            client.request(method, case.path, headers={"Host": case.host})
+            reply = client.getresponse()
+            assert reply.status == 204 and reply.read() == b""
+            return reply.getheader("X-Test-Selection")
+
+    with process([*command, "-g", "daemon off;"], stage / "start.log"):
+        wait_until(lambda: marker(cases[0], "GET") == "1")
+        for case in cases:
+            assert marker(case, "GET") == marker(case, "HEAD") == "1", case.label
+            for method in ("POST", "OPTIONS"):
+                assert marker(case, method) == "0", (case.label, method)
+    print("Exact method map verified on four paths without a write reaching either upstream.")
+
+
+def proxy_exercise(
+    args: argparse.Namespace,
+    directory: Path,
+    cases: list[DetailCase],
+    default_cases: tuple[DetailCase, ...],
+) -> None:
+    from zerver.models import UserProfile
+
+    # The first eight positive cases cover both operation kinds and both auth modes
+    # on graceful reload and while Rust is stopped.
+    routes = list(default_cases)
+    selected = routes + [
+        replace(case, label=f"{case.label} HEAD", method="HEAD") for case in routes
+    ]
+    for case in cases:
+        if case.method != "GET" or case in routes:
+            continue
+        mapped = case.host == "zulip.testserver"
+        if (
+            not mapped
+            or case.status == 401
+            or case.label.endswith(("French", "leading zero", "large missing ID"))
+            or ("?direct_" in case.path and case.status in {200, 400})
+        ):
+            selected.append(replace(case, mapped=mapped, also_compare_direct=not mapped))
+
+    member_id = UserProfile.objects.get(
+        realm__string_id="zulip", delivery_email="hamlet@zulip.com"
+    ).id
+    for case in routes:
+        selected.extend(
+            (
+                replace(
+                    case,
+                    label=f"{case.label} OPTIONS",
+                    method="OPTIONS",
+                    status=204,
+                    headers={"Access-Control-Request-Method": "POST"},
+                    mapped=False,
+                ),
+                replace(case, label=f"{case.label} hostname port", host=f"{case.host}:8880"),
+            )
+        )
+        if case.kind == "members":
+            selected.append(
+                replace(
+                    case,
+                    label=f"{case.label} excluded single-user membership",
+                    path=f"{case.path}/{member_id}",
+                    mapped=False,
+                )
+            )
+    verify_method_map(args.nginx, directory / "methods", default_cases)
+    with private_read_proxy(
+        ROOT, directory, args.nginx, args.uwsgi, args.venv, (MAP,), openssl_bin=args.openssl
+    ) as proxy:
+        exercise_paired_read_routes(
+            proxy,
+            directory,
+            ROUTES,
+            selected,
+            validate=validate,
+            compare=compare,
+            rust_extra_env={PILOT: "1"},
+            paired_surfaces=4,
+        )
+
+
 def exercise(args: argparse.Namespace, root: Path, directory: Path, cleanup: ExitStack) -> None:
     cases = make_cases(root, cleanup)
     private_secret = directory / "synthetic-signing-input"
@@ -198,6 +342,9 @@ def exercise(args: argparse.Namespace, root: Path, directory: Path, cleanup: Exi
     assert len(paths) == 4
     default_cases = tuple(paths.values())
     first = default_cases[0]
+    if args.with_proxy:
+        proxy_exercise(args, directory, cases, default_cases)
+        return
 
     with private_read_proxy(ROOT, directory, args.nginx, args.uwsgi, args.venv, ()) as proxy:
         wait_until(lambda: proxy.request("GET", first.host, first.headers, first.path)[0] == 200)
@@ -222,16 +369,7 @@ def exercise(args: argparse.Namespace, root: Path, directory: Path, cleanup: Exi
                 actual = request_test_http(
                     port, case.method, case.host, case.headers, case.path, include_date=True
                 )
-                assert expected[0] == actual[0] == case.status, (case.label, expected[0], actual[0])
-                if case.method == "HEAD":
-                    assert actual[1] == expected[1] == b"", case.label
-                else:
-                    candidate, target = json.loads(actual[1]), json.loads(expected[1])
-                    if case.status == 200:
-                        candidate[case.kind].sort()
-                        target[case.kind].sort()
-                    assert candidate == target, case.label
-                compare_read_headers(actual, expected, case.label)
+                compare(case, actual, expected)
 
             for case in default_cases:
                 expected, upstream = proxy.observe("OPTIONS", case.host, {}, case.path)
@@ -260,7 +398,13 @@ def main() -> None:
     parser.add_argument("--nginx", type=Path, required=True)
     parser.add_argument("--uwsgi", type=Path, required=True)
     parser.add_argument("--venv", type=Path, required=True)
+    parser.add_argument(
+        "--with-proxy", action="store_true", help="also rehearse private TLS routing and rollback"
+    )
+    parser.add_argument("--openssl", type=Path, help="OpenSSL for the private TLS certificate")
     args = parser.parse_args()
+    if args.with_proxy != (args.openssl is not None):
+        parser.error("--with-proxy and --openssl must be supplied together")
     root = args.fixture_root.resolve(strict=True)
     validate_local_root(root)
     if socket.if_nameindex() != [(1, "lo")]:

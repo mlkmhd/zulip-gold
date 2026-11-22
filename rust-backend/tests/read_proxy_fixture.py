@@ -500,12 +500,16 @@ def exercise_paired_read_routes(
     compare: Callable[[CaseT, ReadResult, ReadResult], None],
     measure: Callable[[PrivateReadProxy, CaseT], tuple[float, float]] | None = None,
     rust_extra_env: dict[str, str] | None = None,
+    paired_surfaces: int = 2,
 ) -> None:
-    # The first four probes are successful, mapped GET and HEAD on the API
-    # and web paths respectively. They cover both targets on reload/outage.
-    assert [case.method for case in cases[:4]] == ["GET", "GET", "HEAD", "HEAD"]
-    assert all(case.mapped and case.status == 200 for case in cases[:4])
-    assert all(cases[index].path == cases[index + 2].path for index in range(2))
+    # The first cases cover all paired GET/HEAD paths on reload and outage.
+    assert paired_surfaces > 0
+    probes = cases[: 2 * paired_surfaces]
+    get_probes, head_probes = probes[:paired_surfaces], probes[paired_surfaces:]
+    assert [case.method for case in get_probes] == ["GET"] * paired_surfaces
+    assert [case.method for case in head_probes] == ["HEAD"] * paired_surfaces
+    assert all(case.mapped and case.status == 200 for case in probes)
+    assert [case.path for case in get_probes] == [case.path for case in head_probes]
 
     def request(case: CaseT) -> tuple[ReadResult, str]:
         return proxy.observe(case.method, case.host, case.headers, case.path)
@@ -521,7 +525,7 @@ def exercise_paired_read_routes(
 
         def ready() -> bool:
             nonlocal consecutive
-            if all(request(case)[1] == upstream for case in cases[:2]):
+            if all(request(case)[1] == upstream for case in get_probes):
                 consecutive += 1
             else:
                 consecutive = 0
@@ -533,7 +537,7 @@ def exercise_paired_read_routes(
     wait_until(lambda: request(cases[0])[0][0] == 200)
     proxy.assert_untrusted_tls_rejected(cases[0].host, cases[0].path)
     original = [expect(case, proxy.django_address) for case in cases]
-    django_metrics = [measure(proxy, case) for case in cases[:2]] if measure else []
+    django_metrics = [measure(proxy, case) for case in get_probes] if measure else []
     secret = directory / "synthetic-secret"
     secret.write_text(settings.SECRET_KEY)
     secret.chmod(0o600)
@@ -564,9 +568,9 @@ def exercise_paired_read_routes(
         for case, before in zip(cases, original, strict=True):
             target = rust_address if case.mapped else proxy.django_address
             compare(case, expect(case, target), before)
-        rust_metrics = [measure(proxy, case) for case in cases[:2]] if measure else []
+        rust_metrics = [measure(proxy, case) for case in get_probes] if measure else []
 
-    for case in cases[:4]:
+    for case in probes:
         failed_result, upstream = request(case)
         assert failed_result[0] == 502 and upstream == rust_address, case.label
         if case.method == "HEAD":
@@ -585,7 +589,7 @@ def exercise_paired_read_routes(
     unmapped_count = sum(not case.mapped for case in cases)
     print(
         f"{len(cases)} cases in each of three routing states, {direct_count} direct comparisons, "
-        f"4 outage and {unmapped_count} unaffected Django checks while Rust is stopped "
+        f"{len(probes)} outage and {unmapped_count} unaffected Django checks while Rust is stopped "
         f"({proxy.requests} private proxy requests including readiness)",
         flush=True,
     )

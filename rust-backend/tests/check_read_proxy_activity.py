@@ -60,15 +60,25 @@ class ActivityCase(ReadCase):
 def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None:
     from django.contrib.sessions.backends.db import SessionStore
 
-    from zerver.models import UserProfile
+    from zerver.models import NamedUserGroup, UserProfile
     from zerver.models.clients import get_client
 
-    maps = ("user-groups-map.conf",) if args.user_groups else MAPS
-    route_groups = ((2, ("user-groups-routes.conf",)),) if args.user_groups else ROUTE_GROUPS
-    paths = (("/user_groups", "get_user_groups"),) if args.user_groups else PATHS
-    group_pilot = {"ZULIP_RUST_USER_GROUP_READ_PILOT": "1"} if args.user_groups else {}
-
     member = UserProfile.objects.get(realm__string_id="zulip", delivery_email="hamlet@zulip.com")
+    maps, route_groups, paths, group_pilot = MAPS, ROUTE_GROUPS, PATHS, {}
+    if args.user_groups:
+        maps = ("user-groups-map.conf",)
+        route_groups = ((2, ("user-groups-routes.conf",)),)
+        paths = (("/user_groups", "get_user_groups"),)
+        group_pilot = {"ZULIP_RUST_USER_GROUP_READ_PILOT": "1"}
+    elif args.user_group_details:
+        group_id = NamedUserGroup.objects.get(realm=member.realm, name="Detail root").id
+        maps = ("user-group-details-map.conf",)
+        route_groups = ((2, ("user-group-details-routes.conf",)),)
+        paths = (
+            (f"/user_groups/{group_id}/members", "get_user_group_members"),
+            (f"/user_groups/{group_id}/subgroups", "get_subgroups_of_user_group"),
+        )
+        group_pilot = {"ZULIP_RUST_USER_GROUP_DETAIL_READ_PILOT": "1"}
     other_members = UserProfile.objects.filter(
         realm=member.realm, role=UserProfile.ROLE_MEMBER, is_bot=False, is_active=True
     ).exclude(id=member.id)
@@ -181,6 +191,10 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
                 document = json.loads(response[1])
                 if case.query == "list_realm_domains":
                     document["domains"].sort(key=lambda row: row["domain"])
+                elif case.query == "get_user_group_members":
+                    document["members"].sort()
+                elif case.query == "get_subgroups_of_user_group":
+                    document["subgroups"].sort()
                 assert document == baseline.setdefault(case.path, document), (case.label, "body")
             activity.expect(
                 user_id=case.user_id,
@@ -285,21 +299,29 @@ def main() -> None:
     parser.add_argument("--rabbitmq-server", type=Path, required=True)
     parser.add_argument("--epmd", type=Path, required=True)
     parser.add_argument("--redis-server", type=Path, help="also verify shared Redis accounting")
-    parser.add_argument(
-        "--user-groups", action="store_true", help="rehearse only the user-group read pilot"
+    group_modes = parser.add_mutually_exclusive_group()
+    group_modes.add_argument(
+        "--user-groups", action="store_true", help="rehearse only the user-group list pilot"
+    )
+    group_modes.add_argument(
+        "--user-group-details",
+        action="store_true",
+        help="rehearse only membership and subgroup reads",
     )
     parser.add_argument("--uwsgi", type=Path, required=True)
     parser.add_argument("--venv", type=Path, required=True)
     args = parser.parse_args()
-    if args.user_groups and (args.redis_server is None or args.openssl is None):
-        parser.error("--user-groups requires --redis-server and --openssl")
+    if (args.user_groups or args.user_group_details) and (
+        args.redis_server is None or args.openssl is None
+    ):
+        parser.error("group read pilots require --redis-server and --openssl")
     if args.redis_server is not None and args.openssl is None:
         parser.error("the combined quota and activity gate requires --openssl")
     root = args.fixture_root.resolve(strict=True)
     validate_local_root(root)
-    if args.user_groups and socket.if_nameindex() != [(1, "lo")]:
+    if (args.user_groups or args.user_group_details) and socket.if_nameindex() != [(1, "lo")]:
         raise RuntimeError(
-            "the user-group pilot requires a private loopback-only network namespace"
+            "the user-group pilots require a private loopback-only network namespace"
         )
     if any(name.startswith("ZULIP_RUST_") and name != "ZULIP_RUST_HTTP_BIN" for name in os.environ):
         raise RuntimeError("use a scrubbed environment with only ZULIP_RUST_HTTP_BIN configured")

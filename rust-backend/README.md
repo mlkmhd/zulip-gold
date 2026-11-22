@@ -4991,7 +4991,8 @@ switch attaches only GET/HEAD for numeric
 `/api/v1/user_groups/{id}/members`, `/api/v1/user_groups/{id}/subgroups`,
 and their `/json/` counterparts to the loopback service. It requires
 database and signed Django session settings. The list and detail pilot
-flags are independent. No proxy template forwards the detail requests.
+flags are independent. The versioned proxy templates below are not included
+by default.
 
 From the same private namespace and synthetic database as the list pilot,
 generate the reference fixtures and build the HTTP binary as above, then run:
@@ -5011,6 +5012,39 @@ the separate startup and opt-in guards. The comparison sorts ID arrays
 whose existing Django tests treat order as unspecified. Other methods
 still go to Django in the proxy; the direct pilot offers only GET/HEAD.
 
-This does not exercise switching the proxy, request accounting, or rollback
-for the detail operations. Production routing and default behavior remain
-unchanged.
+The direct check alone does not exercise the proxy, request accounting,
+or rollback. The separate rehearsal below covers those layers.
+
+### Rehearse opt-in group detail routing and rollback locally
+
+After preparing the same disposable fixture, add
+`--with-proxy --openssl "$openssl"` to the direct detail command. In this
+mode, only the private proxy loads the versioned
+`user-group-details-map.conf` and `user-group-details-routes.conf`. They select
+GET/HEAD for the numeric member and subgroup list paths on
+`zulip.testserver` (with optional port 8880). Other hosts, OPTIONS, POST and
+the single-user membership endpoint are not forwarded to Rust.
+
+The exact method map is also checked separately in a diagnostic nginx that
+returns 204 without any upstream. No POST is sent to Django or Rust. The
+private TLS parity check compares 66 cases per serving state. All eight
+mapped GET/HEAD outage checks receive the expected 502 with Rust stopped.
+Removing the private route include, checking the config and reloading nginx
+restores Django while Rust remains stopped. There is no automatic fallback.
+
+Run the combined accounting check in the same isolated namespace:
+
+```sh
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" \
+  "$checkout/rust-backend/tests/check_read_proxy_activity.py" --user-group-details \
+  --fixture-root "$fixture_root" --nginx "$nginx" --uwsgi "$uwsgi" --venv "$venv" \
+  --openssl "$openssl" --redis-server "$redis_server" \
+  --rabbitmq-server "$rabbitmq_server" --epmd "$epmd"
+```
+
+For 24 normal reads across Django, Rust and restored Django, it verifies one
+Redis charge and one RabbitMQ activity event per request. The two Rust-down
+requests in that check have neither side effect. Production ingress,
+credentials, application privileges, load and other failure modes are not
+covered. No host or default configuration is changed.
