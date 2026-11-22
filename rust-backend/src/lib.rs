@@ -99,6 +99,9 @@ mod markdown_preview_urls;
 #[cfg(feature = "python")]
 mod markdown_reply_links;
 
+#[cfg(feature = "python")]
+mod markdown_topic_links;
+
 #[cfg(feature = "native-markdown")]
 pub mod markdown_timestamp;
 

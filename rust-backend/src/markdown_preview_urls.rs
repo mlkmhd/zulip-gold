@@ -5,16 +5,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::markdown_links::{Parts, Unsupported, split};
-
-fn clean(url: &str) -> Cow<'_, str> {
-    let url = url.trim_start_matches(|c| c <= '\u{20}');
-    if url.contains(['\t', '\r', '\n']) {
-        Cow::Owned(url.replace(['\t', '\r', '\n'], ""))
-    } else {
-        Cow::Borrowed(url)
-    }
-}
+use crate::markdown_links::{Parts, Unsupported, clean_urlsplit_input, split};
 
 fn hex(c: u8) -> Option<u8> {
     match c {
@@ -57,7 +48,7 @@ fn form_pairs(query: &str) -> impl Iterator<Item = (&str, &str)> {
 }
 
 pub fn youtube_id(url: &str) -> Result<Option<String>, Unsupported> {
-    let cleaned = clean(url);
+    let cleaned = clean_urlsplit_input(url);
     let url = split(&cleaned)?;
     if !matches!(url.scheme.as_str(), "http" | "https") {
         return Ok(None);
@@ -134,7 +125,7 @@ pub fn vimeo_id(url: &str) -> Result<Option<String>, Unsupported> {
 
 /// Return only rewrites; the caller keeps the original object when unmodified.
 pub fn github_image_url(url: &str) -> Result<Option<String>, Unsupported> {
-    let cleaned = clean(url);
+    let cleaned = clean_urlsplit_input(url);
     let url = split(&cleaned)?;
     if url.netloc != "github.com" && !url.netloc.ends_with(".github.com") {
         return Ok(None);
@@ -181,7 +172,7 @@ fn recompose_authority(parts: &Parts<'_>, path: &str, query: &str) -> String {
 }
 
 pub fn corrected_image_source(url: &str) -> Result<Option<String>, Unsupported> {
-    let cleaned = clean(url);
+    let cleaned = clean_urlsplit_input(url);
     let url = split(&cleaned)?;
     if url.netloc == "linx.li" {
         return Ok(Some(format!("https://linx.li/s{}", url.path)));
@@ -254,7 +245,7 @@ pub struct DropboxPlan {
 }
 
 pub fn dropbox_plan(url: &str) -> Result<Option<DropboxPlan>, Unsupported> {
-    let cleaned = clean(url);
+    let cleaned = clean_urlsplit_input(url);
     let url = split(&cleaned)?;
     if url.netloc != "dropbox.com" && !url.netloc.ends_with(".dropbox.com") {
         return Ok(None);

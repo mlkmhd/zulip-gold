@@ -7,6 +7,9 @@
 //! is delegated to the reference renderer. A caller must discard the whole
 //! native plan on `Unsupported`, rather than rendering an unchecked URL.
 
+#[cfg(feature = "python")]
+use std::borrow::Cow;
+
 use crate::draft_text::is_python_whitespace;
 use crate::markdown_link_syntax::{TextStash, parse, prepare_text, unescape};
 
@@ -28,6 +31,16 @@ pub(crate) struct Parts<'a> {
     pub(crate) path: &'a str,
     pub(crate) query: &'a str,
     pub(crate) fragment: &'a str,
+}
+
+#[cfg(feature = "python")]
+pub(crate) fn clean_urlsplit_input(url: &str) -> Cow<'_, str> {
+    let url = url.trim_start_matches(|c| c <= '\u{20}');
+    if url.contains(['\t', '\r', '\n']) {
+        Cow::Owned(url.replace(['\t', '\r', '\n'], ""))
+    } else {
+        Cow::Borrowed(url)
+    }
 }
 
 pub(crate) fn split(url: &str) -> Result<Parts<'_>, Unsupported> {

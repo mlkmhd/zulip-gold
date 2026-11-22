@@ -4368,3 +4368,35 @@ and rolls back its synthetic realm. It also compares the prior mobile
 reply-link migration at the production Tornado event and message-fetch
 payload builders, including rich web HTML, Markdown clients, search
 matches, and edit history. It does not start a web server.
+
+## Resolve topic link candidates through Rust
+
+With `ZULIP_RUST_MARKDOWN_TOPIC_LINKS=1`, supported topics use the
+PyO3 planner to scan the same segments for raw URLs, apply the existing
+scheme defaults, and merge them with expanded realm linkifier matches.
+Rust selects nonoverlapping candidates in stable priority order and
+returns them in topic order. It preserves Python code-point indices,
+including the legacy rule that a raw match starts at its segment's
+index for overlap purposes even if its text begins later.
+
+Django still loads and caches linkifiers, runs RE2, expands URI
+templates, and caches the final result for the request. The planner
+checks the active autolink regex and file-link policy before scanning.
+If scanning is unsupported, Django finds raw URLs and the Rust
+selector can still merge them. When either native export is absent or
+its inputs are unsupported, the corresponding Python path is used.
+The switch is off by default; removing it rolls back both steps.
+
+Use a fresh cached PyO3 build and the Python dependencies used by the
+repository (including `tlds`) for the focused differential check:
+
+```sh
+PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
+  python rust-backend/tests/test_topic_link_parity.py -v
+```
+
+For application verification, run `MarkdownLinkifierTest` and the
+message-event reply regression in a disposable backend database in
+both modes. For the native mode, set `ZULIP_RUST_MARKDOWN_TOPIC_LINKS=1`
+with the same extension on `PYTHONPATH`. These tests do not follow any
+matched URLs.

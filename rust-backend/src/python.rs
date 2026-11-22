@@ -348,6 +348,48 @@ mod _zulip_backend {
         Some((result.ok()?,))
     }
 
+    fn extract_topic_link_candidates(
+        candidates: &Bound<'_, PyList>,
+    ) -> Option<Vec<crate::markdown_topic_links::WireCandidate>> {
+        if candidates.len() > crate::markdown_topic_links::MAX_CANDIDATES {
+            return None;
+        }
+        candidates
+            .iter()
+            .map(|value| value.extract().ok())
+            .collect()
+    }
+
+    #[pyfunction]
+    fn plan_markdown_topic_links(
+        topic: &Bound<'_, PyAny>,
+        candidates: &Bound<'_, PyList>,
+        spec: NativeAutolinkSpec,
+    ) -> Option<Vec<crate::markdown_topic_links::Payload>> {
+        use crate::{markdown_autolinks as autolinks, markdown_topic_links as topics};
+
+        let topic = topic.cast_exact::<PyString>().ok()?.to_str().ok()?;
+        let (version, tlds, schemes, enable_file_links) = spec;
+        if version != autolinks::UNICODE_VERSION {
+            return None;
+        }
+        let mut candidates = extract_topic_link_candidates(candidates)?;
+        let matcher = autolinks::Matcher::cached(autolinks::Spec {
+            tlds,
+            schemes,
+            enable_file_links,
+        })?;
+        candidates.extend(topics::raw_candidates(&matcher, topic)?);
+        topics::select(candidates)
+    }
+
+    #[pyfunction]
+    fn select_markdown_topic_links(
+        candidates: &Bound<'_, PyList>,
+    ) -> Option<Vec<crate::markdown_topic_links::Payload>> {
+        crate::markdown_topic_links::select(extract_topic_link_candidates(candidates)?)
+    }
+
     type DropboxPreview = (bool, String, Option<String>);
 
     #[pyfunction]

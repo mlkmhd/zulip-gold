@@ -48,6 +48,7 @@ from zerver.lib.markdown import (
     emphasis,
     fenced_code,
     native_preview_urls,
+    native_topic_links,
     postprocessing,
 )
 from zerver.lib.markdown.code_blocks import CodeBlockProcessor, EmptyBlockProcessor
@@ -2863,6 +2864,15 @@ def make_md_engine(linkifiers_key: int, email_gateway: bool) -> ZulipMarkdown:
 # our common single link matching regex on it.
 basic_link_splitter = re.compile(r"[ !;\),\'\"]")
 
+_topic_link_scan_callbacks = (
+    re.match,
+    get_web_link_regex,
+    web_link_regex,
+    list_of_tlds,
+    urlsplit,
+    basic_link_splitter,
+)
+
 
 def percent_escape_format_string(format_string: str) -> str:
     # Find percent-encoded bytes and escape them from the python
@@ -2937,6 +2947,10 @@ def topic_links(linkifiers_key: int, topic_name: str) -> list[dict[str, str]]:
             ]
         precedence += 1
 
+    native = native_topic_links.plan(topic_name, matches)
+    if native is not None:
+        return native
+
     # Sort the matches beforehand so we favor the match with a higher priority and tie-break with the starting index.
     # Note that we sort it before processing the raw URLs so that linkifiers will be prioritized over them.
     matches.sort(key=lambda k: (k.precedence, k.index))
@@ -2971,6 +2985,10 @@ def topic_links(linkifiers_key: int, topic_name: str) -> list[dict[str, str]]:
             )
         # Move pass the next split point, and start matching the URL from there
         pos = end + 1
+
+    selected = native_topic_links.select(matches)
+    if selected is not None:
+        return selected
 
     def are_matches_overlapping(match_a: TopicLinkMatch, match_b: TopicLinkMatch) -> bool:
         return (match_b.index <= match_a.index < match_b.index + len(match_b.text)) or (
