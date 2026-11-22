@@ -40,6 +40,35 @@ const GROUP_DETAILS: &str = "
         ) END AS ids
     FROM target";
 
+const GROUP_MEMBERSHIP: &str = "
+    WITH RECURSIVE target_group AS (
+        SELECT usergroup_ptr_id, deactivated
+          FROM zulip.zerver_namedusergroup
+         WHERE realm_id = $1 AND usergroup_ptr_id = $2
+    ), target_user AS (
+        SELECT id, is_active
+          FROM zulip.zerver_userprofile
+         WHERE realm_id = $1 AND id = $3
+    ), reachable(group_id) AS (
+        SELECT usergroup_ptr_id FROM target_group WHERE NOT deactivated
+        UNION
+        SELECT edge.subgroup_id
+          FROM reachable
+          JOIN zulip.zerver_groupgroupmembership AS edge ON edge.supergroup_id = reachable.group_id
+         WHERE NOT $4
+    )
+    SELECT target_group.deactivated, target_user.is_active AS user_active,
+           CASE WHEN NOT target_group.deactivated AND target_user.is_active THEN EXISTS (
+               SELECT 1
+                 FROM reachable
+                 JOIN zulip.zerver_usergroupmembership AS member
+                   ON member.user_group_id = reachable.group_id
+                WHERE member.user_profile_id = target_user.id
+           ) ELSE FALSE END AS is_member
+      FROM target_group LEFT JOIN target_user ON TRUE";
+
+pub(super) const DIRECT_MEMBER_ONLY: &str = "direct_member_only";
+
 #[derive(Clone, Copy, Debug, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DetailKind {
@@ -50,7 +79,7 @@ pub enum DetailKind {
 impl DetailKind {
     pub fn direct_parameter(self) -> &'static str {
         match self {
-            Self::Members => "direct_member_only",
+            Self::Members => DIRECT_MEMBER_ONLY,
             Self::Subgroups => "direct_subgroup_only",
         }
     }
@@ -61,6 +90,8 @@ pub enum DetailReadError {
     Request(ReadError),
     InvalidGroup,
     DeactivatedGroup,
+    MissingTargetUser,
+    DeactivatedTargetUser,
 }
 
 impl From<ReadError> for DetailReadError {
@@ -131,6 +162,54 @@ pub async fn read_authenticated_group_detail(
             DetailKind::Members => DetailIds::Members(ids),
             DetailKind::Subgroups => DetailIds::Subgroups(ids),
         },
+        ignored_parameters_unsupported: options.ignored_parameters,
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct GroupMembershipData {
+    is_user_group_member: bool,
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    ignored_parameters_unsupported: BTreeSet<String>,
+}
+
+/// Django checks the actor's non-guest role before any request parameters.
+/// For a non-guest, its user visibility check permits all users in the same
+/// realm; the target still has to exist and be active, and bots are allowed.
+/// Preserve the group checks before reporting any error about the target.
+pub(super) async fn read_authenticated_group_membership(
+    db: &impl GenericClient,
+    authenticated_user_id: i32,
+    authenticated_realm_id: i32,
+    group_id: Option<i64>,
+    target_user_id: Option<i32>,
+    query: Option<&str>,
+) -> Result<GroupMembershipData, DetailReadError> {
+    require_non_guest(db, authenticated_user_id, authenticated_realm_id).await?;
+    let options = read_options(query, DIRECT_MEMBER_ONLY)?;
+    let group_id = group_id.ok_or(DetailReadError::InvalidGroup)?;
+    let row = db
+        .query_opt(
+            GROUP_MEMBERSHIP,
+            &[
+                &authenticated_realm_id,
+                &group_id,
+                &target_user_id,
+                &options.enabled,
+            ],
+        )
+        .await?
+        .ok_or(DetailReadError::InvalidGroup)?;
+    if row.try_get("deactivated")? {
+        return Err(DetailReadError::DeactivatedGroup);
+    }
+    match row.try_get::<_, Option<bool>>("user_active")? {
+        None => return Err(DetailReadError::MissingTargetUser),
+        Some(false) => return Err(DetailReadError::DeactivatedTargetUser),
+        Some(true) => {}
+    }
+    Ok(GroupMembershipData {
+        is_user_group_member: row.try_get("is_member")?,
         ignored_parameters_unsupported: options.ignored_parameters,
     })
 }

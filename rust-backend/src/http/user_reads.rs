@@ -61,6 +61,7 @@ enum Endpoint {
     ChannelFolders,
     UserGroups,
     GroupDetail(DetailKind, Option<i64>),
+    GroupMembership(Option<i64>, Option<i32>),
     ScheduledMessages,
     Reminders,
 }
@@ -112,6 +113,7 @@ impl Endpoint {
             Self::UserGroups => "get_user_groups",
             Self::GroupDetail(DetailKind::Members, _) => "get_user_group_members",
             Self::GroupDetail(DetailKind::Subgroups, _) => "get_subgroups_of_user_group",
+            Self::GroupMembership(..) => "get_is_user_group_member",
             Self::ScheduledMessages => "fetch_scheduled_messages",
             Self::Reminders => "fetch_reminders",
         }
@@ -178,15 +180,26 @@ impl Endpoint {
                     database, user_id, realm_id, id, kind, query,
                 )
                 .await
-                .map_err(|error| match error {
-                    DetailReadError::Request(error) => {
-                        group_read_error(error, kind.direct_parameter())
-                    }
-                    DetailReadError::InvalidGroup => ApiError::InvalidUserGroup,
-                    DetailReadError::DeactivatedGroup => ApiError::DeactivatedUserGroup,
-                })?;
+                .map_err(|error| group_detail_error(error, kind.direct_parameter()))?;
                 let object =
                     serde_json::to_string(&listing).expect("group details can serialize to JSON");
+                return Ok(object[1..object.len() - 1].to_owned());
+            }
+            Self::GroupMembership(group_id, target_user_id) => {
+                let membership = group_detail_request::read_authenticated_group_membership(
+                    database,
+                    user_id,
+                    realm_id,
+                    group_id,
+                    target_user_id,
+                    query,
+                )
+                .await
+                .map_err(|error| {
+                    group_detail_error(error, group_detail_request::DIRECT_MEMBER_ONLY)
+                })?;
+                let object = serde_json::to_string(&membership)
+                    .expect("group membership can serialize to JSON");
                 return Ok(object[1..object.len() - 1].to_owned());
             }
             Self::ChannelFolders => {
@@ -662,6 +675,8 @@ enum ApiError {
     UserGroupGuest,
     InvalidUserGroup,
     DeactivatedUserGroup,
+    MissingGroupTargetUser,
+    DeactivatedGroupTargetUser,
     BotRequired,
     BotStorageKeyNotFound,
     BotStorageLimitExceeded { excess: i128, limit: u64 },
@@ -698,6 +713,16 @@ impl From<draft_writes::WriteError> for ApiError {
             draft_writes::WriteError::Database(error) => Self::from(error),
             other => Self::DraftWrite(other),
         }
+    }
+}
+
+fn group_detail_error(error: DetailReadError, parameter: &'static str) -> ApiError {
+    match error {
+        DetailReadError::Request(error) => group_read_error(error, parameter),
+        DetailReadError::InvalidGroup => ApiError::InvalidUserGroup,
+        DetailReadError::DeactivatedGroup => ApiError::DeactivatedUserGroup,
+        DetailReadError::MissingTargetUser => ApiError::MissingGroupTargetUser,
+        DetailReadError::DeactivatedTargetUser => ApiError::DeactivatedGroupTargetUser,
     }
 }
 
@@ -790,10 +815,28 @@ pub(super) async fn get_group_detail(
 ) -> Response {
     // Django's int path converter accepts one or more ASCII decimal digits.
     // Keep an overflowing numeric path distinguishable from an unmatched path.
-    if id.is_empty() || !id.bytes().all(|byte| byte.is_ascii_digit()) {
+    if !numeric_group_path(&id) {
         return StatusCode::NOT_FOUND.into_response();
     }
     let endpoint = Endpoint::GroupDetail(kind, id.parse().ok());
+    respond(state, peer, uri, headers, None, Some(endpoint)).await
+}
+
+fn numeric_group_path(id: &str) -> bool {
+    !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+pub(super) async fn get_group_membership(
+    State(state): State<UserReads>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    Path((group_id, target_id)): Path<(String, String)>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    if !numeric_group_path(&group_id) || !numeric_group_path(&target_id) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let endpoint = Endpoint::GroupMembership(group_id.parse().ok(), target_id.parse().ok());
     respond(state, peer, uri, headers, None, Some(endpoint)).await
 }
 
@@ -1531,6 +1574,7 @@ fn error_response(
             | Endpoint::ChannelFolders
             | Endpoint::UserGroups
             | Endpoint::GroupDetail(..)
+            | Endpoint::GroupMembership(..)
             | Endpoint::ScheduledMessages
             | Endpoint::Reminders => {
                 unreachable!("endpoints without a Rust POST do not override methods")
@@ -1591,6 +1635,14 @@ fn error_response(
             StatusCode::BAD_REQUEST,
             "BAD_REQUEST",
             "User group is deactivated.",
+        ),
+        ApiError::MissingGroupTargetUser => {
+            (StatusCode::BAD_REQUEST, "BAD_REQUEST", "No such user")
+        }
+        ApiError::DeactivatedGroupTargetUser => (
+            StatusCode::BAD_REQUEST,
+            "BAD_REQUEST",
+            "User is deactivated",
         ),
         ApiError::DeactivatedUser => (
             StatusCode::UNAUTHORIZED,
@@ -1776,6 +1828,8 @@ fn error_response(
         | ApiError::UserGroupGuest
         | ApiError::InvalidUserGroup
         | ApiError::DeactivatedUserGroup
+        | ApiError::MissingGroupTargetUser
+        | ApiError::DeactivatedGroupTargetUser
         | ApiError::BotRequired
         | ApiError::BotStorageKeyNotFound
         | ApiError::BotStorageLimitExceeded { .. }

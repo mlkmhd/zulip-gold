@@ -79,6 +79,12 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
             (f"/user_groups/{group_id}/subgroups", "get_subgroups_of_user_group"),
         )
         group_pilot = {"ZULIP_RUST_USER_GROUP_DETAIL_READ_PILOT": "1"}
+    elif args.user_group_membership:
+        group_id = NamedUserGroup.objects.get(realm=member.realm, name="Detail root").id
+        maps = ("user-group-membership-map.conf",)
+        route_groups = ((2, ("user-group-membership-routes.conf",)),)
+        paths = ((f"/user_groups/{group_id}/members/{member.id}", "get_is_user_group_member"),)
+        group_pilot = {"ZULIP_RUST_USER_GROUP_MEMBERSHIP_READ_PILOT": "1"}
     other_members = UserProfile.objects.filter(
         realm=member.realm, role=UserProfile.ROLE_MEMBER, is_bot=False, is_active=True
     ).exclude(id=member.id)
@@ -308,10 +314,13 @@ def main() -> None:
         action="store_true",
         help="rehearse only membership and subgroup reads",
     )
+    group_modes.add_argument(
+        "--user-group-membership", action="store_true", help="rehearse one user's group membership"
+    )
     parser.add_argument("--uwsgi", type=Path, required=True)
     parser.add_argument("--venv", type=Path, required=True)
     args = parser.parse_args()
-    if (args.user_groups or args.user_group_details) and (
+    if (args.user_groups or args.user_group_details or args.user_group_membership) and (
         args.redis_server is None or args.openssl is None
     ):
         parser.error("group read pilots require --redis-server and --openssl")
@@ -319,7 +328,9 @@ def main() -> None:
         parser.error("the combined quota and activity gate requires --openssl")
     root = args.fixture_root.resolve(strict=True)
     validate_local_root(root)
-    if (args.user_groups or args.user_group_details) and socket.if_nameindex() != [(1, "lo")]:
+    if (
+        args.user_groups or args.user_group_details or args.user_group_membership
+    ) and socket.if_nameindex() != [(1, "lo")]:
         raise RuntimeError(
             "the user-group pilots require a private loopback-only network namespace"
         )

@@ -24,8 +24,8 @@
 
 ## وضعیت مهاجرت
 
-شمار فعلی Rust مستقل و اختیاری: ۳۱ از ۱۷۱ عملیات OpenAPI (۱۸٫۱٪)
-و ۳۱ از ۱۹۰ عملیات صریح وب (۱۶٫۳٪). فهرست‌ها هم‌پوشانی دارند؛
+شمار فعلی Rust مستقل و اختیاری: ۳۲ از ۱۷۱ عملیات OpenAPI (۱۸٫۷٪)
+و ۳۲ از ۱۹۰ عملیات صریح وب (۱۶٫۸٪). فهرست‌ها هم‌پوشانی دارند؛
 `HEAD` متناظر جداگانه شمرده نشده و این اعداد درصد کل backend نیستند.
 
 | عملیات یا جریان                                                                         | منطق اختیاری Rust                                                      | مسیر HTTP در توسعه و staging                                    | مسیر پیش‌فرض استقرار |
@@ -50,6 +50,7 @@
 | `GET /api/v1/realm/domains` و alias وب با `HEAD` متناظر                                 | خواندن دامنه‌های مجاز ایمیل سازمان از PostgreSQL                     | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی    | Django               |
 | `GET /api/v1/user_groups` و alias وب با `HEAD` متناظر | فهرست گروه‌های سازمان با مجوز غیرمهمان، Basic/نشست، سهمیه و فعالیت | Rust مستقیم و nginx آزمایشی با پایلوت خاموشِ پیش‌فرض | Django |
 | `GET /api/v1/user_groups/{user_group_id}/members` و `GET /api/v1/user_groups/{user_group_id}/subgroups` و aliasهای وب | اعضا یا زیرگروه‌های مستقیم و بازگشتی با همان مجوز غیرمهمان، سهمیه و فعالیت | Rust مستقیم و nginx آزمایشی با پایلوت جداگانه | Django |
+| `GET /api/v1/user_groups/{user_group_id}/members/{user_id}` و alias وب با `HEAD` متناظر | عضویت مستقیم یا بازگشتی کاربر فعال همان سازمان، Basic/نشست، سهمیه و فعالیت | Rust مستقیم و nginx آزمایشی با پایلوت جداگانه | Django |
 | `GET /api/v1/realm/profile_fields` و alias وب با `HEAD` متناظر | تعاریف مرتب‌شدهٔ فیلدهای پروفایل سازمان از PostgreSQL | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی | Django |
 | `GET /api/v1/navigation_views` و alias وب با `HEAD` متناظر | تنظیمات شخصی نماهای ناوبری از PostgreSQL | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی | Django |
 | `POST /api/v1/navigation_views` و alias وب | ثبت نما و ممیزی در PostgreSQL و رویداد مالک | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی | Django |
@@ -625,7 +626,7 @@ audit ایجاد حفظ می‌شود و رویداد `saved_snippets/remove` پ
 | `POST`   | `/api/v1/user_groups/{user_group_id}/deactivate`        | `deactivate-user-group`                | `zerver.views.user_groups.deactivate_user_group`                               | Django         |
 | `GET`    | `/api/v1/user_groups/{user_group_id}/members`           | `get-user-group-members`               | `zerver.views.user_groups.get_user_group_members`                              | Rust اختیاری |
 | `POST`   | `/api/v1/user_groups/{user_group_id}/members`           | `update-user-group-members`            | `zerver.views.user_groups.update_user_group_backend`                           | Django         |
-| `GET`    | `/api/v1/user_groups/{user_group_id}/members/{user_id}` | `get-is-user-group-member`             | `zerver.views.user_groups.get_is_user_group_member`                            | Django         |
+| `GET`    | `/api/v1/user_groups/{user_group_id}/members/{user_id}` | `get-is-user-group-member`             | `zerver.views.user_groups.get_is_user_group_member`                            | Rust اختیاری |
 | `GET`    | `/api/v1/user_groups/{user_group_id}/subgroups`         | `get-user-group-subgroups`             | `zerver.views.user_groups.get_subgroups_of_user_group`                         | Rust اختیاری |
 | `POST`   | `/api/v1/user_groups/{user_group_id}/subgroups`         | `update-user-group-subgroups`          | `zerver.views.user_groups.update_subgroups_of_user_group`                      | Django         |
 | `POST`   | `/api/v1/user_topics`                                   | `update-user-topic`                    | `zerver.views.user_topics.update_user_topic`                                   | Django         |
@@ -828,7 +829,7 @@ audit ایجاد حفظ می‌شود و رویداد `saved_snippets/remove` پ
 | `/json/user_groups/{user_group_id}`                   | `PATCH`                  | Django            |
 | `/json/user_groups/{user_group_id}/deactivate`        | `POST`                   | Django            |
 | `/json/user_groups/{user_group_id}/members`           | `GET`, `POST`            | `GET` در Rust اختیاری، `POST` در Django |
-| `/json/user_groups/{user_group_id}/members/{user_id}` | `GET`                    | Django            |
+| `/json/user_groups/{user_group_id}/members/{user_id}` | `GET`                    | Rust اختیاری |
 | `/json/user_groups/{user_group_id}/subgroups`         | `GET`, `POST`            | `GET` در Rust اختیاری، `POST` در Django |
 | `/json/user_topics`                                   | `POST`                   | Django            |
 | `/json/user_uploads`                                  | `POST`                   | Django            |

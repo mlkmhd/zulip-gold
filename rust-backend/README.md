@@ -5104,3 +5104,44 @@ PYTHONPATH="$native_extension_dir:$PWD" "$venv/bin/python" \
 This compares 11 real Django Basic/session GETs with the flag off, with the
 native formatter selected, and with a forced fallback to Django. It asserts
 that enabled requests cannot silently pass by using the old formatter.
+
+### Rehearse one user's group membership read and rollback
+
+`ZULIP_RUST_USER_GROUP_MEMBERSHIP_READ_PILOT=1` registers GET and HEAD for
+`/api/v1/user_groups/{user_group_id}/members/{user_id}` and its `/json/`
+alias on the loopback listener only. This option is off by default and
+requires the existing database and signed Django session configuration.
+It does not enable or depend on the separate list or group detail pilots.
+
+Django's non-guest restriction still precedes boolean parameter validation.
+The named group is checked before the active target user in the same
+organization. The output is a single direct or recursive membership
+boolean; Rust does not load other users' profiles. Bots can be targets or
+API actors under the existing policy, and HEAD has no body.
+
+After preparing the disposable group fixture above, run these two checks
+in the same private loopback-only namespace:
+
+```sh
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" \
+  "$checkout/rust-backend/tests/check_user_group_membership.py" \
+  --fixture-root "$fixture_root" --nginx "$nginx" --uwsgi "$uwsgi" --venv "$venv" \
+  --openssl "$openssl"
+
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" \
+  "$checkout/rust-backend/tests/check_read_proxy_activity.py" --user-group-membership \
+  --fixture-root "$fixture_root" --nginx "$nginx" --uwsgi "$uwsgi" --venv "$venv" \
+  --openssl "$openssl" --redis-server "$redis_server" \
+  --rabbitmq-server "$rabbitmq_server" --epmd "$epmd"
+```
+
+The versioned staging map selects only the two numeric paths and the
+synthetic host `zulip.testserver` (optional port 8880). OPTIONS and other
+hosts stay in Django. A separate nginx with no upstream verifies the map
+excludes POST. If Rust stops, selected requests return 502; removing the
+route include and reloading nginx restores Django even while Rust is down.
+There is no automatic failover. These tests do not validate production
+ingress, privileges or load. Neither templates nor the listener change
+the deployment default.

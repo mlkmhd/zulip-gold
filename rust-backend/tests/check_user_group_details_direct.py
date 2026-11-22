@@ -203,7 +203,14 @@ def compare(case: DetailCase, actual: ReadResult, expected: ReadResult) -> None:
     compare_read_headers(actual, expected, case.label)
 
 
-def verify_method_map(nginx: Path, stage: Path, cases: tuple[DetailCase, ...]) -> None:
+def verify_method_map(
+    nginx: Path,
+    stage: Path,
+    cases: tuple[ReadCase, ...],
+    *,
+    map_filename: str = MAP,
+    map_variable: str = "zulip_rust_user_group_details",
+) -> None:
     # Load the exact versioned map without an app, upstream, credentials, or body.
     # Every method terminates with 204 in this separate diagnostic server.
     stage.mkdir(mode=0o700)
@@ -224,11 +231,11 @@ events {{ worker_connections 32; }}
 http {{
 {temp_dirs}
     access_log off;
-    include {STAGING / MAP};
+    include {STAGING / map_filename};
     server {{
         listen 127.0.0.1:{listen};
         location / {{
-            add_header X-Test-Selection $zulip_rust_user_group_details always;
+            add_header X-Test-Selection ${map_variable} always;
             return 204;
         }}
     }}
@@ -250,7 +257,7 @@ http {{
             assert marker(case, "GET") == marker(case, "HEAD") == "1", case.label
             for method in ("POST", "OPTIONS"):
                 assert marker(case, method) == "0", (case.label, method)
-    print("Exact method map verified on four paths without a write reaching either upstream.")
+    print(f"Exact method map verified on {len(cases)} paths without reaching either upstream.")
 
 
 def proxy_exercise(
