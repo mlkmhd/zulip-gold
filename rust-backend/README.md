@@ -4817,6 +4817,27 @@ This checks both signed sessions and Basic Auth with the default option,
 `false`, `true` and `partial`, and an old extension or a declined batch.
 This is not a standalone HTTP route and does not expand its coverage.
 
+## Calculate thumbnail readiness through Rust
+
+Set `ZULIP_RUST_THUMBNAIL_STATUS=1` to check the format metadata for the
+existing Django thumbnail-status GET/HEAD handler. Django still authorizes
+the attachment, fetches its metadata, resolves its MIME policy, and supplies
+the permitted output formats. Rust checks whether the still, animated and
+orientation-specific results are present. It reads no image data or storage
+and does not change thumbnail generation, settings or routes. Older wheels
+and unsupported historical rows use the existing Python calculation.
+
+After building the locked Python extension, run from the existing
+private Django fixture in its loopback-only namespace:
+
+```sh
+ZULIP_RUST_THUMBNAIL_STATUS=1 PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
+  "$venv/bin/python" "$checkout/rust-backend/tests/check_thumbnail_status_django_parity.py" \
+  --fixture-root "$fixture_root"
+```
+
+This is a default-off in-process bridge, not an independent HTTP route.
+
 ## Assemble user settings and preference catalogs through Rust
 
 Set `ZULIP_RUST_SETTINGS_PAYLOAD=1` to build the personal and realm

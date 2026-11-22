@@ -7,7 +7,7 @@ from django.utils.translation import gettext as _
 from zerver.lib.attachments import validate_attachment_request
 from zerver.lib.exceptions import JsonableError
 from zerver.lib.response import json_success
-from zerver.lib.thumbnail import missing_thumbnails
+from zerver.lib.thumbnail import has_ready_thumbnail
 from zerver.lib.typed_endpoint import PathOnly, typed_endpoint
 from zerver.models import ImageAttachment, UserProfile
 from zerver.views.upload import serve_file
@@ -65,6 +65,4 @@ def check_thumbnail_status(
     except ImageAttachment.DoesNotExist:
         raise JsonableError(_("Invalid attachment"))
 
-    needed_thumbnails = missing_thumbnails(image_attachment)
-
-    return json_success(request, data={"has_thumbnail": len(needed_thumbnails) == 0})
+    return json_success(request, data={"has_thumbnail": has_ready_thumbnail(image_attachment)})

@@ -334,6 +334,9 @@ mod _zulip_backend {
     use crate::python_own_profile::assemble_own_profile;
 
     #[pymodule_export]
+    use crate::python_thumbnail_status::thumbnail_status_complete;
+
+    #[pymodule_export]
     use crate::python_recent_conversations::{
         assemble_recent_conversations, finalize_recent_conversations,
     };

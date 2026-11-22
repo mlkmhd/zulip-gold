@@ -12,6 +12,7 @@ from bs4.formatter import EntitySubstitution, HTMLFormatter
 from django.utils.translation import gettext as _
 from typing_extensions import Self, override
 
+from zerver.lib import native_thumbnail_status
 from zerver.lib.exceptions import ErrorCode, JsonableError
 from zerver.lib.mime_types import AUDIO_INLINE_MIME_TYPES, INLINE_MIME_TYPES, bare_content_type
 from zerver.lib.queue import queue_event_on_commit
@@ -357,6 +358,25 @@ def missing_thumbnails(
         ]
 
     return needed_thumbnails
+
+
+def has_ready_thumbnail(image_attachment: ImageAttachment) -> bool:
+    if native_thumbnail_status.available():
+
+        def key(format: BaseThumbnailFormat) -> native_thumbnail_status.ThumbnailKey:
+            return (format.extension, format.max_width, format.max_height, format.animated)
+
+        status = native_thumbnail_status.completeness(
+            image_attachment.thumbnail_metadata,
+            tuple(key(format) for format in THUMBNAIL_OUTPUT_FORMATS),
+            key(TRANSCODED_IMAGE_FORMAT) if needs_transcoded_format(image_attachment) else None,
+            image_attachment.frames,
+            image_attachment.original_width_px,
+            image_attachment.original_height_px,
+        )
+        if status is not None:
+            return status
+    return not missing_thumbnails(image_attachment)
 
 
 def maybe_thumbnail(

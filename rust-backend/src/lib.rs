@@ -206,6 +206,8 @@ mod python_register_state;
 
 #[cfg(feature = "python")]
 mod python_channel_payload;
+#[cfg(feature = "python")]
+mod python_thumbnail_status;
 
 #[cfg(feature = "python")]
 mod python_settings_payload;
