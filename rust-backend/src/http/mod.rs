@@ -1,7 +1,7 @@
 use std::{collections::HashSet, error::Error, path::Path};
 
 use axum::{
-    Router,
+    Extension, Router,
     extract::DefaultBodyLimit,
     routing::{delete, get, patch},
 };
@@ -48,6 +48,7 @@ pub struct UserReadConfig<'a> {
     pub external_host: &'a str,
     pub emoji_url_base: Option<&'a str>,
     pub user_group_read_pilot: bool,
+    pub user_group_detail_read_pilot: bool,
     pub rate_limit: Option<RateLimitConfig<'a>>,
     pub activity: Option<ActivityConfig<'a>>,
     pub alert_word_cache_manifest: Option<&'a Path>,
@@ -103,6 +104,10 @@ pub async fn router_with_user_reads(
     let user_group_read_pilot = config.user_group_read_pilot;
     if user_group_read_pilot && !browser_enabled {
         return Err("User-group read pilot requires signed Django sessions".into());
+    }
+    let user_group_detail_read_pilot = config.user_group_detail_read_pilot;
+    if user_group_detail_read_pilot && !browser_enabled {
+        return Err("User-group detail read pilot requires signed Django sessions".into());
     }
     let emoji_reads = config.emoji_url_base.is_some();
     let saved_snippet_writes = config.saved_snippet_max_content_length.is_some();
@@ -215,6 +220,16 @@ pub async fn router_with_user_reads(
         routes = routes
             .route(group_listing_request::PATH, get(user_reads::get))
             .route(group_listing_request::SESSION_PATH, get(user_reads::get));
+    }
+    if user_group_detail_read_pilot {
+        use group_detail_request::DetailKind::{Members, Subgroups};
+        let members = get(user_reads::get_group_detail).layer(Extension(Members));
+        let subgroups = get(user_reads::get_group_detail).layer(Extension(Subgroups));
+        routes = routes
+            .route("/api/v1/user_groups/{id}/members", members.clone())
+            .route("/json/user_groups/{id}/members", members)
+            .route("/api/v1/user_groups/{id}/subgroups", subgroups.clone())
+            .route("/json/user_groups/{id}/subgroups", subgroups);
     }
     let snippet_detail_route = patch(user_reads::write_saved_snippet_detail)
         .delete(user_reads::write_saved_snippet_detail)

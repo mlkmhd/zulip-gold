@@ -186,7 +186,7 @@ async fn user_group_listing_matches_django() {
             &tx,
             case.user,
             case.realm,
-            case.group,
+            Some(case.group),
             case.kind,
             case.query.as_deref(),
         )

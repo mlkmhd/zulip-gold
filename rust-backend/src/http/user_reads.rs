@@ -25,6 +25,7 @@ use super::{
     database::Database,
     draft_writes, drafts,
     form::{Form, FormError},
+    group_detail_request::{self, DetailKind, DetailReadError},
     group_listing_request::{self, ReadError as GroupReadError},
     linkifiers,
     locale::Locales,
@@ -59,6 +60,7 @@ enum Endpoint {
     NavigationViews,
     ChannelFolders,
     UserGroups,
+    GroupDetail(DetailKind, Option<i64>),
     ScheduledMessages,
     Reminders,
 }
@@ -108,6 +110,8 @@ impl Endpoint {
             Self::NavigationViews => "get_navigation_views",
             Self::ChannelFolders => "get_channel_folders",
             Self::UserGroups => "get_user_groups",
+            Self::GroupDetail(DetailKind::Members, _) => "get_user_group_members",
+            Self::GroupDetail(DetailKind::Subgroups, _) => "get_subgroups_of_user_group",
             Self::ScheduledMessages => "fetch_scheduled_messages",
             Self::Reminders => "fetch_reminders",
         }
@@ -161,10 +165,28 @@ impl Endpoint {
                 let listing =
                     group_listing_request::read_authenticated(database, user_id, realm_id, query)
                         .await
-                        .map_err(group_read_error)?;
+                        .map_err(|err| {
+                            group_read_error(err, group_listing_request::INCLUDE_DEACTIVATED)
+                        })?;
                 let object =
                     serde_json::to_string(&listing).expect("group listing can serialize to JSON");
                 // The common read response adds result/msg to these object fields.
+                return Ok(object[1..object.len() - 1].to_owned());
+            }
+            Self::GroupDetail(kind, id) => {
+                let listing = group_detail_request::read_authenticated_group_detail(
+                    database, user_id, realm_id, id, kind, query,
+                )
+                .await
+                .map_err(|error| match error {
+                    DetailReadError::Request(error) => {
+                        group_read_error(error, kind.direct_parameter())
+                    }
+                    DetailReadError::InvalidGroup => ApiError::InvalidUserGroup,
+                    DetailReadError::DeactivatedGroup => ApiError::DeactivatedUserGroup,
+                })?;
+                let object =
+                    serde_json::to_string(&listing).expect("group details can serialize to JSON");
                 return Ok(object[1..object.len() - 1].to_owned());
             }
             Self::ChannelFolders => {
@@ -638,6 +660,8 @@ enum ApiError {
     Unauthorized(&'static str),
     BadRequest(&'static str),
     UserGroupGuest,
+    InvalidUserGroup,
+    DeactivatedUserGroup,
     BotRequired,
     BotStorageKeyNotFound,
     BotStorageLimitExceeded { excess: i128, limit: u64 },
@@ -677,14 +701,11 @@ impl From<draft_writes::WriteError> for ApiError {
     }
 }
 
-fn group_read_error(error: GroupReadError) -> ApiError {
-    use group_listing_request::INCLUDE_DEACTIVATED;
+fn group_read_error(error: GroupReadError, parameter: &'static str) -> ApiError {
     match error {
         GroupReadError::Guest => ApiError::UserGroupGuest,
-        GroupReadError::InvalidJson => ApiError::Form(FormError::InvalidJson(INCLUDE_DEACTIVATED)),
-        GroupReadError::ExpectedBoolean => {
-            ApiError::Form(FormError::ExpectedBoolean(INCLUDE_DEACTIVATED))
-        }
+        GroupReadError::InvalidJson => ApiError::Form(FormError::InvalidJson(parameter)),
+        GroupReadError::ExpectedBoolean => ApiError::Form(FormError::ExpectedBoolean(parameter)),
         GroupReadError::MalformedQuery => ApiError::Form(FormError::Malformed),
         // The previously authenticated account or realm assignment may no
         // longer be available by the time we load its current role. Fail closed.
@@ -756,7 +777,24 @@ pub(super) async fn get(
     uri: Uri,
     headers: HeaderMap,
 ) -> Response {
-    respond(state, peer, uri, headers, None).await
+    respond(state, peer, uri, headers, None, None).await
+}
+
+pub(super) async fn get_group_detail(
+    State(state): State<UserReads>,
+    Extension(kind): Extension<DetailKind>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    Path(id): Path<String>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    // Django's int path converter accepts one or more ASCII decimal digits.
+    // Keep an overflowing numeric path distinguishable from an unmatched path.
+    if id.is_empty() || !id.bytes().all(|byte| byte.is_ascii_digit()) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let endpoint = Endpoint::GroupDetail(kind, id.parse().ok());
+    respond(state, peer, uri, headers, None, Some(endpoint)).await
 }
 
 pub(super) async fn add_alert_words(
@@ -911,7 +949,7 @@ async fn respond_write(
 ) -> Response {
     let (uri, headers) = (request.uri().clone(), request.headers().clone());
     let form = Form::parse(request).await;
-    respond(state, peer, uri, headers, Some((write, form))).await
+    respond(state, peer, uri, headers, Some((write, form)), None).await
 }
 
 async fn respond(
@@ -920,9 +958,10 @@ async fn respond(
     uri: Uri,
     headers: HeaderMap,
     form: Option<(WriteOperation<'_>, Result<Form, FormError>)>,
+    endpoint: Option<Endpoint>,
 ) -> Response {
     let language = Locales::for_request(&headers);
-    let endpoint = match uri.path() {
+    let endpoint = endpoint.unwrap_or_else(|| match uri.path() {
         saved_snippets::PATH | saved_snippets::SESSION_PATH => Endpoint::SavedSnippets,
         drafts::PATH | drafts::SESSION_PATH => Endpoint::Drafts,
         attachments::PATH | attachments::SESSION_PATH => Endpoint::Attachments,
@@ -941,7 +980,7 @@ async fn respond(
             Endpoint::Reminders
         }
         _ => Endpoint::AlertWords,
-    };
+    });
     let browser_session = if uri.path().starts_with("/json/") {
         state.sessions.as_deref()
     } else {
@@ -1491,6 +1530,7 @@ fn error_response(
             | Endpoint::CustomProfileFields
             | Endpoint::ChannelFolders
             | Endpoint::UserGroups
+            | Endpoint::GroupDetail(..)
             | Endpoint::ScheduledMessages
             | Endpoint::Reminders => {
                 unreachable!("endpoints without a Rust POST do not override methods")
@@ -1543,6 +1583,14 @@ fn error_response(
             StatusCode::BAD_REQUEST,
             "BAD_REQUEST",
             "Not allowed for guest users",
+        ),
+        ApiError::InvalidUserGroup => {
+            (StatusCode::BAD_REQUEST, "BAD_REQUEST", "Invalid user group")
+        }
+        ApiError::DeactivatedUserGroup => (
+            StatusCode::BAD_REQUEST,
+            "BAD_REQUEST",
+            "User group is deactivated.",
         ),
         ApiError::DeactivatedUser => (
             StatusCode::UNAUTHORIZED,
@@ -1726,6 +1774,8 @@ fn error_response(
         | ApiError::NavigationViewNotFound
         | ApiError::DraftSyncDisabled
         | ApiError::UserGroupGuest
+        | ApiError::InvalidUserGroup
+        | ApiError::DeactivatedUserGroup
         | ApiError::BotRequired
         | ApiError::BotStorageKeyNotFound
         | ApiError::BotStorageLimitExceeded { .. }

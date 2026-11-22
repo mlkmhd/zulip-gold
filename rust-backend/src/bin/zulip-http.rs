@@ -53,6 +53,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             if enabled("ZULIP_RUST_USER_GROUP_READ_PILOT")? {
                 return Err("User-group read pilot requires ZULIP_RUST_DATABASE_URL".into());
             }
+            if enabled("ZULIP_RUST_USER_GROUP_DETAIL_READ_PILOT")? {
+                return Err("User-group detail read pilot requires ZULIP_RUST_DATABASE_URL".into());
+            }
             if optional_env("ZULIP_RUST_EMOJI_URL_BASE")?.is_some() {
                 return Err("Custom emoji reads require ZULIP_RUST_DATABASE_URL".into());
             }
@@ -197,6 +200,7 @@ async fn user_read_router(
             saved_snippet_max_content_length,
             external_host: &external_host,
             user_group_read_pilot: enabled("ZULIP_RUST_USER_GROUP_READ_PILOT")?,
+            user_group_detail_read_pilot: enabled("ZULIP_RUST_USER_GROUP_DETAIL_READ_PILOT")?,
             emoji_url_base: emoji_url_base.as_deref(),
             rate_limit: redis_url.as_deref().map(|url| RateLimitConfig {
                 url,

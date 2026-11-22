@@ -1,4 +1,4 @@
-//! Unrouted request operations for group membership and subgroup lists.
+//! Post-authentication operations for the user-group detail read pilot.
 
 use std::collections::BTreeSet;
 
@@ -97,17 +97,19 @@ pub struct GroupDetailData {
 /// The SQL seeds member traversal with the root and subgroup traversal with its
 /// direct children. PostgreSQL UNION deduplicates shared descendants before
 /// member lookup. Result order is unspecified by Django's API and is made
-/// deterministic here. This operation is not registered with a router.
+/// deterministic here. An out-of-range numeric ID is rejected only after
+/// the non-guest restriction and query validation, like a missing group.
 pub async fn read_authenticated_group_detail(
     db: &impl GenericClient,
     authenticated_user_id: i32,
     authenticated_realm_id: i32,
-    group_id: i64,
+    group_id: Option<i64>,
     kind: DetailKind,
     query: Option<&str>,
 ) -> Result<GroupDetailData, DetailReadError> {
     require_non_guest(db, authenticated_user_id, authenticated_realm_id).await?;
     let options = read_options(query, kind.direct_parameter())?;
+    let group_id = group_id.ok_or(DetailReadError::InvalidGroup)?;
     let row = db
         .query_opt(
             GROUP_DETAILS,

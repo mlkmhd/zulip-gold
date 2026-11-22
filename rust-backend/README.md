@@ -4980,7 +4980,37 @@ without assuming a wire order, since the Django comparisons treat both
 arrays as unordered. Invalid query values, guest precedence, other-realm
 and unnamed groups, and ordinary bot reads are covered as well.
 
-Neither operation is registered with a listener. The numeric path and
-HTTP method handling, translated response parity, routing, accounting and
-explicit rollback are separate gates. The single-user membership check has
-an additional target-user visibility policy and is not included.
+The PostgreSQL check does not exercise the HTTP layer. The separate
+direct pilot below covers transport. The single-user membership check
+has an additional target-user visibility policy and is not included.
+
+### Verify the direct user-group detail read pilot locally
+
+The separate, default-off `ZULIP_RUST_USER_GROUP_DETAIL_READ_PILOT=1`
+switch attaches only GET/HEAD for numeric
+`/api/v1/user_groups/{id}/members`, `/api/v1/user_groups/{id}/subgroups`,
+and their `/json/` counterparts to the loopback service. It requires
+database and signed Django session settings. The list and detail pilot
+flags are independent. No proxy template forwards the detail requests.
+
+From the same private namespace and synthetic database as the list pilot,
+generate the reference fixtures and build the HTTP binary as above, then run:
+
+```sh
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" \
+  "$checkout/rust-backend/tests/check_user_group_details_direct.py" \
+  --fixture-root "$fixture_root" --nginx "$nginx" --uwsgi "$uwsgi" --venv "$venv"
+```
+
+The check compares 98 direct responses with Django/uWSGI, including
+16 empty HEAD responses. It covers the two authenticated surfaces,
+standard group and parameter errors, French error messages, ordinary
+numeric IDs including leading zeroes and a missing ID beyond bigint, and
+the separate startup and opt-in guards. The comparison sorts ID arrays
+whose existing Django tests treat order as unspecified. Other methods
+still go to Django in the proxy; the direct pilot offers only GET/HEAD.
+
+This does not exercise switching the proxy, request accounting, or rollback
+for the detail operations. Production routing and default behavior remain
+unchanged.
