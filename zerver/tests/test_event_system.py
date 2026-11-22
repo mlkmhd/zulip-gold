@@ -15,6 +15,7 @@ from zerver.actions.channel_folders import check_add_channel_folder
 from zerver.actions.custom_profile_fields import try_update_realm_custom_profile_field
 from zerver.actions.message_send import check_send_message
 from zerver.actions.presence import do_update_user_presence
+from zerver.actions.realm_settings import do_set_realm_user_default_setting
 from zerver.actions.streams import do_change_stream_folder
 from zerver.actions.user_settings import do_change_avatar_fields, do_change_user_setting
 from zerver.actions.user_topics import do_set_user_topic_visibility_policy
@@ -34,6 +35,7 @@ from zerver.lib.users import get_users_for_api
 from zerver.models import (
     CustomProfileField,
     Message,
+    RealmUserDefault,
     UserMessage,
     UserPresence,
     UserProfile,
@@ -42,7 +44,7 @@ from zerver.models import (
 from zerver.models.clients import get_client
 from zerver.models.realms import get_realm
 from zerver.models.streams import get_stream
-from zerver.models.users import get_system_bot
+from zerver.models.users import ResolvedTopicNoticeAutoReadPolicyEnum, get_system_bot
 from zerver.tornado.django_api import EventQueueData
 from zerver.tornado.event_queue import (
     DEFAULT_EVENT_QUEUE_TIMEOUT_SECS,
@@ -307,6 +309,49 @@ class EventsEndpointTest(ZulipTestCase):
             self.assertIn(
                 inactive.id, [entry["user_id"] for entry in snapshot["realm_non_active_users"]]
             )
+
+    def test_register_separates_personal_and_realm_settings_payloads(self) -> None:
+        user = self.example_user("hamlet")
+        realm_defaults = RealmUserDefault.objects.get(realm=user.realm)
+        do_change_user_setting(
+            user,
+            "resolved_topic_notice_auto_read_policy",
+            ResolvedTopicNoticeAutoReadPolicyEnum.always,
+            acting_user=user,
+        )
+        do_set_realm_user_default_setting(
+            realm_defaults,
+            "resolved_topic_notice_auto_read_policy",
+            ResolvedTopicNoticeAutoReadPolicyEnum.never,
+            acting_user=None,
+        )
+        user.timezone = "US/Pacific"
+        user.save(update_fields=["timezone"])
+        queue = EventQueueData(queue_id="15:27", idle_queue_timeout_secs=600)
+        with stub_event_queue_user_events(queue, []):
+            response = self.api_post(
+                user,
+                "/api/v1/register",
+                {
+                    "event_types": orjson.dumps(
+                        ["user_settings", "realm_user_settings_defaults"]
+                    ).decode()
+                },
+            )
+        state = self.assert_json_success(response)
+        personal = state["user_settings"]
+        defaults = state["realm_user_settings_defaults"]
+        self.assertEqual(personal["resolved_topic_notice_auto_read_policy"], "always")
+        self.assertEqual(defaults["resolved_topic_notice_auto_read_policy"], "never")
+        self.assertEqual(personal["timezone"], "America/Los_Angeles")
+        self.assertNotIn("timezone", defaults)
+        self.assertNotIn("api_key", personal)
+        self.assertNotIn("api_key", defaults)
+        self.assertEqual(personal["emojiset_choices"], defaults["emojiset_choices"])
+        self.assertIn("zulip", personal["available_notification_sounds"])
+        self.assertEqual(
+            personal["available_notification_sounds"], defaults["available_notification_sounds"]
+        )
 
     def test_events_register_spectators(self) -> None:
         # Verify that POST /register works for spectators, but not for

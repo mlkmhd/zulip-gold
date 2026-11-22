@@ -4600,3 +4600,24 @@ PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
 ./tools/test-backend zerver.tests.test_subs.SubscriptionAPITest.test_subscriptions_list_keeps_muting_compatibility_and_weekly_traffic \
   zerver.tests.test_subs.StreamTrafficTest
 ```
+
+## Assemble user settings and preference catalogs through Rust
+
+Set `ZULIP_RUST_SETTINGS_PAYLOAD=1` to build the personal and realm
+default settings objects used by register and browser bootstrap. Rust
+reads only the existing ordered Django property schema, preserves Python
+values, and assembles the emoji choice and notification sound catalogs.
+The sound catalog still includes only plain `.ogg` basenames, excludes
+hidden and production-hashed variants, and sorts the result.
+
+Django continues to select the user or spectator defaults and eligible
+realm, read the static directory, canonicalize timezone aliases,
+translate policy enums, and decide which setting changes are permitted.
+The switch is off by default. An older extension or unsupported object
+shape falls back to Python.
+
+```sh
+PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
+  python -m unittest discover -s rust-backend/tests -p test_settings_payload_parity.py
+./tools/test-backend zerver.tests.test_event_system.EventsEndpointTest.test_register_separates_personal_and_realm_settings_payloads
+```

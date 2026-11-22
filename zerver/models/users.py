@@ -29,6 +29,7 @@ from zerver.lib.cache import (
     user_profile_by_id_cache_key,
     user_profile_narrow_by_id_cache_key,
 )
+from zerver.lib.native_settings_payload import format_emoji_choices
 from zerver.lib.types import ProfileData, RawUserDict
 from zerver.lib.utils import generate_api_key
 from zerver.models.constants import MAX_LANGUAGE_ID_LENGTH
@@ -431,6 +432,9 @@ class UserBaseSettings(models.Model):
 
     @staticmethod
     def emojiset_choices() -> list[dict[str, str]]:
+        native = format_emoji_choices(UserProfile.EMOJISET_CHOICES)
+        if native is not None:
+            return native
         return [
             dict(key=emojiset[0], text=emojiset[1]) for emojiset in UserProfile.EMOJISET_CHOICES
         ]

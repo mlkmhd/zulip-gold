@@ -201,6 +201,9 @@ mod python_register_state;
 #[cfg(feature = "python")]
 mod python_channel_payload;
 
+#[cfg(feature = "python")]
+mod python_settings_payload;
+
 #[cfg(any(feature = "python", test))]
 mod channel_traffic;
 

@@ -20,7 +20,12 @@ from zerver.actions.realm_settings import (
 from zerver.actions.saved_snippets import do_get_saved_snippets
 from zerver.actions.user_settings import do_change_user_setting
 from zerver.actions.users import get_owned_bot_dicts
-from zerver.lib import emoji, native_recent_conversations, native_register_state
+from zerver.lib import (
+    emoji,
+    native_recent_conversations,
+    native_register_state,
+    native_settings_payload,
+)
 from zerver.lib.alert_words import user_alert_words
 from zerver.lib.avatar import avatar_url
 from zerver.lib.bot_config import load_bot_config_template
@@ -659,11 +664,9 @@ def fetch_initial_state_data(
 
     if want("realm_user_settings_defaults"):
         realm_user_default = RealmUserDefault.objects.get(realm=realm)
-        state["realm_user_settings_defaults"] = {}
-        for property_name in RealmUserDefault.property_types:
-            state["realm_user_settings_defaults"][property_name] = getattr(
-                realm_user_default, property_name
-            )
+        state["realm_user_settings_defaults"] = native_settings_payload.snapshot_properties(
+            realm_user_default, RealmUserDefault.property_types
+        )
 
         state["realm_user_settings_defaults"]["emojiset_choices"] = (
             RealmUserDefault.emojiset_choices()
@@ -919,10 +922,9 @@ def fetch_initial_state_data(
         state["stop_words"] = read_stop_words()
 
     if want("user_settings"):
-        state["user_settings"] = {}
-
-        for prop in UserProfile.property_types:
-            state["user_settings"][prop] = getattr(settings_user, prop)
+        state["user_settings"] = native_settings_payload.snapshot_properties(
+            settings_user, UserProfile.property_types
+        )
 
         state["user_settings"]["emojiset_choices"] = UserProfile.emojiset_choices()
         state["user_settings"]["timezone"] = canonicalize_timezone(settings_user.timezone)
