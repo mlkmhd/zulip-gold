@@ -24,8 +24,8 @@
 
 ## وضعیت مهاجرت
 
-شمار فعلی Rust مستقل و اختیاری: ۳۲ از ۱۷۱ عملیات OpenAPI (۱۸٫۷٪)
-و ۳۲ از ۱۹۰ عملیات صریح وب (۱۶٫۸٪). فهرست‌ها هم‌پوشانی دارند؛
+شمار فعلی Rust مستقل و اختیاری: ۳۳ از ۱۷۱ عملیات OpenAPI (۱۹٫۳٪)
+و ۳۳ از ۱۹۰ عملیات صریح وب (۱۷٫۴٪). فهرست‌ها هم‌پوشانی دارند؛
 `HEAD` متناظر جداگانه شمرده نشده و این اعداد درصد کل backend نیستند.
 
 | عملیات یا جریان                                                                         | منطق اختیاری Rust                                                      | مسیر HTTP در توسعه و staging                                    | مسیر پیش‌فرض استقرار |
@@ -58,6 +58,7 @@
 | `GET /api/v1/attachments` و alias وب با `HEAD` متناظر | فایل‌های مالک، پیام‌های مرتبط و مصرف فضای سازمان | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی | Django |
 | `GET /api/v1/realm/emoji` و alias وب با `HEAD` متناظر | ایموجی سازمان و نشانی عمومی فایل و تصویر ثابت | Rust مستقیم با تنظیم ریشهٔ نشانی یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی | Django |
 | `GET /api/v1/channel_folders` و alias وب با `HEAD` متناظر | پوشه‌های سازمان با فیلتر بایگانی و ترتیب نمایش از PostgreSQL | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی | Django |
+| `GET /api/v1/get_stream_id` و alias وب با `HEAD` متناظر | شناسهٔ کانال مجاز همان سازمان از نام، Basic/نشست، سهمیه و فعالیت | Rust مستقیم و nginx آزمایشی با پایلوت جداگانه | Django |
 | `POST /api/v1/scheduled_messages` و `POST /api/v1/reminders` و aliasهای وب | درج گروهی رکوردهای معتبر، در تراکنش Django | Django با افزونهٔ اختیاری Rust | Django |
 | `PATCH /api/v1/scheduled_messages/{scheduled_message_id}` و alias وب | ثبت تغییرات پس از قفل سطر و بررسی مجوز | Django با افزونهٔ اختیاری Rust | Django |
 | worker تحویل پیام‌های زمان‌بندی‌شده و یادآوری‌ها | انتخاب و قفل کار آماده و ثبت نتیجه در PostgreSQL | پردازش Django با افزونهٔ اختیاری Rust | Django |
@@ -533,7 +534,7 @@ audit ایجاد حفظ می‌شود و رویداد `saved_snippets/remove` پ
 | `GET`    | `/api/v1/export/realm/consents`                         | `get-realm-export-consents`            | `zerver.views.realm_export.get_users_export_consents`                          | Django         |
 | `DELETE` | `/api/v1/export/realm/{export_id}`                      | `delete-realm-export`                  | `zerver.views.realm_export.delete_realm_export`                                | Django         |
 | `POST`   | `/api/v1/fetch_api_key`                                 | `fetch-api-key`                        | `zerver.views.auth.api_fetch_api_key`                                          | Django         |
-| `GET`    | `/api/v1/get_stream_id`                                 | `get-stream-id`                        | `zerver.views.streams.json_get_stream_id`                                      | Django         |
+| `GET`    | `/api/v1/get_stream_id`                                 | `get-stream-id`                        | `zerver.views.streams.json_get_stream_id`                                      | Rust اختیاری |
 | `GET`    | `/api/v1/invites`                                       | `get-invites`                          | `zerver.views.invite.get_user_invites`                                         | Django         |
 | `POST`   | `/api/v1/invites`                                       | `send-invites`                         | `zerver.views.invite.invite_users_backend`                                     | Django         |
 | `POST`   | `/api/v1/invites/multiuse`                              | `create-invite-link`                   | `zerver.views.invite.generate_multiuse_invite_backend`                         | Django         |
@@ -754,7 +755,7 @@ audit ایجاد حفظ می‌شود و رویداد `saved_snippets/remove` پ
 | `/json/export/realm/consents`                         | `GET`                    | Django            |
 | `/json/export/realm/{export_id}`                      | `DELETE`                 | Django            |
 | `/json/fetch_api_key`                                 | `POST`                   | Django (مخصوص وب) |
-| `/json/get_stream_id`                                 | `GET`                    | Django            |
+| `/json/get_stream_id`                                 | `GET`                    | Rust اختیاری |
 | `/json/invites`                                       | `GET`, `POST`            | Django            |
 | `/json/invites/multiuse`                              | `POST`                   | Django            |
 | `/json/invites/multiuse/{invite_id}`                  | `DELETE`                 | Django            |

@@ -13,6 +13,7 @@ from base64 import b64encode
 from contextlib import ExitStack, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlencode
 
 import django
 from django.conf import settings
@@ -85,6 +86,17 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
         route_groups = ((2, ("user-group-membership-routes.conf",)),)
         paths = ((f"/user_groups/{group_id}/members/{member.id}", "get_is_user_group_member"),)
         group_pilot = {"ZULIP_RUST_USER_GROUP_MEMBERSHIP_READ_PILOT": "1"}
+    elif args.channel_id:
+        maps = ("channel-id-map.conf",)
+        route_groups = ((2, ("channel-id-routes.conf",)),)
+        query = urlencode({"stream": "Pilot lookup Café"})
+        paths = ((f"/get_stream_id?{query}", "json_get_stream_id"),)
+        group_pilot = {"ZULIP_RUST_CHANNEL_ID_READ_PILOT": "1"}
+
+    def with_client(path: str, client: str) -> str:
+        separator = "&" if "?" in path else "?"
+        return f"{path}{separator}client={client}"
+
     other_members = UserProfile.objects.filter(
         realm=member.realm, role=UserProfile.ROLE_MEMBER, is_bot=False, is_active=True
     ).exclude(id=member.id)
@@ -115,7 +127,7 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
             method,
             member.realm.host,
             credentials,
-            f"{prefix}{path}?client={client}",
+            prefix + with_client(path, client),
             200,
             user.id,
             client_id,
@@ -134,7 +146,7 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
             "HEAD",
             member.realm.host,
             basic(readiness_user),
-            f"/api/v1{path}?client=ZulipMobile",
+            "/api/v1" + with_client(path, "ZulipMobile"),
             200,
             readiness_user.id,
             mobile_id,
@@ -317,23 +329,24 @@ def main() -> None:
     group_modes.add_argument(
         "--user-group-membership", action="store_true", help="rehearse one user's group membership"
     )
+    group_modes.add_argument(
+        "--channel-id", action="store_true", help="rehearse channel lookup by name"
+    )
     parser.add_argument("--uwsgi", type=Path, required=True)
     parser.add_argument("--venv", type=Path, required=True)
     args = parser.parse_args()
-    if (args.user_groups or args.user_group_details or args.user_group_membership) and (
-        args.redis_server is None or args.openssl is None
-    ):
-        parser.error("group read pilots require --redis-server and --openssl")
+    if (
+        args.user_groups or args.user_group_details or args.user_group_membership or args.channel_id
+    ) and (args.redis_server is None or args.openssl is None):
+        parser.error("selected pilot requires --redis-server and --openssl")
     if args.redis_server is not None and args.openssl is None:
         parser.error("the combined quota and activity gate requires --openssl")
     root = args.fixture_root.resolve(strict=True)
     validate_local_root(root)
     if (
-        args.user_groups or args.user_group_details or args.user_group_membership
+        args.user_groups or args.user_group_details or args.user_group_membership or args.channel_id
     ) and socket.if_nameindex() != [(1, "lo")]:
-        raise RuntimeError(
-            "the user-group pilots require a private loopback-only network namespace"
-        )
+        raise RuntimeError("the selected pilot requires a private loopback-only network namespace")
     if any(name.startswith("ZULIP_RUST_") and name != "ZULIP_RUST_HTTP_BIN" for name in os.environ):
         raise RuntimeError("use a scrubbed environment with only ZULIP_RUST_HTTP_BIN configured")
     validate_fixture(root)

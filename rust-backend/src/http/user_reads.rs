@@ -20,7 +20,7 @@ use tokio_postgres::Client;
 use super::{
     DraftWriteConfig, UserReadConfig, WebPostScheme,
     activity::{ActivityPublisher, client_name},
-    alert_word_cache, alert_words, attachments, bot_storage, channel_folders,
+    alert_word_cache, alert_words, attachments, bot_storage, channel_folders, channel_id,
     custom_profile_fields,
     database::Database,
     draft_writes, drafts,
@@ -59,6 +59,7 @@ enum Endpoint {
     CustomProfileFields,
     NavigationViews,
     ChannelFolders,
+    ChannelId,
     UserGroups,
     GroupDetail(DetailKind, Option<i64>),
     GroupMembership(Option<i64>, Option<i32>),
@@ -110,6 +111,7 @@ impl Endpoint {
             Self::CustomProfileFields => "list_realm_custom_profile_fields",
             Self::NavigationViews => "get_navigation_views",
             Self::ChannelFolders => "get_channel_folders",
+            Self::ChannelId => "json_get_stream_id",
             Self::UserGroups => "get_user_groups",
             Self::GroupDetail(DetailKind::Members, _) => "get_user_group_members",
             Self::GroupDetail(DetailKind::Subgroups, _) => "get_subgroups_of_user_group",
@@ -201,6 +203,17 @@ impl Endpoint {
                 let object = serde_json::to_string(&membership)
                     .expect("group membership can serialize to JSON");
                 return Ok(object[1..object.len() - 1].to_owned());
+            }
+            Self::ChannelId => {
+                let form = Form::from_query(query).map_err(ApiError::Form)?;
+                let name = form
+                    .value(channel_id::STREAM)
+                    .ok_or(ApiError::Form(FormError::Missing(channel_id::STREAM)))?;
+                let stream_id = channel_id::find(database, user_id, realm_id, name)
+                    .await?
+                    .ok_or_else(|| ApiError::InvalidChannelName(name.to_owned()))?;
+                let extra = ignored_parameters(&form, &[channel_id::STREAM, "client"]);
+                return Ok(format!("\"stream_id\":{stream_id}{extra}"));
             }
             Self::ChannelFolders => {
                 let form = Form::from_query(query).map_err(ApiError::Form)?;
@@ -681,6 +694,7 @@ enum ApiError {
     BotStorageKeyNotFound,
     BotStorageLimitExceeded { excess: i128, limit: u64 },
     InvalidNavigationView(&'static str),
+    InvalidChannelName(String),
     NavigationViewNotFound,
     DeactivatedUser,
     DeactivatedRealm,
@@ -1017,6 +1031,7 @@ async fn respond(
         }
         navigation_views::PATH | navigation_views::SESSION_PATH => Endpoint::NavigationViews,
         channel_folders::PATH | channel_folders::SESSION_PATH => Endpoint::ChannelFolders,
+        channel_id::PATH | channel_id::SESSION_PATH => Endpoint::ChannelId,
         group_listing_request::PATH | group_listing_request::SESSION_PATH => Endpoint::UserGroups,
         scheduled_messages::PATH | scheduled_messages::SESSION_PATH => Endpoint::ScheduledMessages,
         scheduled_messages::REMINDERS_PATH | scheduled_messages::SESSION_REMINDERS_PATH => {
@@ -1572,6 +1587,7 @@ fn error_response(
             | Endpoint::RealmEmoji
             | Endpoint::CustomProfileFields
             | Endpoint::ChannelFolders
+            | Endpoint::ChannelId
             | Endpoint::UserGroups
             | Endpoint::GroupDetail(..)
             | Endpoint::GroupMembership(..)
@@ -1623,6 +1639,11 @@ fn error_response(
         ApiError::BadRequest(message) | ApiError::InvalidNavigationView(message) => {
             (StatusCode::BAD_REQUEST, "BAD_REQUEST", message)
         }
+        ApiError::InvalidChannelName(_) => (
+            StatusCode::BAD_REQUEST,
+            "BAD_REQUEST",
+            "Invalid channel name '{channel_name}'",
+        ),
         ApiError::UserGroupGuest => (
             StatusCode::BAD_REQUEST,
             "BAD_REQUEST",
@@ -1778,6 +1799,7 @@ fn error_response(
     let translated = locales.gettext(language, message);
     let message = match &error {
         ApiError::Csrf(reason) => translated.replace("{reason}", reason),
+        ApiError::InvalidChannelName(name) => translated.replace("{channel_name}", name),
         ApiError::DraftSchema(error) => error.format(translated),
         ApiError::DraftWrite(error) => error.format(translated),
         ApiError::Form(
@@ -1823,6 +1845,7 @@ fn error_response(
         ApiError::Form(_)
         | ApiError::SnippetNotFound
         | ApiError::InvalidNavigationView(_)
+        | ApiError::InvalidChannelName(_)
         | ApiError::NavigationViewNotFound
         | ApiError::DraftSyncDisabled
         | ApiError::UserGroupGuest

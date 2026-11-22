@@ -5145,3 +5145,34 @@ route include and reloading nginx restores Django even while Rust is down.
 There is no automatic failover. These tests do not validate production
 ingress, privileges or load. Neither templates nor the listener change
 the deployment default.
+
+### Rehearse channel ID lookup and rollback
+
+`ZULIP_RUST_CHANNEL_ID_READ_PILOT=1` adds the loopback-only GET and HEAD
+for `/api/v1/get_stream_id` and `/json/get_stream_id` with a configured
+database and signed Django sessions. Django remains the default. The lookup
+uses PostgreSQL's case-insensitive name comparison and the same realm,
+active-channel and content-access checks as the Django view. A channel
+administrator without content access still cannot look up a private channel.
+
+Use the same disposable group fixture above. Run the checks inside its
+private loopback namespace:
+
+```sh
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" "$checkout/rust-backend/tests/check_channel_id.py" \
+  --fixture-root "$fixture_root" --nginx "$nginx" --uwsgi "$uwsgi" --venv "$venv" \
+  --openssl "$openssl"
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" \
+  "$checkout/rust-backend/tests/check_read_proxy_activity.py" --channel-id \
+  --fixture-root "$fixture_root" --nginx "$nginx" --uwsgi "$uwsgi" --venv "$venv" \
+  --openssl "$openssl" --redis-server "$redis_server" \
+  --rabbitmq-server "$rabbitmq_server" --epmd "$epmd"
+```
+
+The staging map selects exactly these two read paths on the synthetic host.
+OPTIONS and other hosts stay in Django; POST is checked in a separate nginx
+with no upstream. If Rust stops, the selected requests return 502 until the
+route include is removed and nginx is reloaded. There is no automatic
+failover. Production routing, ingress and load are not covered by this test.

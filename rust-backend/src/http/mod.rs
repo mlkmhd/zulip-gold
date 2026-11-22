@@ -14,6 +14,7 @@ pub mod alert_words;
 mod attachments;
 mod bot_storage;
 mod channel_folders;
+mod channel_id;
 mod compatibility;
 mod csrf;
 mod custom_profile_fields;
@@ -54,6 +55,7 @@ pub struct UserReadConfig<'a> {
     pub user_group_read_pilot: bool,
     pub user_group_detail_read_pilot: bool,
     pub user_group_membership_read_pilot: bool,
+    pub channel_id_read_pilot: bool,
     pub rate_limit: Option<RateLimitConfig<'a>>,
     pub activity: Option<ActivityConfig<'a>>,
     pub alert_word_cache_manifest: Option<&'a Path>,
@@ -117,6 +119,10 @@ pub async fn router_with_user_reads(
     let user_group_membership_read_pilot = config.user_group_membership_read_pilot;
     if user_group_membership_read_pilot && !browser_enabled {
         return Err("User-group membership read pilot requires signed Django sessions".into());
+    }
+    let channel_id_read_pilot = config.channel_id_read_pilot;
+    if channel_id_read_pilot && !browser_enabled {
+        return Err("Channel ID read pilot requires signed Django sessions".into());
     }
     let emoji_reads = config.emoji_url_base.is_some();
     let saved_snippet_writes = config.saved_snippet_max_content_length.is_some();
@@ -248,6 +254,11 @@ pub async fn router_with_user_reads(
                 membership.clone(),
             )
             .route("/json/user_groups/{id}/members/{user_id}", membership);
+    }
+    if channel_id_read_pilot {
+        routes = routes
+            .route(channel_id::PATH, get(user_reads::get))
+            .route(channel_id::SESSION_PATH, get(user_reads::get));
     }
     let snippet_detail_route = patch(user_reads::write_saved_snippet_detail)
         .delete(user_reads::write_saved_snippet_detail)

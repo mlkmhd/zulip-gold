@@ -1,18 +1,23 @@
 use std::collections::{HashMap, HashSet};
 
-// Drafts require channel content access, even for realm administrators.
-pub(crate) const CHANNEL_RECIPIENT_SQL: &str = "
-    WITH RECURSIVE actor AS (
-        SELECT %s::integer AS id
-    ), member_groups(id) AS (
+// These paths both require content access, not just channel metadata.
+macro_rules! channel_content_query {
+    ($actor:literal, $select:literal, $is_guest:literal) => {
+        concat!(
+            "
+    WITH RECURSIVE actor AS (",
+            $actor,
+            "), member_groups(id) AS (
         SELECT m.user_group_id FROM zulip.zerver_usergroupmembership AS m
         JOIN actor ON actor.id = m.user_profile_id
         UNION
         SELECT m.supergroup_id FROM zulip.zerver_groupgroupmembership AS m
         JOIN member_groups AS g ON g.id = m.subgroup_id
     )
-    SELECT s.recipient_id FROM zulip.zerver_stream AS s CROSS JOIN actor
-    WHERE s.id = %s::bigint AND s.realm_id = %s::integer AND NOT s.deactivated
+    ",
+            $select,
+            "
+      AND NOT s.deactivated
       AND CASE
           WHEN s.is_web_public THEN TRUE
           WHEN EXISTS (
@@ -20,14 +25,40 @@ pub(crate) const CHANNEL_RECIPIENT_SQL: &str = "
               WHERE sub.recipient_id = s.recipient_id
                 AND sub.user_profile_id = actor.id AND sub.active
           ) THEN TRUE
-          WHEN %s::boolean THEN FALSE
+          WHEN ",
+            $is_guest,
+            " THEN FALSE
           WHEN NOT s.invite_only THEN TRUE
           ELSE EXISTS (
               SELECT 1 FROM member_groups AS g
               WHERE g.id IN (s.can_subscribe_group_id, s.can_add_subscribers_group_id)
           )
       END
-";
+"
+        )
+    };
+}
+
+pub(crate) const CHANNEL_RECIPIENT_SQL: &str = channel_content_query!(
+    "SELECT %s::integer AS id",
+    "SELECT s.recipient_id FROM zulip.zerver_stream AS s CROSS JOIN actor
+     WHERE s.id = %s::bigint AND s.realm_id = %s::integer",
+    "%s::boolean"
+);
+
+// A scalar name lookup retains Django's one-result requirement. An inactive
+// account/realm principal cannot reach the existing independent content gate.
+#[cfg(feature = "http")]
+pub(crate) const CHANNEL_ID_BY_NAME_SQL: &str = channel_content_query!(
+    "SELECT id, role FROM zulip.zerver_userprofile
+     WHERE id = $1 AND realm_id = $2 AND is_active",
+    "SELECT s.id::bigint FROM zulip.zerver_stream AS s CROSS JOIN actor
+     WHERE s.realm_id = $2 AND s.id = (
+         SELECT lookup.id FROM zulip.zerver_stream AS lookup
+          WHERE lookup.realm_id = $2 AND UPPER(lookup.name::text) = UPPER($3::text)
+     )",
+    "actor.role = 600"
+);
 
 pub(crate) const DIRECT_RECIPIENTS_SQL: &str = "
     WITH RECURSIVE actor AS (
