@@ -22,6 +22,7 @@ from zerver.actions.user_settings import do_change_user_setting
 from zerver.actions.users import get_owned_bot_dicts
 from zerver.lib import (
     emoji,
+    native_channel_folder_replay,
     native_personal_replay,
     native_recent_conversations,
     native_register_state,
@@ -2040,6 +2041,8 @@ def apply_event(
             if userset in conversations:
                 conversations[userset]["pinned"] = event["pinned"]
     elif event["type"] == "channel_folder":
+        if native_channel_folder_replay.apply(state, event):
+            return
         if event["op"] == "add":
             state["channel_folders"].append(event["channel_folder"])
             state["channel_folders"].sort(key=lambda folder: folder["id"])

@@ -5642,3 +5642,30 @@ extension on the Python path:
 ```
 
 This bridge changes no independent HTTP counts.
+
+### Replay channel-folder changes through Rust
+
+Set `ZULIP_RUST_CHANNEL_FOLDER_REPLAY=1` before starting Django to reconcile the
+already-selected channel-folder add, update, and reorder events during
+registration. The bridge preserves the order of equal IDs, updates
+existing cards in place, and applies the requested positions. Django still
+selects the organization and events, owns permissions and writes, and
+handles HTTP. The default, an older extension, or a rejected input uses the
+unchanged Python reducer.
+
+In an isolated Zulip test environment with the Python extension built and
+importable, run both paths:
+
+```bash
+for enabled in 0 1; do
+    ZULIP_RUST_CHANNEL_FOLDER_REPLAY=$enabled ./tools/test-backend \
+        zerver.tests.test_channel_folder_replay_rust \
+        zerver.tests.test_events.ChannelFolderActionTest \
+        zerver.tests.test_channel_folders.ChannelFolderCreationTest \
+        zerver.tests.test_channel_folders.GetChannelFoldersTest \
+        zerver.tests.test_channel_folders.UpdateChannelFoldersTest \
+        zerver.tests.test_channel_folders.ReorderChannelFolderTest
+done
+```
+
+This changes neither the default route nor independent HTTP coverage.
