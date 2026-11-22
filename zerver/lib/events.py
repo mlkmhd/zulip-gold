@@ -24,6 +24,7 @@ from zerver.lib import (
     emoji,
     native_recent_conversations,
     native_register_state,
+    native_schedule_replay,
     native_settings_payload,
 )
 from zerver.lib.alert_words import user_alert_words
@@ -1133,6 +1134,8 @@ def apply_event(
                     break
 
     elif event["type"] == "scheduled_messages":
+        if native_schedule_replay.apply(state, event):
+            return
         if event["op"] == "add":
             # Since bulk addition of scheduled messages will not be used by a normal user.
             assert len(event["scheduled_messages"]) == 1
@@ -1168,6 +1171,8 @@ def apply_event(
                     del state["scheduled_messages"][idx]
 
     elif event["type"] == "reminders":
+        if native_schedule_replay.apply(state, event):
+            return
         if event["op"] == "add":
             # Bulk addition of reminders is not used in normal flow.
             assert len(event["reminders"]) == 1

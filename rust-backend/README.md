@@ -5595,3 +5595,26 @@ the directory differential tests against an isolated test database:
 ```
 
 This bridge does not add independently served HTTP operations.
+
+### Replay scheduled-message and reminder state through Rust
+
+Set `ZULIP_RUST_SCHEDULE_REPLAY=1` on the Django worker to reconcile the owner's already selected
+scheduled-message and reminder events when constructing register state.
+Rust applies add, update, and remove for scheduled messages, and add and
+remove for reminders. Stable delivery order, unchanged edits, and row
+and list identity follow the Python reference.
+
+Django still selects the account, rows, events, and event types. The
+bridge does not create, edit, remove, or deliver a scheduled database
+row, or change HTTP routing. The default is off. Unsupported input or
+an older extension uses the reference without a partial native update.
+
+Run the Django reconciliation tests against an isolated test database,
+with the locally built extension on your Python path:
+
+```bash
+./tools/test-backend zerver.tests.test_schedule_replay_rust
+./tools/test-backend zerver.tests.test_events.ScheduledMessagesEventsTest zerver.tests.test_events.RemindersEventsTest
+```
+
+This bridge does not add independently served HTTP operations.

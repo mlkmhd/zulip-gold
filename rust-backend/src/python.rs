@@ -343,6 +343,9 @@ mod _zulip_backend {
     use crate::python_user_directory::assemble_user_directory;
 
     #[pymodule_export]
+    use crate::python_schedule_replay::apply_scheduled_list_event;
+
+    #[pymodule_export]
     use crate::python_recent_conversations::{
         assemble_recent_conversations, finalize_recent_conversations,
     };
