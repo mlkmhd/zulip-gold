@@ -5048,3 +5048,33 @@ Redis charge and one RabbitMQ activity event per request. The two Rust-down
 requests in that check have neither side effect. Production ingress,
 credentials, application privileges, load and other failure modes are not
 covered. No host or default configuration is changed.
+
+### Compare the unrouted self-profile projection locally
+
+The self-profile projection reads only the active account from the trusted
+authenticated user and organization IDs. It keeps the account role and bot
+fields, timestamp precision, own delivery email, and typed custom profile
+values. The newest message ID comes from that account's user-message rows,
+or is `-1` when there are none. The projection cannot select another target
+user. The existing Django-owned avatar storage, system-bot registry and
+timezone alias data supply the presentation inputs; Rust does not perform
+storage lookups or load deployment credentials.
+
+With the private PostgreSQL fixture and Rust bridges disabled, generate
+the synthetic references from the fixture's project directory and compare:
+
+```sh
+PYTHONPATH="$PWD" "$venv/bin/python" \
+  "$checkout/rust-backend/tests/seed_own_profile.py" --fixture-root "$fixture_root"
+ZULIP_OWN_PROFILE_FIXTURE_ROOT="$fixture_root" ISOLATED_PG_PORT="$port" \
+  ISOLATED_PG_ROLE="$ISOLATED_PG_ROLE" ISOLATED_PG_SOCKET="$ISOLATED_PG_SOCKET" \
+  CARGO_NET_OFFLINE=true cargo test --manifest-path "$checkout/rust-backend/Cargo.toml" \
+  --locked --features http --test own_profile_postgres -- --ignored
+```
+
+The Rust test uses a read-only transaction and compares 11 actual Django
+Basic/session responses including ordinary owners, admins, members, guests,
+bots and a separate organization. It also verifies that mismatched
+organization IDs do not return rows. The test does not add an HTTP adapter
+or change the existing self-profile route; the current route and its
+other methods stay in Django.

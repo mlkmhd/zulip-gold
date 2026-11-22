@@ -28,6 +28,8 @@ pub mod group_listing_request;
 mod linkifiers;
 mod locale;
 mod navigation_views;
+#[doc(hidden)]
+pub mod own_profile;
 mod rate_limit;
 mod realm_domains;
 mod realm_emoji;
