@@ -22,6 +22,8 @@ mod draft_writes;
 mod drafts;
 mod form;
 #[doc(hidden)]
+pub mod group_detail_request;
+#[doc(hidden)]
 pub mod group_listing_request;
 mod linkifiers;
 mod locale;

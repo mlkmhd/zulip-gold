@@ -4963,3 +4963,24 @@ This verifies a local standalone operation, not a deployment. Production
 ingress, credentials and role privileges, load, and service failure behavior
 outside the tested Rust stop are not covered. Do not add the templates to
 live nginx based on this rehearsal alone.
+
+### Compare group member and subgroup reads before routing
+
+The same reference and Rust PostgreSQL test in the
+[group database section](#compare-the-standalone-user-group-database-query-locally)
+also exercise two unrouted operations, the group members and group subgroups
+reads. Both use the existing post-authentication non-guest check and typed
+JSON boolean contract. They verify the named group belongs to the caller's
+organization and is not deactivated before looking up its members or subgroups.
+
+The references include 62 real Django Basic and session cases. The private
+graph has direct members, a nested group reached by two branches, an inactive
+member, and empty groups. Rust compares the same member and subgroup IDs
+without assuming a wire order, since the Django comparisons treat both
+arrays as unordered. Invalid query values, guest precedence, other-realm
+and unnamed groups, and ordinary bot reads are covered as well.
+
+Neither operation is registered with a listener. The numeric path and
+HTTP method handling, translated response parity, routing, accounting and
+explicit rollback are separate gates. The single-user membership check has
+an additional target-user visibility policy and is not included.

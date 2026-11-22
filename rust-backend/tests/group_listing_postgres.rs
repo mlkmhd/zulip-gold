@@ -5,6 +5,7 @@ use std::{env, fs, path::PathBuf};
 
 use _zulip_backend::{
     group_listing::load_user_group_listing,
+    http::group_detail_request::{DetailKind, DetailReadError, read_authenticated_group_detail},
     http::group_listing_request::{ReadError, read_authenticated},
 };
 use serde::Deserialize;
@@ -23,6 +24,18 @@ struct RequestCase {
     mode: String,
     user: i32,
     realm: i32,
+    query: Option<String>,
+    status: u16,
+    payload: Value,
+}
+
+#[derive(Deserialize)]
+struct DetailCase {
+    mode: String,
+    user: i32,
+    realm: i32,
+    group: i64,
+    kind: DetailKind,
     query: Option<String>,
     status: u16,
     payload: Value,
@@ -153,6 +166,65 @@ async fn user_group_listing_matches_django() {
             read_authenticated(&tx, case.user, 0, case.query.as_deref()).await,
             Err(ReadError::PrincipalUnavailable)
         ));
+    }
+    let detail_file = root.join("user-group-details.json");
+    let detail_metadata = fs::symlink_metadata(&detail_file).unwrap();
+    assert!(detail_metadata.file_type().is_file() && detail_metadata.uid() == owner);
+    let details: Vec<DetailCase> =
+        serde_json::from_reader(fs::File::open(detail_file).unwrap()).unwrap();
+    assert_eq!(details.len(), 62);
+    assert_eq!(
+        details.iter().filter(|case| case.mode == "basic").count(),
+        32
+    );
+    assert_eq!(
+        details.iter().filter(|case| case.mode == "session").count(),
+        30
+    );
+    for case in details {
+        let result = read_authenticated_group_detail(
+            &tx,
+            case.user,
+            case.realm,
+            case.group,
+            case.kind,
+            case.query.as_deref(),
+        )
+        .await;
+        let (status, body) = match result {
+            Ok(data) => (200, serde_json::to_value(data).unwrap()),
+            Err(error) => {
+                let field = case.kind.direct_parameter();
+                let msg = match error {
+                    DetailReadError::InvalidGroup => "Invalid user group".into(),
+                    DetailReadError::DeactivatedGroup => "User group is deactivated.".into(),
+                    DetailReadError::Request(ReadError::Guest) => {
+                        "Not allowed for guest users".into()
+                    }
+                    DetailReadError::Request(ReadError::InvalidJson) => {
+                        format!("{field} is not valid JSON")
+                    }
+                    DetailReadError::Request(ReadError::ExpectedBoolean) => {
+                        format!("{field} is not a boolean")
+                    }
+                    other => panic!("unexpected detail error: {other:?}"),
+                };
+                (
+                    400,
+                    json!({"result": "error", "msg": msg, "code": "BAD_REQUEST"}),
+                )
+            }
+        };
+        assert_eq!(
+            status, case.status,
+            "{:?} {} {:?}",
+            case.kind, case.mode, case.query
+        );
+        assert_eq!(
+            body, case.payload,
+            "{:?} {} {:?}",
+            case.kind, case.mode, case.query
+        );
     }
     tx.rollback().await.unwrap();
     drop(client);

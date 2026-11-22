@@ -12,6 +12,7 @@ from pathlib import Path
 
 import django
 from read_proxy_fixture import validate_fixture, validate_local_root, verify_private_database
+from seed_user_group_details import emit_detail_cases
 
 
 def emit_cases(output: Path) -> None:
@@ -193,6 +194,7 @@ def main() -> None:
     validate_fixture(root)
     django.setup()
     verify_private_database()
+    emit_detail_cases(root / "user-group-details.json")
     emit_cases(root / "user-group-listing.json")
 
 

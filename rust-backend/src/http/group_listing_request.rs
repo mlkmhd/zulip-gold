@@ -30,20 +30,26 @@ pub struct GroupListingData {
     ignored_parameters_unsupported: BTreeSet<String>,
 }
 
-struct ListingOptions {
-    include_deactivated: bool,
-    ignored_parameters: BTreeSet<String>,
+pub(super) struct GroupReadOptions {
+    pub(super) enabled: bool,
+    pub(super) ignored_parameters: BTreeSet<String>,
 }
 
-fn listing_options(role: i16, query: Option<&str>) -> Result<ListingOptions, ReadError> {
-    // Django's require_non_guest_user wraps typed_endpoint, so a guest
-    // rejection takes precedence over validation of even a known parameter.
+fn non_guest(role: i16) -> Result<(), ReadError> {
+    // This gate wraps Django's typed endpoint; check it before parsing.
     if role == ROLE_GUEST {
         return Err(ReadError::Guest);
     }
+    Ok(())
+}
+
+pub(super) fn read_options(
+    query: Option<&str>,
+    parameter: &'static str,
+) -> Result<GroupReadOptions, ReadError> {
     let form = Form::from_query(query).map_err(|_| ReadError::MalformedQuery)?;
-    let include_deactivated = form
-        .json_bool(INCLUDE_DEACTIVATED)
+    let enabled = form
+        .json_bool(parameter)
         .map_err(|err| match err {
             FormError::InvalidJson(_) => ReadError::InvalidJson,
             FormError::ExpectedBoolean(_) => ReadError::ExpectedBoolean,
@@ -51,14 +57,33 @@ fn listing_options(role: i16, query: Option<&str>) -> Result<ListingOptions, Rea
         })?
         .unwrap_or(false);
     let ignored_parameters = form
-        .ignored_parameters(&[INCLUDE_DEACTIVATED, "client"])
+        .ignored_parameters(&[parameter, "client"])
         .into_iter()
         .map(str::to_owned)
         .collect();
-    Ok(ListingOptions {
-        include_deactivated,
+    Ok(GroupReadOptions {
+        enabled,
         ignored_parameters,
     })
+}
+
+pub(super) async fn require_non_guest(
+    db: &impl GenericClient,
+    authenticated_user_id: i32,
+    authenticated_realm_id: i32,
+) -> Result<(), ReadError> {
+    let row = db
+        .query_opt(
+            "SELECT role FROM zulip.zerver_userprofile WHERE id = $1 AND realm_id = $2 AND is_active",
+            &[&authenticated_user_id, &authenticated_realm_id],
+        )
+        .await
+        .map_err(|error| ReadError::Database(error.into()))?
+        .ok_or(ReadError::PrincipalUnavailable)?;
+    let role = row
+        .try_get("role")
+        .map_err(|error| ReadError::Database(error.into()))?;
+    non_guest(role)
 }
 
 /// Load the list for a principal that already passed the caller's existing
@@ -74,22 +99,11 @@ pub async fn read_authenticated(
     authenticated_realm_id: i32,
     query: Option<&str>,
 ) -> Result<GroupListingData, ReadError> {
-    let row = db
-        .query_opt(
-            "SELECT role FROM zulip.zerver_userprofile WHERE id = $1 AND realm_id = $2 AND is_active",
-            &[&authenticated_user_id, &authenticated_realm_id],
-        )
+    require_non_guest(db, authenticated_user_id, authenticated_realm_id).await?;
+    let options = read_options(query, INCLUDE_DEACTIVATED)?;
+    let user_groups = load_user_group_listing(db, authenticated_realm_id, options.enabled)
         .await
-        .map_err(|error| ReadError::Database(error.into()))?
-        .ok_or(ReadError::PrincipalUnavailable)?;
-    let role = row
-        .try_get("role")
-        .map_err(|error| ReadError::Database(error.into()))?;
-    let options = listing_options(role, query)?;
-    let user_groups =
-        load_user_group_listing(db, authenticated_realm_id, options.include_deactivated)
-            .await
-            .map_err(ReadError::Database)?;
+        .map_err(ReadError::Database)?;
     Ok(GroupListingData {
         user_groups,
         ignored_parameters_unsupported: options.ignored_parameters,
@@ -99,6 +113,11 @@ pub async fn read_authenticated(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn listing_options(role: i16, query: Option<&str>) -> Result<GroupReadOptions, ReadError> {
+        non_guest(role)?;
+        read_options(query, INCLUDE_DEACTIVATED)
+    }
 
     #[test]
     fn guest_check_precedes_query_validation() {
@@ -118,13 +137,13 @@ mod tests {
 
     #[test]
     fn defaults_and_last_value_match_the_query_dict() {
-        assert!(!listing_options(400, None).unwrap().include_deactivated);
+        assert!(!listing_options(400, None).unwrap().enabled);
         let parsed = listing_options(
             400,
             Some("z=1&client=website&a=1&include_deactivated_groups=false&include_deactivated_groups=true"),
         )
         .unwrap();
-        assert!(parsed.include_deactivated);
+        assert!(parsed.enabled);
         assert_eq!(
             parsed.ignored_parameters.into_iter().collect::<Vec<_>>(),
             ["a", "z"]
