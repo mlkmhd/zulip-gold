@@ -9,7 +9,7 @@ import socket
 import stat
 from importlib import import_module
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 import django
@@ -18,9 +18,87 @@ from django.conf import settings
 from django.db import connection, transaction
 from psycopg2.extensions import parse_dsn
 
+if TYPE_CHECKING:
+    from zerver.models import Realm
+
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "zerver/tests/fixtures/markdown_test_cases.json"
 TICKS = chr(96) * 3
+
+
+def check_message_context(realm: "Realm", backend: object) -> int:
+    from zerver.lib.alert_words import get_alert_word_matcher
+    from zerver.lib.create_user import create_user
+    from zerver.lib.markdown import fenced_code, render_message_markdown
+    from zerver.models import AlertWord, Message, RealmFilter, RealmUserDefault
+    from zerver.models.clients import get_client
+    from zerver.models.recipients import get_or_create_direct_message_group
+
+    RealmUserDefault.objects.create(realm=realm)
+    sender = create_user("sender@example.test", None, realm, "Parity Sender")
+    reader = create_user("reader@example.test", None, realm, "Parity Reader")
+    group = get_or_create_direct_message_group([sender.id, reader.id])
+    client = get_client("fenced-parity")
+    RealmFilter.objects.create(
+        realm=realm,
+        pattern=r"FENCE-(?P<number>[0-9]+)",
+        url_template="https://example.test/issues/{number}",
+    )
+    AlertWord.objects.create(realm=realm, user_profile=reader, word="urgentmarker")
+    alert_words = get_alert_word_matcher(realm)
+    mention = f"@**{reader.full_name}|{reader.id}**"
+    outside = f"FENCE-17 {mention} urgentmarker"
+    code = f"{TICKS}text\nFENCE-23 {mention} urgentmarker\n{TICKS}"
+    cases = {
+        "visible-and-code": f"{outside}\n\n{code}",
+        "code-only": code,
+        "spoiler": f"~~~spoiler Details\n{outside}\n~~~\n\n{code}",
+        "nested-quote": f"~~~~quote\n{outside}\n\n{code}\n~~~~",
+        "unclosed-quote": f"~~~~quote\n{outside}\n\n{TICKS}python\nprint('فارسی')",
+    }
+    for label, markdown in cases.items():
+        results = []
+        for planner in (None, backend):
+            # An unsent Message exercises the production message context
+            # without queuing a notification or creating a message row.
+            message = Message(
+                realm=realm,
+                sender=sender,
+                recipient=group.recipient,
+                sending_client=client,
+                content=markdown,
+            )
+            with (
+                patch.object(fenced_code, "_rust_markdown_fences", None),
+                patch.object(fenced_code, "_rust_markdown_blocks", planner),
+            ):
+                rendered = render_message_markdown(
+                    message,
+                    markdown,
+                    realm_alert_words_automaton=alert_words,
+                    no_previews=True,
+                )
+            results.append((rendered, message.has_link, message.has_image))
+        if results[0] != results[1]:
+            raise AssertionError(f"planner differed for message context {label}")
+        result, has_link, has_image = results[1]
+        if label == "visible-and-code" and (
+            result.mentions_user_ids != {reader.id}
+            or result.user_ids_with_alert_words != {reader.id}
+            or "https://example.test/issues/17" not in result.rendered_content
+            or not has_link
+            or has_image
+        ):
+            raise AssertionError("the message fixture did not exercise persisted metadata")
+        if label in {"visible-and-code", "code-only"} and (
+            "https://example.test/issues/23" in result.rendered_content
+            or (
+                label == "code-only"
+                and (result.mentions_user_ids or result.user_ids_with_alert_words or has_link)
+            )
+        ):
+            raise AssertionError("content inside code was not isolated from metadata")
+    return len(cases)
 
 
 def check_database(socket_directory: Path) -> None:
@@ -97,8 +175,10 @@ def run_parity() -> None:
                     and 'data-code-language="JavaScript"' not in actual.rendered_content
                 ):
                     raise AssertionError("the realm default language was not used")
+        message_cases = check_message_context(realm, backend)
         transaction.set_rollback(True)
     print(f"Matching Zulip rendering results: {len(cases)} inputs × 2 realm modes")
+    print(f"Matching Zulip message metadata: {message_cases} unsent messages")
 
 
 def main() -> None:

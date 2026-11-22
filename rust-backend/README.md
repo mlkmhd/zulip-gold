@@ -4233,6 +4233,14 @@ without a persisted synthetic realm. It also requires real KaTeX
 output and the realm's default code language. Only the planner varies;
 the synthetic rows are rolled back.
 
+The check also invokes the actual message-rendering entry point for five
+unsent direct-message examples in the synthetic realm. It compares the
+rendered HTML and metadata using persisted users, a recipient group, a
+realm linkifier and an alert word. Positive assertions cover the mention,
+alert and link outside the fence, and make sure the same content inside
+code is not interpreted as active metadata. It does not send messages or
+notifications.
+
 Use a **disposable** checkout and cached matching dependencies. In the
 snapshot, generate fresh development settings with
 `scripts/setup/generate_secrets.py --development`; do not copy actual
