@@ -29,9 +29,9 @@ def main() -> None:
         expected = fenced_code.close_unclosed_fences(source, language)
         result = extension.close_unclosed_markdown_fences(source, language)
         try:
-            supported = len(source.encode("utf-8")) <= 8 * 1024 * 1024 and (
-                language is None or language.isascii()
-            )
+            supported = len(source.encode("utf-8")) <= 8 * 1024 * 1024
+            if language is not None:
+                language.encode("utf-8")
         except UnicodeEncodeError:
             supported = False
         assert (result is not None) == supported, repr((source[:100], language))
@@ -76,7 +76,20 @@ def main() -> None:
         "```\u2028",
         "~~~",
     ]
-    languages = [None, "", "quote", "QuOtEd", "spoiler", "math", "python", "فارسی", "\ud800"]
+    languages = [
+        None,
+        "",
+        "quote",
+        "QuOtEd",
+        "spoiler",
+        "math",
+        "python",
+        "İΣ",
+        "ΟΣ",
+        "Kotlin",
+        "فارسی",
+        "\ud800",
+    ]
     with (
         patch.object(fenced_code, "_rust_markdown_blocks", None),
         patch.object(fenced_code, "_rust_markdown_fences", None),

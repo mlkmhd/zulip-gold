@@ -29,8 +29,9 @@ struct Block<'a> {
 
 pub(crate) fn plan_lines<'a>(
     lines: &[&'a str],
-    default_language: Option<&'a str>,
+    default_language: Option<(&'a str, &str)>,
 ) -> Vec<BlockStep<'a>> {
+    let (default_language, lowered_default) = default_language.unzip();
     let mut blocks = vec![Block {
         fence: "",
         kind: BlockKind::Outer,
@@ -49,10 +50,15 @@ pub(crate) fn plan_lines<'a>(
             && let Some(parsed) = parse_fence_line(line)
         {
             let default_language = current.default_language;
-            let language = parsed
-                .language
-                .or(default_language.filter(|language| !language.is_empty()))
-                .map(str::to_ascii_lowercase);
+            // Explicit fence languages are ASCII. Inherited defaults keep
+            // their original spelling in the step, but dispatch using the
+            // caller's Python-compatible lowercase value.
+            let language = parsed.language.map(str::to_ascii_lowercase).or_else(|| {
+                default_language
+                    .filter(|language| !language.is_empty())
+                    .and(lowered_default)
+                    .map(str::to_owned)
+            });
             let kind = match language.as_deref() {
                 Some("quote" | "quoted") => BlockKind::Quote,
                 Some("spoiler") => BlockKind::Spoiler,
@@ -84,7 +90,10 @@ pub(crate) fn plan_lines<'a>(
     steps
 }
 
-pub(crate) fn close_unclosed_fences(content: &str, default_language: Option<&str>) -> String {
+pub(crate) fn close_unclosed_fences(
+    content: &str,
+    default_language: Option<(&str, &str)>,
+) -> String {
     let lines = crate::markdown_whitespace::normalize_whitespace(&[content], 4);
     let lines: Vec<_> = lines.iter().map(String::as_str).collect();
     let mut fences = Vec::new();
@@ -120,8 +129,12 @@ mod tests {
                 None,
                 "\n```\n~~~\n````",
             ),
-            ("```\n~~~py\ncode", Some("QuOtEd"), "\n~~~\n```"),
-            ("~~~spoiler\n```\n~~~quote", Some("quote"), "\n```\n~~~"),
+            ("```\n~~~py\ncode", Some(("QuOtEd", "quoted")), "\n~~~\n```"),
+            (
+                "~~~spoiler\n```\n~~~quote",
+                Some(("quote", "quote")),
+                "\n```\n~~~",
+            ),
             ("```py\nx\n```\u{3000}", None, ""),
         ] {
             assert_eq!(
@@ -164,7 +177,7 @@ mod tests {
                 "~~~",
                 "```",
             ],
-            Some("QuOtE"),
+            Some(("QuOtE", "quote")),
         );
         assert_eq!(
             steps,
@@ -192,6 +205,23 @@ mod tests {
                 BlockStep::Close,
                 BlockStep::Close,
             ],
+        );
+    }
+
+    #[test]
+    fn unicode_inheritance_keeps_original_and_lowered_spellings_separate() {
+        assert_eq!(
+            plan_lines(&["~~~", "text", "~~~"], Some(("İΣ", "i\u{307}ς"))),
+            vec![
+                BlockStep::Open {
+                    fence: "~~~",
+                    language: Some("i\u{307}ς".to_owned()),
+                    header: None,
+                    default_language: Some("İΣ"),
+                },
+                BlockStep::Line("text"),
+                BlockStep::Close,
+            ]
         );
     }
 

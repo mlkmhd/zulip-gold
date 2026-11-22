@@ -747,6 +747,27 @@ mod _zulip_backend {
         ))
     }
 
+    fn normalize_fenced_default<'a>(
+        language: Option<&'a Bound<'_, PyString>>,
+    ) -> Option<Option<(&'a str, String)>> {
+        let Some(language) = language else {
+            return Some(None);
+        };
+        if !language.is_exact_instance_of::<PyString>() {
+            return None;
+        }
+        let original = language.to_str().ok()?;
+        let lowered = if original.is_ascii() {
+            original.to_ascii_lowercase()
+        } else {
+            // Ask Python once for Unicode lowercasing, including expansion,
+            // context-sensitive sigma and its runtime Unicode version.
+            let lower = language.call_method0("lower").ok()?;
+            lower.cast::<PyString>().ok()?.to_str().ok()?.to_owned()
+        };
+        Some(Some((original, lowered)))
+    }
+
     #[pyfunction]
     #[pyo3(signature = (content, default_language=None))]
     fn close_unclosed_markdown_fences(
@@ -757,19 +778,12 @@ mod _zulip_backend {
         if content.len() > 8 * 1024 * 1024 {
             return None;
         }
-        let default_language = match default_language {
-            Some(language) => {
-                let language = language.to_str().ok()?;
-                if !language.is_ascii() {
-                    return None;
-                }
-                Some(language)
-            }
-            None => None,
-        };
+        let default_language = normalize_fenced_default(default_language)?;
         Some(markdown_blocks::close_unclosed_fences(
             content,
-            default_language,
+            default_language
+                .as_ref()
+                .map(|(original, lower)| (*original, lower.as_str())),
         ))
     }
 
@@ -1123,16 +1137,17 @@ mod _zulip_backend {
         else {
             return Ok(None);
         };
-        let default_language = match default_language.as_ref() {
-            Some(language) => match language.to_str() {
-                Ok(language) if language.is_ascii() => Some(language),
-                _ => return Ok(None),
-            },
-            None => None,
+        let Some(default_language) = normalize_fenced_default(default_language.as_ref()) else {
+            return Ok(None);
         };
         Ok(Some(PyList::new(
             py,
-            markdown_blocks::plan_lines(&lines, default_language),
+            markdown_blocks::plan_lines(
+                &lines,
+                default_language
+                    .as_ref()
+                    .map(|(original, lower)| (*original, lower.as_str())),
+            ),
         )?))
     }
 

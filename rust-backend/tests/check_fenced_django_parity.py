@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 import django
+import lxml.html
 import psycopg2
 from django.conf import settings
 from django.db import connection, transaction
@@ -121,6 +122,40 @@ def check_database(socket_directory: Path) -> None:
         raise RuntimeError("read the isolation requirements before using the parity check")
 
 
+def check_unicode_defaults(realm: "Realm", backend: Any) -> int:
+    from zerver.lib.markdown import do_convert, fenced_code
+
+    cases = {
+        "top-level": f"{TICKS}\nbody\n{TICKS}",
+        "inherited-quote": f"~~~~quote\n\n{TICKS}\nbody\n{TICKS}\n~~~~",
+        "spoiler-reset": f"~~~~spoiler Details\n\n{TICKS}\nbody\n{TICKS}\n~~~~",
+    }
+    languages = {"İΣ": "i\u0307ς", "ΟΣ": "ος", "Kotlin": "Kotlin", "فارسی": "فارسی"}
+    old = realm.default_code_block_language
+    try:
+        for language, rendered_language in languages.items():
+            realm.default_code_block_language = language
+            for label, content in cases.items():
+                if backend.plan_markdown_blocks(content.splitlines(), language) is None:
+                    raise AssertionError(f"exact Unicode default unexpectedly declined for {label}")
+                with patch.object(fenced_code, "_rust_markdown_blocks", None):
+                    reference = do_convert(content, message_realm=realm, no_previews=True)
+                with patch.object(fenced_code, "_rust_markdown_blocks", backend):
+                    candidate = do_convert(content, message_realm=realm, no_previews=True)
+                if candidate != reference:
+                    raise AssertionError(f"Unicode planner output differed for {label}")
+                html = lxml.html.fromstring(candidate.rendered_content)
+                found_languages = html.xpath("//@data-code-language")
+                expected_languages = [] if label == "spoiler-reset" else [rendered_language]
+                if found_languages != expected_languages:
+                    raise AssertionError(
+                        f"unexpected code language for {label}, {language!r}: {found_languages!r}"
+                    )
+    finally:
+        realm.default_code_block_language = old
+    return len(cases) * len(languages)
+
+
 def run_parity() -> None:
     from zerver.actions.create_realm import set_default_for_realm_permission_group_settings
     from zerver.lib.markdown import do_convert, fenced_code
@@ -176,9 +211,11 @@ def run_parity() -> None:
                 ):
                     raise AssertionError("the realm default language was not used")
         message_cases = check_message_context(realm, backend)
+        unicode_cases = check_unicode_defaults(realm, backend)
         transaction.set_rollback(True)
     print(f"Matching Zulip rendering results: {len(cases)} inputs × 2 realm modes")
     print(f"Matching Zulip message metadata: {message_cases} unsent messages")
+    print(f"Matching Zulip Unicode default language rendering: {unicode_cases} inputs")
 
 
 def main() -> None:

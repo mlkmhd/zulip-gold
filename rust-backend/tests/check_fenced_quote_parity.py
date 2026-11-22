@@ -1007,8 +1007,8 @@ class FencedMarkdownRenderingParity(unittest.TestCase):
         self.assertGreater(dispatch.call_count, 0)
         factory.assert_called_once()
 
-    def test_batch_planner_is_called_once_or_declines_before_python(self) -> None:
-        for language in ("javascript", "İ"):
+    def test_batch_planner_accepts_exact_ascii_and_unicode_defaults(self) -> None:
+        for language in ("javascript", "İΣ", "ΟΣ", "Kotlin", "فارسی"):
             with self.subTest(language=language):
                 planner = Mock(wraps=EXTENSION.plan_markdown_blocks)
                 rendered = make_fenced_render_fixture(
@@ -1017,7 +1017,7 @@ class FencedMarkdownRenderingParity(unittest.TestCase):
                     block_planner=SimpleNamespace(plan_markdown_blocks=planner),
                 )
                 reference = make_fenced_render_fixture(None, default_language=language)
-                sample = FENCED_RENDER_SAMPLES["nested"]
+                sample = f"~~~~quote\nNested language\n\n{TICKS}\nbody\n{TICKS}\n~~~~"
                 self.assertEqual(
                     render_fenced_fixture(rendered, sample),
                     render_fenced_fixture(reference, sample),
@@ -1026,7 +1026,36 @@ class FencedMarkdownRenderingParity(unittest.TestCase):
                 args = planner.call_args.args
                 self.assertIs(type(args[0]), list)
                 self.assertEqual(args[1], language)
-                self.assertIs(EXTENSION.plan_markdown_blocks(*args) is None, language == "İ")
+                steps = EXTENSION.plan_markdown_blocks(*args)
+                self.assertIsNotNone(steps)
+                self.assertIn(("open", TICKS, language.lower(), None, language), steps)
+                unclosed = f"~~~~quote\n{TICKS}\nbody"
+                self.assertEqual(
+                    EXTENSION.close_unclosed_markdown_fences(unclosed, language),
+                    f"{unclosed}\n{TICKS}\n~~~~",
+                )
+
+    def test_batch_planner_keeps_surrogate_and_subclass_fallbacks(self) -> None:
+        class CustomLanguage(str):
+            __slots__ = ()
+
+            def lower(self) -> str:
+                return "quote"
+
+        content = "~~~\nbody"
+        for language in ("\ud800", CustomLanguage("ASCII"), CustomLanguage("İΣ")):
+            with self.subTest(language=language):
+                self.assertIsNone(EXTENSION.plan_markdown_blocks(content.split("\n"), language))
+                self.assertIsNone(EXTENSION.close_unclosed_markdown_fences(content, language))
+        language = CustomLanguage("ASCII")
+        python = make_fenced_render_fixture(None, default_language=language)
+        opt_in = make_fenced_render_fixture(
+            None, default_language=language, block_planner=EXTENSION
+        )
+        self.assertEqual(
+            render_fenced_fixture(python, content), render_fenced_fixture(opt_in, content)
+        )
+        self.assertIn("<blockquote>", opt_in.reset().convert(content))
 
 
 def render_fenced_fixture(md: FencedFixtureMarkdown, sample: str) -> tuple[object, ...]:

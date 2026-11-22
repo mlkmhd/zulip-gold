@@ -1136,7 +1136,9 @@ by a restart to return to the Python implementation.
   including quote default-language inheritance, spoiler resets, and the
   unfinished stack used by reminder quote completion. Python retains the
   existing formatting callbacks, content validators, syntax highlighting,
-  and TeX rendering. Non-ASCII default languages use Python.
+  and TeX rendering. Ordinary Unicode default languages use Python's
+  lowercase rules before native planning; unencodable defaults and
+  string subclasses stay on the Python path.
 - `ZULIP_RUST_MARKDOWN_WHITESPACE` removes control placeholders, normalizes
   line endings, expands tabs by Unicode character columns, and normalizes
   blank lines before rendering and reminder quote completion.
@@ -3541,8 +3543,10 @@ default language, spoilers reset it, and code/math blocks do not nest.
 
 This bypasses construction of Python Markdown handlers for supported inputs.
 It does not render code, TeX or spoilers. The existing flag stays off by default.
-Older wheels, string subclasses, surrogate-containing source, source over 8 MiB
-and non-ASCII default languages use the Python path before native effects.
+Older wheels, string subclasses, surrogate-containing source or default
+languages, and source over 8 MiB use the Python path before native effects.
+Other Unicode defaults use Python's lowercase rules, while the original
+default spelling remains part of the plan for Python callbacks.
 Native exceptions propagate without retry. No dependencies, HTTP routes or
 Python file retirements are added.
 
