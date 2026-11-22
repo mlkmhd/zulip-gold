@@ -223,7 +223,7 @@ mod group_membership;
 #[doc(hidden)]
 pub mod group_listing;
 
-#[cfg(any(feature = "python", test))]
+#[cfg(any(feature = "python", feature = "http", test))]
 mod channel_traffic;
 
 #[cfg(feature = "python")]

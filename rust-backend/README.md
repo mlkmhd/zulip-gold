@@ -5350,3 +5350,34 @@ The separate staging map selects the numeric read paths only. Removing
 the route include and reloading nginx restores Django while Rust is
 stopped. There is no automatic failover, anonymous access, or change
 to deployment routing. Live ingress and production load were not tested.
+
+### Rehearse authenticated channel details and rollback
+
+`ZULIP_RUST_CHANNEL_DETAILS_READ_PILOT=1` adds loopback-only GET and HEAD
+for `/api/v1/streams/{stream_id}` and its `/json/` alias, with a database
+and signed Django sessions. Django remains the default. The read keeps
+the existing channel metadata permissions, including for archived channels.
+It selects the documented projection rather than the full model. Anonymous
+group settings, icon URLs, legacy posting and topic policy, and 28-day
+traffic use the existing Django response contract.
+
+From a fresh disposable fixture in its private loopback namespace:
+
+```sh
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" "$checkout/rust-backend/tests/check_channel_details.py" \
+  --fixture-root "$fixture_root" --nginx "$nginx" --uwsgi "$uwsgi" --venv "$venv" \
+  --openssl "$openssl"
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" \
+  "$checkout/rust-backend/tests/check_read_proxy_activity.py" --channel-details \
+  --fixture-root "$fixture_root" --nginx "$nginx" --uwsgi "$uwsgi" --venv "$venv" \
+  --openssl "$openssl" --redis-server "$redis_server" \
+  --rabbitmq-server "$rabbitmq_server" --epmd "$epmd"
+```
+
+PATCH and DELETE remain on Django, as do the separate picture and email
+address routes. No write requests are forwarded by the diagnostic map
+check. Removing the route include and reloading nginx restores Django
+while Rust is offline; there is no automatic failover. Live ingress,
+production load and deployment routing are not part of this pilot.

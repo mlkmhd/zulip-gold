@@ -210,6 +210,7 @@ def verify_method_map(
     *,
     map_filename: str = MAP,
     map_variable: str = "zulip_rust_user_group_details",
+    non_read_methods: tuple[str, ...] = ("POST", "OPTIONS"),
 ) -> None:
     # Load the exact versioned map without an app, upstream, credentials, or body.
     # Every method terminates with 204 in this separate diagnostic server.
@@ -255,7 +256,7 @@ http {{
         wait_until(lambda: marker(cases[0], "GET") == "1")
         for case in cases:
             assert marker(case, "GET") == marker(case, "HEAD") == "1", case.label
-            for method in ("POST", "OPTIONS"):
+            for method in non_read_methods:
                 assert marker(case, method) == "0", (case.label, method)
     print(f"Exact method map verified on {len(cases)} paths without reaching either upstream.")
 

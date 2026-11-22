@@ -20,7 +20,8 @@ use tokio_postgres::Client;
 use super::{
     DraftWriteConfig, UserReadConfig, WebPostScheme,
     activity::{ActivityPublisher, client_name},
-    alert_word_cache, alert_words, attachments, bot_storage, channel_folders, channel_id,
+    alert_word_cache, alert_words, attachments, bot_storage, channel_details, channel_folders,
+    channel_id,
     channel_members::{self, Outcome as ChannelMembers},
     channel_topics, custom_profile_fields,
     database::Database,
@@ -69,6 +70,7 @@ enum Endpoint {
     SubscriptionStatus(Option<i32>, Option<i64>),
     SubscribedChannels(Option<i32>),
     ChannelMembers(Option<i64>),
+    ChannelDetails(Option<i64>),
     UserGroups,
     GroupDetail(DetailKind, Option<i64>),
     GroupMembership(Option<i64>, Option<i32>),
@@ -126,6 +128,7 @@ impl Endpoint {
             Self::SubscriptionStatus(..) => "get_subscription_backend",
             Self::SubscribedChannels(_) => "get_subscribed_channels_backend",
             Self::ChannelMembers(_) => "get_subscribers_backend",
+            Self::ChannelDetails(_) => "get_stream_backend",
             Self::UserGroups => "get_user_groups",
             Self::GroupDetail(DetailKind::Members, _) => "get_user_group_members",
             Self::GroupDetail(DetailKind::Subgroups, _) => "get_subgroups_of_user_group",
@@ -326,6 +329,16 @@ impl Endpoint {
                     serde_json::to_string(&roster).expect("user IDs can serialize to JSON");
                 let extra = ignored_parameters(&form, &["client"]);
                 return Ok(format!("\"subscribers\":{roster}{extra}"));
+            }
+            Self::ChannelDetails(channel) => {
+                let form = Form::from_query(query).map_err(ApiError::Form)?;
+                let channel = channel.ok_or(ApiError::InvalidChannelId)?;
+                let stream = channel_details::read(database, user_id, realm_id, channel)
+                    .await
+                    .map_err(ApiError::database_unavailable)?
+                    .ok_or(ApiError::InvalidChannelId)?;
+                let extra = ignored_parameters(&form, &["client"]);
+                return Ok(format!("\"stream\":{stream}{extra}"));
             }
             Self::ChannelFolders => {
                 let form = Form::from_query(query).map_err(ApiError::Form)?;
@@ -1044,6 +1057,20 @@ pub(super) async fn get_channel_members(
         return StatusCode::NOT_FOUND.into_response();
     }
     let endpoint = Endpoint::ChannelMembers(id.parse().ok());
+    respond(state, peer, uri, headers, None, Some(endpoint)).await
+}
+
+pub(super) async fn get_channel_details(
+    State(state): State<UserReads>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    Path(id): Path<String>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    if !numeric_group_path(&id) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let endpoint = Endpoint::ChannelDetails(id.parse().ok());
     respond(state, peer, uri, headers, None, Some(endpoint)).await
 }
 
@@ -1786,6 +1813,7 @@ fn error_response(
             | Endpoint::SubscriptionStatus(..)
             | Endpoint::SubscribedChannels(_)
             | Endpoint::ChannelMembers(_)
+            | Endpoint::ChannelDetails(_)
             | Endpoint::UserGroups
             | Endpoint::GroupDetail(..)
             | Endpoint::GroupMembership(..)

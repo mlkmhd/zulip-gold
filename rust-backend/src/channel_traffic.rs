@@ -12,8 +12,8 @@ fn round_to_two_digits(number: i128) -> i128 {
     (quotient + i128::from(round_up)) * factor
 }
 
-pub(crate) fn average_weekly_messages(age_days: i64, traffic: i64) -> Option<i128> {
-    let traffic = i128::from(traffic);
+pub(crate) fn average_weekly_messages(age_days: i64, traffic: impl Into<i128>) -> Option<i128> {
+    let traffic = traffic.into();
     let average = if age_days >= 28 {
         traffic.div_euclid(4)
     } else if age_days >= 7 {
