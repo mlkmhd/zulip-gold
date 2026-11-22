@@ -28,6 +28,7 @@ from zerver.lib import (
     native_register_state,
     native_schedule_replay,
     native_settings_payload,
+    native_unread_replay,
 )
 from zerver.lib.alert_words import user_alert_words
 from zerver.lib.avatar import avatar_url
@@ -1802,6 +1803,10 @@ def apply_event(
         # We don't return messages in /register, so we don't need to
         # do anything for content updates, but we may need to update
         # the unread_msgs data if the topic of an unread message changed.
+        if "raw_unread_msgs" in state and native_unread_replay.move(
+            state["raw_unread_msgs"], event
+        ):
+            return
         if "raw_unread_msgs" in state and "new_stream_id" in event:
             stream_dict = state["raw_unread_msgs"]["stream_dict"]
             stream_id = event["new_stream_id"]
@@ -1822,7 +1827,9 @@ def apply_event(
             message_ids = event["message_ids"]  # nocoverage
         state["max_message_id"] = max_message_id_for_user(user_profile)
 
-        if "raw_unread_msgs" in state:
+        if "raw_unread_msgs" in state and not native_unread_replay.remove(
+            state["raw_unread_msgs"], message_ids
+        ):
             for remove_id in message_ids:
                 remove_message_id_from_unread_mgs(state["raw_unread_msgs"], remove_id)
 
@@ -1858,10 +1865,22 @@ def apply_event(
         # We don't return messages in `/register`, so most flags we
         # can ignore, but we do need to update the unread_msgs data if
         # unread state is changed.
-        if "raw_unread_msgs" in state and event["flag"] == "read" and event["op"] == "add":
+        if (
+            "raw_unread_msgs" in state
+            and event["flag"] == "read"
+            and event["op"] == "add"
+            and not native_unread_replay.remove(state["raw_unread_msgs"], event["messages"])
+        ):
             for remove_id in event["messages"]:
                 remove_message_id_from_unread_mgs(state["raw_unread_msgs"], remove_id)
-        if "raw_unread_msgs" in state and event["flag"] == "read" and event["op"] == "remove":
+        if (
+            "raw_unread_msgs" in state
+            and event["flag"] == "read"
+            and event["op"] == "remove"
+            and not native_unread_replay.restore(
+                state["raw_unread_msgs"], user_profile.id, event["message_details"]
+            )
+        ):
             for message_id_str, message_details in event["message_details"].items():
                 add_message_to_unread_msgs(
                     user_profile.id,

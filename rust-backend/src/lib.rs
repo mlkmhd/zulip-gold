@@ -242,6 +242,8 @@ mod channel_traffic;
 mod python_tex;
 #[cfg(feature = "python")]
 mod python_unread;
+#[cfg(feature = "python")]
+mod python_unread_replay;
 
 #[cfg(feature = "python")]
 mod python_inline_checkpoint;

@@ -5669,3 +5669,33 @@ done
 ```
 
 This changes neither the default route nor independent HTTP coverage.
+
+### Reconcile unread register state through Rust
+
+Set `ZULIP_RUST_UNREAD_REPLAY=1` before starting Django. The optional extension applies
+read and unread flags, deletions, and channel or topic moves to the
+current account's already-selected unread state during registration.
+It preserves channel, direct-message and group-message buckets,
+mentions, and iteration order. Django still owns event selection,
+authorization, the database and mute policy for newly arriving messages.
+The original Python path handles an older extension or unsupported input.
+
+In an isolated Zulip test environment with the Python extension built
+and importable, exercise both flags independently:
+
+```bash
+for payload in 0 1; do
+    for replay in 0 1; do
+        ZULIP_RUST_UNREAD_PAYLOAD=$payload ZULIP_RUST_UNREAD_REPLAY=$replay \
+            ./tools/test-backend \
+            zerver.tests.test_unread_replay_rust \
+            zerver.tests.test_events.NormalActionsTest.test_update_read_flag_removes_unread_msg_ids \
+            zerver.tests.test_events.NormalActionsTest.test_stream_update_message_events \
+            zerver.tests.test_events.NormalActionsTest.test_do_delete_message_stream \
+            zerver.tests.test_events.NormalActionsTest.test_do_delete_message_personal \
+            zerver.tests.test_message_flags.GetUnreadMsgsTest
+    done
+done
+```
+
+This is in-process register reconciliation, not a new HTTP route.

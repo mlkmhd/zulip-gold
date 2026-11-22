@@ -306,6 +306,11 @@ mod _zulip_backend {
     use crate::python_unread::{aggregate_unread_payload, format_unread_details};
 
     #[pymodule_export]
+    use crate::python_unread_replay::{
+        move_unread_messages, remove_unread_messages, restore_unread_messages,
+    };
+
+    #[pymodule_export]
     use crate::python_group_payload::{assemble_group_membership, assemble_realm_group_payload};
 
     #[pymodule_export]
