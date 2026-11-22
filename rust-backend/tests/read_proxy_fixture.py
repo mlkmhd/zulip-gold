@@ -499,6 +499,7 @@ def exercise_paired_read_routes(
     validate: Callable[[CaseT, ReadResult], None],
     compare: Callable[[CaseT, ReadResult, ReadResult], None],
     measure: Callable[[PrivateReadProxy, CaseT], tuple[float, float]] | None = None,
+    rust_extra_env: dict[str, str] | None = None,
 ) -> None:
     # The first four probes are successful, mapped GET and HEAD on the API
     # and web paths respectively. They cover both targets on reload/outage.
@@ -543,6 +544,7 @@ def exercise_paired_read_routes(
             "ZULIP_RUST_SESSION_COOKIE_NAME": settings.SESSION_COOKIE_NAME,
             "ZULIP_RUST_CSRF_COOKIE_NAME": settings.CSRF_COOKIE_NAME,
             "ZULIP_RUST_CLIENT_IP_SOURCE": "proxy",
+            **(rust_extra_env or {}),
         }
     ) as rust_port:
         rust_address = f"127.0.0.1:{rust_port}"

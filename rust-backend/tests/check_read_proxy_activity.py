@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import socket
 import tempfile
 import time
 from base64 import b64encode
@@ -62,6 +63,11 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
     from zerver.models import UserProfile
     from zerver.models.clients import get_client
 
+    maps = ("user-groups-map.conf",) if args.user_groups else MAPS
+    route_groups = ((2, ("user-groups-routes.conf",)),) if args.user_groups else ROUTE_GROUPS
+    paths = (("/user_groups", "get_user_groups"),) if args.user_groups else PATHS
+    group_pilot = {"ZULIP_RUST_USER_GROUP_READ_PILOT": "1"} if args.user_groups else {}
+
     member = UserProfile.objects.get(realm__string_id="zulip", delivery_email="hamlet@zulip.com")
     other_members = UserProfile.objects.filter(
         realm=member.realm, role=UserProfile.ROLE_MEMBER, is_bot=False, is_active=True
@@ -99,7 +105,7 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
             client_id,
             query,
         )
-        for path, query in PATHS
+        for path, query in paths
         for prefix, user, credentials, client, client_id in (
             ("/api/v1", member, basic(member), "ZulipMobile", mobile_id),
             ("/json", browser_user, cookie, "website", website_id),
@@ -118,7 +124,7 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
             mobile_id,
             query,
         )
-        for path, query in PATHS
+        for path, query in paths
     ]
 
     measured_users = (member, browser_user)
@@ -144,7 +150,7 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
             args.nginx,
             args.uwsgi,
             args.venv,
-            MAPS,
+            maps,
             openssl_bin=args.openssl,
             activity=broker,
             quota=quota_fixture[1] if quota_fixture is not None else None,
@@ -213,7 +219,7 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
             print(f"{label}: {len(cases)} reads, {evidence} each.", flush=True)
 
         wait_for_target(proxy.django_address)
-        proxy.assert_untrusted_tls_rejected(member.realm.host, "/api/v1/saved_snippets")
+        proxy.assert_untrusted_tls_rejected(member.realm.host, f"/api/v1{paths[0][0]}")
         check_phase(proxy.django_address, "Django default")
         secret = directory / "synthetic-secret"
         secret.write_text(settings.SECRET_KEY)
@@ -227,10 +233,11 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
                 "ZULIP_RUST_CLIENT_IP_SOURCE": "proxy",
                 **rust_activity_environment(broker),
                 **redis_environment,
+                **group_pilot,
             }
         ) as rust_port:
             rust_address = f"127.0.0.1:{rust_port}"
-            for count, routes in ROUTE_GROUPS:
+            for count, routes in route_groups:
                 proxy.enable_routes(routes, rust_port, upstreams_per_route=count)
             wait_for_target(rust_address)
             check_phase(rust_address, "Rust opt-in")
@@ -254,7 +261,7 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
                 flush=True,
             )
 
-        for _, routes in ROUTE_GROUPS:
+        for _, routes in route_groups:
             for route in routes:
                 proxy.disable_route(route)
         wait_for_target(proxy.django_address)
@@ -278,13 +285,22 @@ def main() -> None:
     parser.add_argument("--rabbitmq-server", type=Path, required=True)
     parser.add_argument("--epmd", type=Path, required=True)
     parser.add_argument("--redis-server", type=Path, help="also verify shared Redis accounting")
+    parser.add_argument(
+        "--user-groups", action="store_true", help="rehearse only the user-group read pilot"
+    )
     parser.add_argument("--uwsgi", type=Path, required=True)
     parser.add_argument("--venv", type=Path, required=True)
     args = parser.parse_args()
+    if args.user_groups and (args.redis_server is None or args.openssl is None):
+        parser.error("--user-groups requires --redis-server and --openssl")
     if args.redis_server is not None and args.openssl is None:
         parser.error("the combined quota and activity gate requires --openssl")
     root = args.fixture_root.resolve(strict=True)
     validate_local_root(root)
+    if args.user_groups and socket.if_nameindex() != [(1, "lo")]:
+        raise RuntimeError(
+            "the user-group pilot requires a private loopback-only network namespace"
+        )
     if any(name.startswith("ZULIP_RUST_") and name != "ZULIP_RUST_HTTP_BIN" for name in os.environ):
         raise RuntimeError("use a scrubbed environment with only ZULIP_RUST_HTTP_BIN configured")
     validate_fixture(root)

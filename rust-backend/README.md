@@ -4901,8 +4901,9 @@ separate direct pilot below covers the next layer.
 The Rust listener only attaches GET/HEAD for `/api/v1/user_groups` and
 `/json/user_groups` when `ZULIP_RUST_USER_GROUP_READ_PILOT=1`, with both the
 database and signed Django session settings present. The switch is off by
-default. The binary still binds only to loopback. No nginx map or deployment
-setting forwards these paths to Rust, so Django remains the served fallback.
+default. The binary still binds only to loopback. The versioned proxy
+templates below are not included by default; Django remains the served
+fallback.
 
 Build the HTTP binary offline and use the same owner-private database fixture
 as above. Run its setup and the commands below inside a [private network
@@ -4927,3 +4928,38 @@ that the default Rust listener has no group route, that the pilot cannot
 start without the database/session configuration, and that OPTIONS is not
 part of the direct Rust pilot. This test does not exercise switching the
 proxy to Rust, service accounting for this endpoint, or rollback.
+
+### Rehearse opt-in user-group routing and rollback locally
+
+In the same disposable fixture, first generate the group references above.
+Then run the direct comparison command with
+`--with-proxy --openssl "$openssl"`. It loads the versioned
+`user-groups-map.conf` and `user-groups-routes.conf` templates only into the
+private proxy. They select GET/HEAD on the two exact list paths on
+`zulip.testserver` (with optional port 8880). Nonmatching hosts, other
+methods and group detail routes stay with Django.
+
+Run the combined accounting check in the same isolated namespace:
+
+```sh
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" \
+  "$checkout/rust-backend/tests/check_read_proxy_activity.py" --user-groups \
+  --fixture-root "$fixture_root" --nginx "$nginx" --uwsgi "$uwsgi" --venv "$venv" \
+  --openssl "$openssl" --redis-server "$redis_server" \
+  --rabbitmq-server "$rabbitmq_server" --epmd "$epmd"
+```
+
+The private HTTPS rehearsal covers Django default, Rust opt-in, Rust
+stopped, and explicitly restored Django. It compares 30 cases in each
+serving state and validates matched upstreams, including the excluded
+routes. There is no automatic fallback: requests still mapped to the
+stopped Rust process receive 502. In the rehearsal, removing the private
+route include, testing the config and reloading nginx restored Django while
+Rust stayed stopped. The combined check observes one Redis charge and one
+RabbitMQ activity event per normal GET/HEAD, and neither when Rust is down.
+
+This verifies a local standalone operation, not a deployment. Production
+ingress, credentials and role privileges, load, and service failure behavior
+outside the tested Rust stop are not covered. Do not add the templates to
+live nginx based on this rehearsal alone.

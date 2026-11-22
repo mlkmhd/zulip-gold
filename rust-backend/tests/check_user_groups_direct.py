@@ -1,5 +1,5 @@
 # ruff: noqa: INP001
-"""Compare the opt-in loopback group service with the unmodified Django route."""
+"""Verify direct and opt-in proxy user-group reads in a private fixture."""
 
 from __future__ import annotations
 
@@ -20,7 +20,9 @@ from django.db import connection
 from psycopg2.extensions import make_dsn
 from read_proxy_fixture import (
     ReadCase,
+    ReadResult,
     compare_read_headers,
+    exercise_paired_read_routes,
     private_read_proxy,
     validate_fixture,
     validate_local_root,
@@ -34,6 +36,8 @@ ROOT = Path(__file__).resolve().parents[2]
 API = "/api/v1/user_groups"
 WEB = "/json/user_groups"
 PILOT = "ZULIP_RUST_USER_GROUP_READ_PILOT"
+MAP = "user-groups-map.conf"
+ROUTE = "user-groups-routes.conf"
 
 
 def verify_startup_guards() -> None:
@@ -66,10 +70,28 @@ def verify_startup_guards() -> None:
         assert result.returncode != 0 and expected_error in result.stderr
 
 
+def validate(case: ReadCase, result: ReadResult) -> None:
+    assert result[0] == case.status, (case.label, result[0], case.status)
+    if case.method == "HEAD":
+        assert result[1] == b"", case.label
+    if case.headers.get("Accept-Language") == "fr":
+        assert result[2]["Content-Language"] == "fr", case.label
+        assert json.loads(result[1])["msg"] != "Not allowed for guest users", case.label
+
+
+def compare(case: ReadCase, actual: ReadResult, expected: ReadResult) -> None:
+    validate(case, actual)
+    if case.method == "GET":
+        assert json.loads(actual[1]) == json.loads(expected[1]), case.label
+    else:
+        assert actual[1] == expected[1], case.label
+    compare_read_headers(actual, expected, case.label)
+
+
 def compare_transport(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None:
     from django.contrib.sessions.backends.db import SessionStore
 
-    from zerver.models import UserProfile
+    from zerver.models import NamedUserGroup, UserProfile
 
     users = UserProfile.objects.filter(is_active=True, is_bot=False)
     member = users.get(realm__string_id="zulip", delivery_email="hamlet@zulip.com")
@@ -140,9 +162,64 @@ def compare_transport(args: argparse.Namespace, directory: Path, cleanup: ExitSt
             ("anonymous JSON", "GET", host, {}, "", 401),
         ):
             cases.append(
-                ReadCase(f"{mode} {name}", method, target_host, headers, path + query, status)
+                ReadCase(
+                    f"{mode} {name}",
+                    method,
+                    target_host,
+                    headers,
+                    path + query,
+                    status,
+                    mapped=target_host == host,
+                    also_compare_direct=target_host != host,
+                )
             )
-        excluded.append(ReadCase(f"{mode} OPTIONS", "OPTIONS", host, {}, path, 204))
+        excluded.append(ReadCase(f"{mode} OPTIONS", "OPTIONS", host, {}, path, 204, mapped=False))
+
+    if args.with_proxy:
+        group = NamedUserGroup.objects.get(realm=member.realm, name="Pilot group")
+        cases.extend(excluded)
+        for mode, path, auth in (("Basic", API, basic), ("Session", WEB, session)):
+            cases.extend(
+                [
+                    ReadCase(
+                        f"{mode} excluded group detail",
+                        "GET",
+                        member.realm.host,
+                        auth(member),
+                        f"{path}/{group.id}/members",
+                        200,
+                        mapped=False,
+                    ),
+                    ReadCase(
+                        f"{mode} allowed host with port",
+                        "GET",
+                        f"{member.realm.host}:8880",
+                        auth(member),
+                        path,
+                        200,
+                    ),
+                ]
+            )
+        priority = {
+            "Basic member": 0,
+            "Session member": 1,
+            "Basic member HEAD": 2,
+            "Session member HEAD": 3,
+        }
+        cases.sort(key=lambda case: priority.get(case.label, 4))
+        with private_read_proxy(
+            ROOT, directory, args.nginx, args.uwsgi, args.venv, (MAP,), openssl_bin=args.openssl
+        ) as proxy:
+            exercise_paired_read_routes(
+                proxy,
+                directory,
+                ROUTE,
+                cases,
+                validate=validate,
+                compare=compare,
+                rust_extra_env={PILOT: "1"},
+            )
+        return
 
     private_secret = directory / "synthetic-signing-input"
     private_secret.write_text(settings.SECRET_KEY)
@@ -176,15 +253,7 @@ def compare_transport(args: argparse.Namespace, directory: Path, cleanup: ExitSt
                 actual = request_test_http(
                     port, case.method, case.host, case.headers, case.path, include_date=True
                 )
-                assert expected[0] == actual[0] == case.status, (case.label, expected[0], actual[0])
-                if case.method == "HEAD":
-                    assert actual[1] == expected[1] == b"", case.label
-                else:
-                    assert json.loads(actual[1]) == json.loads(expected[1]), case.label
-                if case.headers.get("Accept-Language") == "fr":
-                    assert actual[2]["Content-Language"] == "fr", case.label
-                    assert json.loads(actual[1])["msg"] != "Not allowed for guest users", case.label
-                compare_read_headers(actual, expected, case.label)
+                compare(case, actual, expected)
             for case in excluded:
                 response, upstream = proxy.observe(case.method, case.host, case.headers, case.path)
                 assert response[0] == case.status and upstream == proxy.django_address
@@ -208,7 +277,13 @@ def main() -> None:
     parser.add_argument("--nginx", type=Path, required=True)
     parser.add_argument("--uwsgi", type=Path, required=True)
     parser.add_argument("--venv", type=Path, required=True)
+    parser.add_argument(
+        "--with-proxy", action="store_true", help="also rehearse opt-in and rollback"
+    )
+    parser.add_argument("--openssl", type=Path, help="OpenSSL for the private TLS certificate")
     args = parser.parse_args()
+    if args.with_proxy != (args.openssl is not None):
+        parser.error("--with-proxy and --openssl must be supplied together")
     root = args.fixture_root.resolve(strict=True)
     validate_local_root(root)
     if socket.if_nameindex() != [(1, "lo")]:

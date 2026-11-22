@@ -25,12 +25,12 @@ Zulip Gold is migrating its backend from Python/Django to Rust in stages. Django
 
 | Verified standalone Rust HTTP coverage |        Operations |
 | -------------------------------------- | ----------------: |
-| OpenAPI inventory                      | 28 of 171 (16.4%) |
-| Explicit web operation inventory       | 28 of 190 (14.7%) |
+| OpenAPI inventory                      | 29 of 171 (17.0%) |
+| Explicit web operation inventory       | 29 of 190 (15.3%) |
 
 These inventories overlap, so the counts should not be added. They exclude Rust code called from Django and do not measure how much of the whole backend has migrated.
 
-In an isolated test of the read-only routes for saved snippets, disabling Rust routing and reloading nginx restored Django. Requests did not automatically fall back while the Rust service was unavailable. See the [migration handoff](rust-backend/MIGRATION_HANDOFF.md) for verification details and remaining work.
+In isolated tests of read-only routes including saved snippets and user groups, disabling Rust routing and reloading nginx restored Django. Requests did not automatically fall back while the Rust service was unavailable. See the [migration handoff](rust-backend/MIGRATION_HANDOFF.md) for verification details and remaining work.
 
 ## Getting started
 

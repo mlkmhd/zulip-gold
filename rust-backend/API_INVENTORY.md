@@ -24,6 +24,10 @@
 
 ## وضعیت مهاجرت
 
+شمار فعلی Rust مستقل و اختیاری: ۲۹ از ۱۷۱ عملیات OpenAPI (۱۷٫۰٪)
+و ۲۹ از ۱۹۰ عملیات صریح وب (۱۵٫۳٪). فهرست‌ها هم‌پوشانی دارند؛
+`HEAD` متناظر جداگانه شمرده نشده و این اعداد درصد کل backend نیستند.
+
 | عملیات یا جریان                                                                         | منطق اختیاری Rust                                                      | مسیر HTTP در توسعه و staging                                    | مسیر پیش‌فرض استقرار |
 | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------- | -------------------- |
 | `GET /api/v1/users/me/alert_words` و `HEAD` متناظر                                      | Basic Auth، خواندن PostgreSQL، سهمیهٔ مشترک Redis و صف فعالیت RabbitMQ | Rust مستقیم، پروکسی توسعه یا nginx آزمایشی                      | Django               |
@@ -44,6 +48,7 @@
 | `PATCH /api/v1/drafts/{draft_id}` و alias وب | بررسی مالکیت و گیرنده، ویرایش اتمیک و رویداد مالک | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی | Django |
 | `GET /api/v1/realm/linkifiers` و alias وب با `HEAD` متناظر                              | خواندن لینک‌سازهای سازمان با ترتیب اولویت از PostgreSQL              | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی    | Django               |
 | `GET /api/v1/realm/domains` و alias وب با `HEAD` متناظر                                 | خواندن دامنه‌های مجاز ایمیل سازمان از PostgreSQL                     | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی    | Django               |
+| `GET /api/v1/user_groups` و alias وب با `HEAD` متناظر | فهرست گروه‌های سازمان با مجوز غیرمهمان، Basic/نشست، سهمیه و فعالیت | Rust مستقیم و nginx آزمایشی با پایلوت خاموشِ پیش‌فرض | Django |
 | `GET /api/v1/realm/profile_fields` و alias وب با `HEAD` متناظر | تعاریف مرتب‌شدهٔ فیلدهای پروفایل سازمان از PostgreSQL | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی | Django |
 | `GET /api/v1/navigation_views` و alias وب با `HEAD` متناظر | تنظیمات شخصی نماهای ناوبری از PostgreSQL | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی | Django |
 | `POST /api/v1/navigation_views` و alias وب | ثبت نما و ممیزی در PostgreSQL و رویداد مالک | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی | Django |
@@ -613,7 +618,7 @@ audit ایجاد حفظ می‌شود و رویداد `saved_snippets/remove` پ
 | `GET`    | `/api/v1/streams/{stream_id}/members`                   | `get-subscribers`                      | `zerver.views.streams.get_subscribers_backend`                                 | Django         |
 | `GET`    | `/api/v1/thumbnail/status/{realm_id_str}/{filename}`    | `check-thumbnail-status`               | `zerver.views.thumbnail.check_thumbnail_status`                                | Django         |
 | `POST`   | `/api/v1/typing`                                        | `set-typing-status`                    | `zerver.views.typing.send_notification_backend`                                | Django         |
-| `GET`    | `/api/v1/user_groups`                                   | `get-user-groups`                      | `zerver.views.user_groups.get_user_groups`                                     | Django         |
+| `GET`    | `/api/v1/user_groups`                                   | `get-user-groups`                      | `zerver.views.user_groups.get_user_groups`                                     | Rust اختیاری |
 | `POST`   | `/api/v1/user_groups/create`                            | `create-user-group`                    | `zerver.views.user_groups.add_user_group`                                      | Django         |
 | `PATCH`  | `/api/v1/user_groups/{user_group_id}`                   | `update-user-group`                    | `zerver.views.user_groups.edit_user_group`                                     | Django         |
 | `POST`   | `/api/v1/user_groups/{user_group_id}/deactivate`        | `deactivate-user-group`                | `zerver.views.user_groups.deactivate_user_group`                               | Django         |
@@ -817,7 +822,7 @@ audit ایجاد حفظ می‌شود و رویداد `saved_snippets/remove` پ
 | `/json/submessage`                                    | `POST`                   | Django            |
 | `/json/thumbnail/status/{realm_id_str}/{filename}`    | `GET`                    | Django            |
 | `/json/typing`                                        | `POST`                   | Django            |
-| `/json/user_groups`                                   | `GET`                    | Django            |
+| `/json/user_groups`                                   | `GET`                    | Rust اختیاری |
 | `/json/user_groups/create`                            | `POST`                   | Django            |
 | `/json/user_groups/{user_group_id}`                   | `PATCH`                  | Django            |
 | `/json/user_groups/{user_group_id}/deactivate`        | `POST`                   | Django            |
