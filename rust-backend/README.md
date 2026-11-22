@@ -4300,3 +4300,29 @@ less time than the old Rust planner with scalar Python replay. Its
 highlighted counterpart was effectively unchanged and the mixed batch
 took about 1% more time. This is a migration behind the existing flag,
 not a general performance improvement or a change to production defaults.
+
+## Render plain reply links for mobile clients through Rust
+
+With `ZULIP_RUST_PLAIN_REPLY_LINKS=1`, the PyO3 extension checks the
+existing mobile client names, renders plain reply-link HTML, and selects
+the requested HTML fields in one batch for ordinary dictionaries.
+This is a delivery-side transformation; stored HTML and web rendering
+are unchanged. Exact client names remain case-sensitive and are not
+version strings. The transformation preserves search highlights,
+entities, multiline excerpts, and HTML outside the matched links.
+Missing exports, custom Python types, and strings that cannot be
+represented as UTF-8 use the Python implementation. The flag is off by
+default and can be removed to roll back.
+
+Test the reference and native paths with a fresh offline extension:
+
+```sh
+cargo build --manifest-path rust-backend/Cargo.toml --locked --offline --features python --lib
+extension_dir=$(mktemp -d)
+ln -s "$PWD/rust-backend/target/debug/lib_zulip_backend.so" "$extension_dir/_zulip_backend.so"
+PYTHONPATH="$extension_dir:$PWD" python rust-backend/tests/test_mobile_reply_links.py -v
+```
+
+The focused check invokes the actual compatibility module with no Django
+services. Use `GetEventsTest.test_message_reply_html_compatibility` in
+the backend suite to verify the live delivery and fetch surfaces.

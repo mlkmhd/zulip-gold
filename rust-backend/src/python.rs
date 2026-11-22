@@ -298,6 +298,12 @@ mod _zulip_backend {
     use crate::python_inline_checkpoint::MarkdownInlineCheckpoint;
 
     #[pymodule_export]
+    use crate::markdown_reply_links::{
+        mobile_client_needs_plain_reply_links, mobile_plain_reply_link_fields,
+        render_mobile_plain_reply_links,
+    };
+
+    #[pymodule_export]
     use crate::python_tex_checkpoint::{MarkdownTexCheckpoint, preflight_markdown_tex_checkpoint};
 
     #[pymodule_export]

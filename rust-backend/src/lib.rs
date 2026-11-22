@@ -93,6 +93,9 @@ pub mod markdown_media;
 #[cfg(feature = "native-markdown")]
 pub mod markdown_native_inline;
 
+#[cfg(feature = "python")]
+mod markdown_reply_links;
+
 #[cfg(feature = "native-markdown")]
 pub mod markdown_timestamp;
 
