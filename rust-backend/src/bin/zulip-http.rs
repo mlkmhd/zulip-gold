@@ -72,6 +72,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     "Subscription status read pilot requires ZULIP_RUST_DATABASE_URL".into(),
                 );
             }
+            if enabled("ZULIP_RUST_SUBSCRIBED_CHANNELS_READ_PILOT")? {
+                return Err(
+                    "Subscribed channels read pilot requires ZULIP_RUST_DATABASE_URL".into(),
+                );
+            }
             if env::var_os("ZULIP_RUST_CHANNEL_TOPICS_LOWERCASE_FILE").is_some() {
                 return Err("Channel topic reads require ZULIP_RUST_DATABASE_URL".into());
             }
@@ -228,6 +233,7 @@ async fn user_read_router(
             channel_id_read_pilot: enabled("ZULIP_RUST_CHANNEL_ID_READ_PILOT")?,
             user_status_read_pilot: enabled("ZULIP_RUST_USER_STATUS_READ_PILOT")?,
             subscription_status_read_pilot: enabled("ZULIP_RUST_SUBSCRIPTION_STATUS_READ_PILOT")?,
+            subscribed_channels_read_pilot: enabled("ZULIP_RUST_SUBSCRIBED_CHANNELS_READ_PILOT")?,
             channel_topics_lowercase_file: channel_topics_lowercase_file.as_deref(),
             emoji_url_base: emoji_url_base.as_deref(),
             rate_limit: redis_url.as_deref().map(|url| RateLimitConfig {

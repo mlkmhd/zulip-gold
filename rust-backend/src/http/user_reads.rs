@@ -35,6 +35,7 @@ use super::{
     saved_snippets::{self, SnippetEvent},
     scheduled_messages::{self, JobKind},
     session::{SessionLookup, Sessions},
+    subscribed_channels::{self, Outcome as SubscribedChannels},
     subscription_status::{self, Outcome as SubscriptionStatus},
     unicode_lowercase::UnicodeLowercase,
     user_status_read::{self, ReadOutcome as StatusReadOutcome},
@@ -65,6 +66,7 @@ enum Endpoint {
     ChannelTopics(Option<i64>),
     UserStatus(Option<i32>),
     SubscriptionStatus(Option<i32>, Option<i64>),
+    SubscribedChannels(Option<i32>),
     UserGroups,
     GroupDetail(DetailKind, Option<i64>),
     GroupMembership(Option<i64>, Option<i32>),
@@ -120,6 +122,7 @@ impl Endpoint {
             Self::ChannelTopics(_) => "get_topics_backend",
             Self::UserStatus(_) => "get_status_backend",
             Self::SubscriptionStatus(..) => "get_subscription_backend",
+            Self::SubscribedChannels(_) => "get_subscribed_channels_backend",
             Self::UserGroups => "get_user_groups",
             Self::GroupDetail(DetailKind::Members, _) => "get_user_group_members",
             Self::GroupDetail(DetailKind::Subgroups, _) => "get_subgroups_of_user_group",
@@ -283,6 +286,24 @@ impl Endpoint {
                 // The two IDs are path-only; matching query names are still unsupported.
                 let extra = ignored_parameters(&form, &["client"]);
                 return Ok(format!("\"is_subscribed\":{subscribed}{extra}"));
+            }
+            Self::SubscribedChannels(target) => {
+                let form = Form::from_query(query).map_err(ApiError::Form)?;
+                let target = target.ok_or(ApiError::MissingTargetUser)?;
+                let ids =
+                    match subscribed_channels::read(database, user_id, realm_id, target).await? {
+                        SubscribedChannels::NoSuchUser => return Err(ApiError::MissingTargetUser),
+                        SubscribedChannels::DeactivatedUser => {
+                            return Err(ApiError::DeactivatedTargetUser);
+                        }
+                        SubscribedChannels::RestrictedUser => {
+                            return Err(ApiError::RestrictedTargetUser);
+                        }
+                        SubscribedChannels::Visible(ids) => ids,
+                    };
+                let ids = serde_json::to_string(&ids).expect("channel IDs can serialize to JSON");
+                let extra = ignored_parameters(&form, &["client"]);
+                return Ok(format!("\"subscribed_channel_ids\":{ids}{extra}"));
             }
             Self::ChannelFolders => {
                 let form = Form::from_query(query).map_err(ApiError::Form)?;
@@ -971,6 +992,20 @@ pub(super) async fn get_subscription_status(
         return StatusCode::NOT_FOUND.into_response();
     }
     let endpoint = Endpoint::SubscriptionStatus(user_id.parse().ok(), stream_id.parse().ok());
+    respond(state, peer, uri, headers, None, Some(endpoint)).await
+}
+
+pub(super) async fn get_subscribed_channels(
+    State(state): State<UserReads>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    Path(id): Path<String>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    if !numeric_group_path(&id) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let endpoint = Endpoint::SubscribedChannels(id.parse().ok());
     respond(state, peer, uri, headers, None, Some(endpoint)).await
 }
 
@@ -1711,6 +1746,7 @@ fn error_response(
             | Endpoint::ChannelTopics(_)
             | Endpoint::UserStatus(_)
             | Endpoint::SubscriptionStatus(..)
+            | Endpoint::SubscribedChannels(_)
             | Endpoint::UserGroups
             | Endpoint::GroupDetail(..)
             | Endpoint::GroupMembership(..)

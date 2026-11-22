@@ -92,6 +92,11 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
         query = urlencode({"stream": "Pilot lookup Café"})
         paths = ((f"/get_stream_id?{query}", "json_get_stream_id"),)
         group_pilot = {"ZULIP_RUST_CHANNEL_ID_READ_PILOT": "1"}
+    elif args.subscribed_channels:
+        maps = ("subscribed-channels-map.conf",)
+        route_groups = ((2, ("subscribed-channels-routes.conf",)),)
+        paths = ((f"/users/{member.id}/channels", "get_subscribed_channels_backend"),)
+        group_pilot = {"ZULIP_RUST_SUBSCRIBED_CHANNELS_READ_PILOT": "1"}
     elif args.subscription_status:
         from zerver.models import Stream
 
@@ -241,6 +246,8 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
                 document = json.loads(response[1])
                 if case.query == "list_realm_domains":
                     document["domains"].sort(key=lambda row: row["domain"])
+                elif case.query == "get_subscribed_channels_backend":
+                    document["subscribed_channel_ids"].sort()
                 elif case.query == "get_user_group_members":
                     document["members"].sort()
                 elif case.query == "get_subgroups_of_user_group":
@@ -375,6 +382,11 @@ def main() -> None:
         action="store_true",
         help="rehearse one user/channel subscription read",
     )
+    group_modes.add_argument(
+        "--subscribed-channels",
+        action="store_true",
+        help="rehearse the visible subscribed channel list",
+    )
     parser.add_argument("--uwsgi", type=Path, required=True)
     parser.add_argument("--venv", type=Path, required=True)
     args = parser.parse_args()
@@ -386,6 +398,7 @@ def main() -> None:
         or args.channel_topics
         or args.user_status
         or args.subscription_status
+        or args.subscribed_channels
     ) and (args.redis_server is None or args.openssl is None):
         parser.error("selected pilot requires --redis-server and --openssl")
     if args.redis_server is not None and args.openssl is None:
@@ -400,6 +413,7 @@ def main() -> None:
         or args.channel_topics
         or args.user_status
         or args.subscription_status
+        or args.subscribed_channels
     ) and socket.if_nameindex() != [(1, "lo")]:
         raise RuntimeError("the selected pilot requires a private loopback-only network namespace")
     if any(name.startswith("ZULIP_RUST_") and name != "ZULIP_RUST_HTTP_BIN" for name in os.environ):

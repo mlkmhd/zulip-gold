@@ -15,6 +15,7 @@ mod attachments;
 mod bot_storage;
 mod channel_folders;
 mod channel_id;
+mod channel_metadata;
 mod channel_topics;
 mod compatibility;
 mod csrf;
@@ -40,6 +41,7 @@ mod realm_emoji;
 mod saved_snippets;
 mod scheduled_messages;
 mod session;
+mod subscribed_channels;
 mod subscription_status;
 mod tornado_routing;
 mod unicode_lowercase;
@@ -62,6 +64,7 @@ pub struct UserReadConfig<'a> {
     pub channel_id_read_pilot: bool,
     pub user_status_read_pilot: bool,
     pub subscription_status_read_pilot: bool,
+    pub subscribed_channels_read_pilot: bool,
     pub channel_topics_lowercase_file: Option<&'a Path>,
     pub rate_limit: Option<RateLimitConfig<'a>>,
     pub activity: Option<ActivityConfig<'a>>,
@@ -138,6 +141,10 @@ pub async fn router_with_user_reads(
     let subscription_status_read_pilot = config.subscription_status_read_pilot;
     if subscription_status_read_pilot && !browser_enabled {
         return Err("Subscription status read pilot requires signed Django sessions".into());
+    }
+    let subscribed_channels_read_pilot = config.subscribed_channels_read_pilot;
+    if subscribed_channels_read_pilot && !browser_enabled {
+        return Err("Subscribed channels read pilot requires signed Django sessions".into());
     }
     let channel_topics = config.channel_topics_lowercase_file.is_some();
     let emoji_reads = config.emoji_url_base.is_some();
@@ -287,6 +294,12 @@ pub async fn router_with_user_reads(
         routes = routes
             .route(subscription_status::PATH, read.clone())
             .route(subscription_status::SESSION_PATH, read);
+    }
+    if subscribed_channels_read_pilot {
+        let read = get(user_reads::get_subscribed_channels);
+        routes = routes
+            .route(subscribed_channels::PATH, read.clone())
+            .route(subscribed_channels::SESSION_PATH, read);
     }
     if channel_topics {
         routes = routes.route(channel_topics::PATH, get(user_reads::get_channel_topics));

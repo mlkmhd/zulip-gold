@@ -5289,3 +5289,34 @@ The separate staging map and include match only the numeric read paths
 on the test host. If Rust is stopped, removing the route include and
 reloading nginx restores Django. There is no automatic failover. Neither
 live ingress nor production load was tested.
+
+### Rehearse subscribed-channel IDs and rollback
+
+`ZULIP_RUST_SUBSCRIBED_CHANNELS_READ_PILOT=1` enables only loopback GET
+and HEAD for `/api/v1/users/{user_id}/channels` and its `/json/` alias.
+It requires a database and signed Django sessions. Django remains the
+default. Rust applies the same target and channel metadata visibility
+as the single-subscription read, but preserves archived channels when
+their subscriptions are still active, as Django's list does. It returns
+channel IDs only, in increasing order; OpenAPI does not prescribe order.
+
+From a fresh disposable fixture in its private loopback namespace:
+
+```sh
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" "$checkout/rust-backend/tests/check_subscribed_channels.py" \
+  --fixture-root "$fixture_root" --nginx "$nginx" --uwsgi "$uwsgi" --venv "$venv" \
+  --openssl "$openssl"
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" \
+  "$checkout/rust-backend/tests/check_read_proxy_activity.py" --subscribed-channels \
+  --fixture-root "$fixture_root" --nginx "$nginx" --uwsgi "$uwsgi" --venv "$venv" \
+  --openssl "$openssl" --redis-server "$redis_server" \
+  --rabbitmq-server "$rabbitmq_server" --epmd "$epmd"
+```
+
+The staging map and route include select only these numeric GET and HEAD
+paths on the test host. Requests fail with 502 if Rust stops rather than
+falling back automatically. Remove the route include and reload nginx to
+restore Django. Deployment routing, live ingress and production load
+were not changed or tested.
