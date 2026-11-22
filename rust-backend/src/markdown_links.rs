@@ -26,8 +26,8 @@ pub(crate) struct Parts<'a> {
     pub(crate) scheme: String,
     pub(crate) netloc: &'a str,
     pub(crate) path: &'a str,
-    query: &'a str,
-    fragment: &'a str,
+    pub(crate) query: &'a str,
+    pub(crate) fragment: &'a str,
 }
 
 pub(crate) fn split(url: &str) -> Result<Parts<'_>, Unsupported> {

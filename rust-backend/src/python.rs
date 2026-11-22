@@ -331,6 +331,33 @@ mod _zulip_backend {
     };
 
     #[pyfunction]
+    fn markdown_preview_url_value(
+        url: &Bound<'_, PyAny>,
+        operation: &str,
+    ) -> Option<(Option<String>,)> {
+        use crate::markdown_preview_urls as previews;
+
+        let url = url.cast_exact::<PyString>().ok()?.to_str().ok()?;
+        let result = match operation {
+            "youtube" => previews::youtube_id(url),
+            "vimeo" => previews::vimeo_id(url),
+            "github_image" => previews::github_image_url(url),
+            "corrected_image" => previews::corrected_image_source(url),
+            _ => return None,
+        };
+        Some((result.ok()?,))
+    }
+
+    type DropboxPreview = (bool, String, Option<String>);
+
+    #[pyfunction]
+    fn markdown_dropbox_preview(url: &Bound<'_, PyAny>) -> Option<(Option<DropboxPreview>,)> {
+        let url = url.cast_exact::<PyString>().ok()?.to_str().ok()?;
+        let result = crate::markdown_preview_urls::dropbox_plan(url).ok()?;
+        Some((result.map(|plan| (plan.is_album, plan.path, plan.raw_url)),))
+    }
+
+    #[pyfunction]
     #[pyo3(signature = (nodes, patterns, ancestors, guards, emoji_catalogs, emoticon_catalog=None, unicode_emoji_catalog=None, link_policy=None, channel_inputs=None, mention_inputs=None))]
     #[allow(clippy::too_many_arguments)]
     fn plan_markdown_native_inline(

@@ -94,6 +94,9 @@ pub mod markdown_media;
 pub mod markdown_native_inline;
 
 #[cfg(feature = "python")]
+mod markdown_preview_urls;
+
+#[cfg(feature = "python")]
 mod markdown_reply_links;
 
 #[cfg(feature = "native-markdown")]

@@ -43,7 +43,13 @@ from zerver.lib.emoji import translate_emoticons as translate_emoticons
 from zerver.lib.emoji_utils import emoji_to_hex_codepoint as emoji_to_hex_codepoint
 from zerver.lib.emoji_utils import unqualify_emoji as unqualify_emoji
 from zerver.lib.exceptions import MarkdownRenderingError
-from zerver.lib.markdown import channel_links, emphasis, fenced_code, postprocessing
+from zerver.lib.markdown import (
+    channel_links,
+    emphasis,
+    fenced_code,
+    native_preview_urls,
+    postprocessing,
+)
 from zerver.lib.markdown.code_blocks import CodeBlockProcessor, EmptyBlockProcessor
 from zerver.lib.markdown.fenced_code import parse_fence_line
 from zerver.lib.markdown.inline_code import BacktickMatch, backtick_pattern
@@ -673,6 +679,14 @@ class DropboxDeferredPreviewInfo:
     type: Literal["folder", "file"]
 
 
+_PREVIEW_URLSPLIT = urlsplit
+_PREVIEW_URLJOIN = urljoin
+_PREVIEW_PARSE_QS = parse_qs
+_PREVIEW_PARSE_QSL = parse_qsl
+_PREVIEW_URLENCODE = urlencode
+_PREVIEW_RE_MATCH = re.match
+
+
 class InlineInterestingLinkProcessor(markdown.treeprocessors.Treeprocessor):
     INLINE_PREVIEW_LIMIT_PER_MESSAGE = 24
 
@@ -804,6 +818,11 @@ class InlineInterestingLinkProcessor(markdown.treeprocessors.Treeprocessor):
             description_elm.text = extracted_data.description
 
     def get_actual_image_url(self, url: str) -> str:
+        if urlsplit is _PREVIEW_URLSPLIT and urljoin is _PREVIEW_URLJOIN:
+            native = native_preview_urls.value(url, "github_image")
+            if native is not None:
+                return url if native[0] is None else native[0]
+
         # Add specific per-site cases to convert image-preview URLs to image URLs.
         # See https://github.com/zulip/zulip/issues/4658 for more information
         parsed_url = urlsplit(url)
@@ -836,6 +855,11 @@ class InlineInterestingLinkProcessor(markdown.treeprocessors.Treeprocessor):
         return any(parsed_url.path.lower().endswith(ext) for ext in IMAGE_EXTENSIONS)
 
     def corrected_image_source(self, url: str) -> str | None:
+        if urlsplit is _PREVIEW_URLSPLIT:
+            native = native_preview_urls.value(url, "corrected_image")
+            if native is not None:
+                return native[0]
+
         # This function adjusts any URLs from linx.li and
         # wikipedia.org to point to the actual image URL.  It's
         # structurally very similar to dropbox_media, and possibly
@@ -856,47 +880,59 @@ class InlineInterestingLinkProcessor(markdown.treeprocessors.Treeprocessor):
     def dropbox_media(self, url: str) -> DropboxInlineMediaInfo | DropboxDeferredPreviewInfo | None:
         if not self.zmd.image_preview_enabled:
             return None
-        parsed_url = urlsplit(url)
-        if parsed_url.netloc == "dropbox.com" or parsed_url.netloc.endswith(".dropbox.com"):
-            # See https://www.dropboxforum.com/discussions/101001012/shared-link--scl-to-s/689070/replies/695266
-            # for more info on the URL structure mentioned here.
-            # It is not possible to generate /sc/ links which is kind of a showcase
-            # for multiple images. We treat it now as a folder instead.
-            is_album = parsed_url.path.startswith(
-                "/scl/fo/"  # codespell:ignore fo
-            ) or parsed_url.path.startswith("/sc/")
-            is_file = parsed_url.path.startswith("/scl/fi/")
-            if not (is_file or is_album):
+        native = (
+            native_preview_urls.dropbox(url)
+            if urlsplit is _PREVIEW_URLSPLIT
+            and parse_qsl is _PREVIEW_PARSE_QSL
+            and urlencode is _PREVIEW_URLENCODE
+            else None
+        )
+        parsed_url = None
+        if native is None:
+            parsed_url = urlsplit(url)
+            if parsed_url.netloc != "dropbox.com" and not parsed_url.netloc.endswith(
+                ".dropbox.com"
+            ):
                 return None
 
-            is_image = self.is_image(url)
-            # is_video function uses `mimetypes` library to determine
-            # file type. For that we have to get rid of any query params
-            # in the url before passing it to `is_video`.
-            is_video = self.is_video(urlsplit(url).path)
+            # Dropbox /sc/ links are treated as folders, like /scl/fo/ links.
+            path = parsed_url.path
+            is_album = path.startswith(("/scl/fo/", "/sc/"))  # codespell:ignore fo
+            if not is_album and not path.startswith("/scl/fi/"):
+                return None
+            media_url = None
+        else:
+            if native[0] is None:
+                return None
+            is_album, path, media_url = native[0]
 
-            # Albums, and files that aren't an image or video, are
-            # previewed via their OpenGraph image, which the caller
-            # fetches asynchronously through the embed_links worker
-            # rather than blocking rendering on a network request.
-            if is_album or not (is_image or is_video):
-                return DropboxDeferredPreviewInfo(type="folder" if is_album else "file")
+        is_image = self.is_image(url)
+        # mimetypes needs the path without query parameters.
+        is_video = self.is_video(urlsplit(url).path if native is None else path)
 
-            # Adding raw=1 as query param will give us the URL of the
-            # actual image instead of the dropbox image preview page.
+        # Albums and other files use OpenGraph metadata from the embed worker.
+        if is_album or not (is_image or is_video):
+            return DropboxDeferredPreviewInfo(type="folder" if is_album else "file")
+
+        if media_url is None:
+            assert parsed_url is not None
+            # raw=1 selects the actual media instead of the Dropbox preview.
             query_params = dict(parse_qsl(parsed_url.query))
             query_params["raw"] = "1"
-            query = urlencode(query_params)
-
-            return DropboxInlineMediaInfo(
-                type="image" if is_image else "video",
-                media_url=parsed_url._replace(query=query).geturl(),
-            )
-        return None
+            media_url = parsed_url._replace(query=urlencode(query_params)).geturl()
+        return DropboxInlineMediaInfo(
+            type="image" if is_image else "video",
+            media_url=media_url,
+        )
 
     def youtube_id(self, url: str) -> str | None:
         if not self.zmd.image_preview_enabled:
             return None
+
+        if urlsplit is _PREVIEW_URLSPLIT and parse_qs is _PREVIEW_PARSE_QS:
+            native = native_preview_urls.value(url, "youtube")
+            if native is not None:
+                return native[0]
 
         id = None
         split_url = urlsplit(url)
@@ -937,6 +973,10 @@ class InlineInterestingLinkProcessor(markdown.treeprocessors.Treeprocessor):
     def vimeo_id(self, url: str) -> str | None:
         if not self.zmd.image_preview_enabled:
             return None
+        if re.match is _PREVIEW_RE_MATCH:
+            native = native_preview_urls.value(url, "vimeo")
+            if native is not None:
+                return native[0]
         # (http|https)?:\/\/(www\.)?vimeo.com\/(?:channels\/(?:\w+\/)?|groups\/([^\/]*)\/videos\/|)(\d+)(?:|\/\?)
         # If it matches, match.group('id') is the video id.
 

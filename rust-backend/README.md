@@ -4326,3 +4326,45 @@ PYTHONPATH="$extension_dir:$PWD" python rust-backend/tests/test_mobile_reply_lin
 The focused check invokes the actual compatibility module with no Django
 services. Use `GetEventsTest.test_message_reply_html_compatibility` in
 the backend suite to verify the live delivery and fetch surfaces.
+
+## Plan external Markdown preview URLs through Rust
+
+Set `ZULIP_RUST_MARKDOWN_PREVIEW_URLS=1` to use the PyO3 planners in the
+existing preview treeprocessor on CPython 3.12. They select YouTube and
+Vimeo video IDs, rewrite GitHub, Wikipedia, and linx.li image sources,
+and recognize Dropbox paths and prepare raw file URLs. Dropbox query
+duplicates keep their first position and their last nonblank value.
+The Django renderer still controls whether previews are enabled, checks
+MIME types and attachments, builds the HTML, and queues deferred
+metadata requests. The existing URL sanitizer and preview fetchers are
+unchanged. The planners never perform I/O.
+
+Older wheels, unavailable exports, and unsupported inputs use the
+Python path. These include nonstandard GitHub paths requiring
+`urljoin`, bracketed or non-ASCII authorities, Vimeo's Unicode pattern
+cases, undecodable form data, and nonstandard Python strings. Leave the
+flag unset to use only Python.
+
+With a freshly compiled offline extension on `PYTHONPATH` (see the
+previous section), run:
+
+```sh
+python rust-backend/tests/test_preview_url_parity.py -v
+```
+
+The seeded differential compares the actual Python preview methods,
+including the order and arguments of Dropbox's MIME checks. To compare
+full HTML and metadata in the project's renderer, use the disposable
+Django/PostgreSQL setup described in
+[the fenced parity section](#check-planner-parity-through-the-actual-zulip-django-renderer):
+
+```sh
+DJANGO_SETTINGS_MODULE=isolated_test_settings PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
+  python rust-backend/tests/check_preview_django_parity.py --socket-directory "$PG_SOCKET_DIR"
+```
+
+That check blocks live network access, uses supplied preview metadata,
+and rolls back its synthetic realm. It also compares the prior mobile
+reply-link migration at the production Tornado event and message-fetch
+payload builders, including rich web HTML, Markdown clients, search
+matches, and edit history. It does not start a web server.
