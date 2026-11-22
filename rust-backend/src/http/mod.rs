@@ -15,6 +15,7 @@ mod attachments;
 mod bot_storage;
 mod channel_folders;
 mod channel_id;
+mod channel_members;
 mod channel_metadata;
 mod channel_topics;
 mod compatibility;
@@ -65,6 +66,7 @@ pub struct UserReadConfig<'a> {
     pub user_status_read_pilot: bool,
     pub subscription_status_read_pilot: bool,
     pub subscribed_channels_read_pilot: bool,
+    pub channel_members_read_pilot: bool,
     pub channel_topics_lowercase_file: Option<&'a Path>,
     pub rate_limit: Option<RateLimitConfig<'a>>,
     pub activity: Option<ActivityConfig<'a>>,
@@ -145,6 +147,10 @@ pub async fn router_with_user_reads(
     let subscribed_channels_read_pilot = config.subscribed_channels_read_pilot;
     if subscribed_channels_read_pilot && !browser_enabled {
         return Err("Subscribed channels read pilot requires signed Django sessions".into());
+    }
+    let channel_members_read_pilot = config.channel_members_read_pilot;
+    if channel_members_read_pilot && !browser_enabled {
+        return Err("Channel members read pilot requires signed Django sessions".into());
     }
     let channel_topics = config.channel_topics_lowercase_file.is_some();
     let emoji_reads = config.emoji_url_base.is_some();
@@ -300,6 +306,12 @@ pub async fn router_with_user_reads(
         routes = routes
             .route(subscribed_channels::PATH, read.clone())
             .route(subscribed_channels::SESSION_PATH, read);
+    }
+    if channel_members_read_pilot {
+        let read = get(user_reads::get_channel_members);
+        routes = routes
+            .route(channel_members::PATH, read.clone())
+            .route(channel_members::SESSION_PATH, read);
     }
     if channel_topics {
         routes = routes.route(channel_topics::PATH, get(user_reads::get_channel_topics));

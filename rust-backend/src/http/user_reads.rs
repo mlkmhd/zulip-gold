@@ -21,6 +21,7 @@ use super::{
     DraftWriteConfig, UserReadConfig, WebPostScheme,
     activity::{ActivityPublisher, client_name},
     alert_word_cache, alert_words, attachments, bot_storage, channel_folders, channel_id,
+    channel_members::{self, Outcome as ChannelMembers},
     channel_topics, custom_profile_fields,
     database::Database,
     draft_writes, drafts,
@@ -67,6 +68,7 @@ enum Endpoint {
     UserStatus(Option<i32>),
     SubscriptionStatus(Option<i32>, Option<i64>),
     SubscribedChannels(Option<i32>),
+    ChannelMembers(Option<i64>),
     UserGroups,
     GroupDetail(DetailKind, Option<i64>),
     GroupMembership(Option<i64>, Option<i32>),
@@ -123,6 +125,7 @@ impl Endpoint {
             Self::UserStatus(_) => "get_status_backend",
             Self::SubscriptionStatus(..) => "get_subscription_backend",
             Self::SubscribedChannels(_) => "get_subscribed_channels_backend",
+            Self::ChannelMembers(_) => "get_subscribers_backend",
             Self::UserGroups => "get_user_groups",
             Self::GroupDetail(DetailKind::Members, _) => "get_user_group_members",
             Self::GroupDetail(DetailKind::Subgroups, _) => "get_subgroups_of_user_group",
@@ -304,6 +307,25 @@ impl Endpoint {
                 let ids = serde_json::to_string(&ids).expect("channel IDs can serialize to JSON");
                 let extra = ignored_parameters(&form, &["client"]);
                 return Ok(format!("\"subscribed_channel_ids\":{ids}{extra}"));
+            }
+            Self::ChannelMembers(channel) => {
+                let form = Form::from_query(query).map_err(ApiError::Form)?;
+                let channel = channel.ok_or(ApiError::InvalidChannelId)?;
+                let roster =
+                    match channel_members::read(database, user_id, realm_id, channel).await? {
+                        ChannelMembers::InvalidChannel => return Err(ApiError::InvalidChannelId),
+                        ChannelMembers::PublicUnavailable => {
+                            return Err(ApiError::PublicSubscribersUnavailable);
+                        }
+                        ChannelMembers::PrivateUnavailable => {
+                            return Err(ApiError::PrivateSubscribersUnavailable);
+                        }
+                        ChannelMembers::Visible(roster) => roster,
+                    };
+                let roster =
+                    serde_json::to_string(&roster).expect("user IDs can serialize to JSON");
+                let extra = ignored_parameters(&form, &["client"]);
+                return Ok(format!("\"subscribers\":{roster}{extra}"));
             }
             Self::ChannelFolders => {
                 let form = Form::from_query(query).map_err(ApiError::Form)?;
@@ -794,6 +816,8 @@ enum ApiError {
     InvalidNavigationView(&'static str),
     InvalidChannelName(String),
     InvalidChannelId,
+    PublicSubscribersUnavailable,
+    PrivateSubscribersUnavailable,
     NavigationViewNotFound,
     DeactivatedUser,
     DeactivatedRealm,
@@ -1006,6 +1030,20 @@ pub(super) async fn get_subscribed_channels(
         return StatusCode::NOT_FOUND.into_response();
     }
     let endpoint = Endpoint::SubscribedChannels(id.parse().ok());
+    respond(state, peer, uri, headers, None, Some(endpoint)).await
+}
+
+pub(super) async fn get_channel_members(
+    State(state): State<UserReads>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    Path(id): Path<String>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    if !numeric_group_path(&id) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let endpoint = Endpoint::ChannelMembers(id.parse().ok());
     respond(state, peer, uri, headers, None, Some(endpoint)).await
 }
 
@@ -1747,6 +1785,7 @@ fn error_response(
             | Endpoint::UserStatus(_)
             | Endpoint::SubscriptionStatus(..)
             | Endpoint::SubscribedChannels(_)
+            | Endpoint::ChannelMembers(_)
             | Endpoint::UserGroups
             | Endpoint::GroupDetail(..)
             | Endpoint::GroupMembership(..)
@@ -1801,6 +1840,16 @@ fn error_response(
         ApiError::InvalidChannelId => {
             (StatusCode::BAD_REQUEST, "BAD_REQUEST", "Invalid channel ID")
         }
+        ApiError::PublicSubscribersUnavailable => (
+            StatusCode::BAD_REQUEST,
+            "BAD_REQUEST",
+            "Subscriber data is not available for this channel",
+        ),
+        ApiError::PrivateSubscribersUnavailable => (
+            StatusCode::BAD_REQUEST,
+            "BAD_REQUEST",
+            "Unable to retrieve subscribers for private channel",
+        ),
         ApiError::InvalidChannelName(_) => (
             StatusCode::BAD_REQUEST,
             "BAD_REQUEST",
@@ -2012,6 +2061,8 @@ fn error_response(
         | ApiError::InvalidNavigationView(_)
         | ApiError::InvalidChannelName(_)
         | ApiError::InvalidChannelId
+        | ApiError::PublicSubscribersUnavailable
+        | ApiError::PrivateSubscribersUnavailable
         | ApiError::NavigationViewNotFound
         | ApiError::DraftSyncDisabled
         | ApiError::UserGroupGuest
