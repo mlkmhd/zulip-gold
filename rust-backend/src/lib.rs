@@ -24,6 +24,12 @@ mod draft_recipients;
 #[cfg(feature = "http")]
 pub mod http;
 
+#[cfg(any(feature = "http", feature = "python"))]
+mod own_profile_payload;
+
+#[cfg(feature = "python")]
+mod python_own_profile;
+
 #[cfg(feature = "python")]
 mod markdown_alerts;
 

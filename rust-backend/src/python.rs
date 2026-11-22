@@ -330,6 +330,9 @@ mod _zulip_backend {
     };
 
     #[pymodule_export]
+    use crate::python_own_profile::assemble_own_profile;
+
+    #[pymodule_export]
     use crate::python_recent_conversations::{
         assemble_recent_conversations, finalize_recent_conversations,
     };

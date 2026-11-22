@@ -6,8 +6,9 @@ from collections.abc import Iterable, Mapping, Sequence
 from email.headerregistry import Address
 from importlib import import_module
 from operator import attrgetter
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
+import orjson
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import connection
@@ -1163,6 +1164,53 @@ def get_users_for_api(
             result[user_id] = inaccessible_user_row
 
     return result
+
+
+def get_own_profile_with_rust(user_profile: UserProfile) -> APIUserDict | None:
+    # The caller just authenticated this exact user. Keep identity, storage and
+    # configuration in Django; the native helper only formats this snapshot.
+    try:
+        assemble_own_profile = import_module("_zulip_backend").assemble_own_profile
+    except (ImportError, AttributeError):
+        return None
+
+    row = user_profile_to_user_row(user_profile)
+    avatar = get_avatar_field(
+        user_profile.id,
+        user_profile.realm_id,
+        row["delivery_email"],
+        row["avatar_source"],
+        row["avatar_version"],
+        medium=False,
+        client_gravatar=False,
+    )
+    if avatar is None:
+        return None
+    custom_fields = (
+        []
+        if row["is_bot"]
+        else list(
+            CustomProfileFieldValue.objects.filter(user_profile=user_profile).values_list(
+                "field_id", "field__field_type", "value", "rendered_value"
+            )
+        )
+    )
+    facts = dict(
+        row,
+        user_id=user_profile.id,
+        date_joined=row["date_joined"].isoformat(timespec="minutes"),
+        max_message_id=max_message_id_for_user(user_profile),
+    )
+    payload = assemble_own_profile(
+        facts,
+        avatar,
+        canonicalize_timezone(row["timezone"]),
+        (row["bot_type"], row["bot_owner_id"], is_cross_realm_bot_email(row["email"])),
+        custom_fields,
+    )
+    if payload is None:
+        return None
+    return cast(APIUserDict, orjson.loads(payload))
 
 
 def get_active_bots_owned_by_user(user_profile: UserProfile) -> QuerySet[UserProfile]:

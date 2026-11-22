@@ -12,7 +12,7 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 native-markdown = ["dep:libc", "dep:regex"]
-python = ["dep:aho-corasick", "dep:jiter", "dep:pyo3", "native-markdown"]
+python = ["dep:aho-corasick", "dep:jiter", "dep:pyo3", "dep:serde", "dep:serde_json", "native-markdown"]
 http = [
     "dep:axum", "dep:base64", "dep:ctutils", "dep:flate2", "dep:form_urlencoded", "dep:gettext", "dep:hmac",
     "dep:httpdate", "dep:jiter", "dep:lapin", "dep:rand", "dep:redis", "dep:serde", "dep:serde_json", "native-markdown",

@@ -5082,3 +5082,25 @@ presentation. The test also checks the entire alias map from the installed
 tzdata source and 12 Django avatar and system-bot decisions without login
 or storage calls. No HTTP adapter was added. Django still handles the route
 and must remain the trusted avatar URL provider before an adapter can opt in.
+
+### Format authenticated self-profile responses through Rust
+
+With a locally built Python extension, `ZULIP_RUST_OWN_PROFILE_PAYLOAD=1`
+selects the same Rust response composer inside Django for `GET /users/me`.
+It is off by default. Authentication, the account snapshot, database
+connection, time zone lookup and avatar URL stay in Django; Rust does not
+obtain an avatar salt or call storage. The existing Django formatter is
+used if the extension or function is unavailable or the helper does not
+support the supplied values. No Rust listener or proxy route is added.
+
+After generating the disposable PostgreSQL references above, expose the
+matching locally built Python extension on the fixture's Python path and run:
+
+```sh
+PYTHONPATH="$native_extension_dir:$PWD" "$venv/bin/python" \
+  "$checkout/rust-backend/tests/check_own_profile_bridge.py" --fixture-root "$fixture_root"
+```
+
+This compares 11 real Django Basic/session GETs with the flag off, with the
+native formatter selected, and with a forced fallback to Django. It asserts
+that enabled requests cannot silently pass by using the old formatter.

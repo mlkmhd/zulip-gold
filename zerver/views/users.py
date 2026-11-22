@@ -1,3 +1,4 @@
+import os
 from collections.abc import Mapping
 from typing import Annotated, Any, TypeAlias
 
@@ -90,6 +91,7 @@ from zerver.lib.users import (
     check_valid_embedded_bot_config,
     check_valid_incoming_webhook_bot_config,
     check_valid_interface_type,
+    get_own_profile_with_rust,
     get_users_for_api,
     max_message_id_for_user,
     validate_short_name_and_construct_bot_email,
@@ -954,6 +956,11 @@ def create_user_backend(
 
 
 def get_profile_backend(request: HttpRequest, user_profile: UserProfile) -> HttpResponse:
+    if os.environ.get("ZULIP_RUST_OWN_PROFILE_PAYLOAD") == "1":
+        native_result = get_own_profile_with_rust(user_profile)
+        if native_result is not None:
+            return json_success(request, data=native_result)
+
     raw_user_data = get_users_for_api(
         user_profile.realm,
         user_profile,
