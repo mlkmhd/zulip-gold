@@ -4792,6 +4792,31 @@ PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
   zerver.tests.test_subs.StreamTrafficTest
 ```
 
+### Batch the personal subscription response through Rust
+
+Set `ZULIP_RUST_OWN_SUBSCRIPTIONS=1` to batch the 41-field active
+subscription projection and its sorted order for the existing Django
+GET/HEAD handler. Rust also plans which of those channels use partial
+rosters. Django passes the threshold resolved in that request process
+and the exact counts from its existing stream read. Django still
+authenticates, selects all rows, authorizes and reads subscriber IDs,
+and adds the roster fields to the response. The register path and the
+default stay unchanged; missing exports and unsupported input use
+the existing Python projection.
+
+In the existing private Django fixture and loopback-only namespace,
+build the locked Python extension and run:
+
+```sh
+ZULIP_RUST_OWN_SUBSCRIPTIONS=1 PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
+  "$venv/bin/python" "$checkout/rust-backend/tests/check_own_subscriptions_django_parity.py" \
+  --fixture-root "$fixture_root"
+```
+
+This checks both signed sessions and Basic Auth with the default option,
+`false`, `true` and `partial`, and an old extension or a declined batch.
+This is not a standalone HTTP route and does not expand its coverage.
+
 ## Assemble user settings and preference catalogs through Rust
 
 Set `ZULIP_RUST_SETTINGS_PAYLOAD=1` to build the personal and realm

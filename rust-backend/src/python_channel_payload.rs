@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyDict, PyInt, PyString};
+use pyo3::types::{PyBool, PyDict, PyInt, PyList, PyString, PyTuple};
 
 use crate::channel_traffic::average_weekly_messages;
 
@@ -49,6 +49,81 @@ pub(crate) fn assemble_channel_subscription<'py>(
         output.set_item(field, value)?;
     }
     Ok(Some(output))
+}
+
+type OwnSubscriptionBatch<'py> = (Vec<Bound<'py, PyDict>>, Vec<i64>);
+
+// Django selects the active rows and is still responsible for all subscriber
+// authorization and data access. The count is from its original classifier's
+// stream read, not a second view of the count or an independent policy input.
+#[pyfunction]
+pub(crate) fn assemble_own_subscription_batch<'py>(
+    py: Python<'py>,
+    rows: &Bound<'py, PyAny>,
+    partial: bool,
+    threshold: &Bound<'py, PyAny>,
+) -> PyResult<Option<OwnSubscriptionBatch<'py>>> {
+    let Ok(rows) = rows.cast_exact::<PyList>() else {
+        return Ok(None);
+    };
+    let threshold = if partial {
+        let Some(threshold) = strict_integer(threshold) else {
+            return Ok(None);
+        };
+        Some(threshold)
+    } else {
+        None
+    };
+    let mut payload = Vec::with_capacity(rows.len());
+    let mut partial_ids = Vec::new();
+    for row in rows.iter() {
+        let Ok(row) = row.cast_exact::<PyTuple>() else {
+            return Ok(None);
+        };
+        if row.len() != 3 {
+            return Ok(None);
+        }
+        let Some(item) = assemble_channel_subscription(py, &row.get_item(0)?, &row.get_item(1)?)?
+        else {
+            return Ok(None);
+        };
+        let Some(name) = item.get_item("name")? else {
+            return Ok(None);
+        };
+        let Ok(name) = name.cast_exact::<PyString>() else {
+            return Ok(None);
+        };
+        let Ok(name) = name.to_str() else {
+            return Ok(None);
+        };
+        if let Some(threshold) = threshold {
+            let count = row.get_item(2)?;
+            if !count.is_none() {
+                let Some(count) = strict_integer(&count) else {
+                    return Ok(None);
+                };
+                if count >= threshold {
+                    let Some(id) = item.get_item("stream_id")? else {
+                        return Ok(None);
+                    };
+                    let Some(id) = strict_integer(&id) else {
+                        return Ok(None);
+                    };
+                    partial_ids.push(id);
+                }
+            }
+        }
+        payload.push((name.to_owned(), item));
+    }
+    payload.sort_by(|left, right| left.0.cmp(&right.0));
+    Ok(Some((
+        payload.into_iter().map(|(_, item)| item).collect(),
+        partial_ids,
+    )))
+}
+
+fn strict_integer(value: &Bound<'_, PyAny>) -> Option<i64> {
+    value.cast_exact::<PyInt>().ok()?.extract().ok()
 }
 
 #[pyfunction]

@@ -321,7 +321,8 @@ mod _zulip_backend {
 
     #[pymodule_export]
     use crate::python_channel_payload::{
-        assemble_channel_subscription, calculate_weekly_channel_traffic,
+        assemble_channel_subscription, assemble_own_subscription_batch,
+        calculate_weekly_channel_traffic,
     };
 
     #[pymodule_export]

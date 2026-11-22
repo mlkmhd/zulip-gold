@@ -824,6 +824,8 @@ def gather_subscriptions_helper(
     include_subscribers: bool | Literal["partial"] = True,
     include_archived_channels: bool = False,
     anonymous_group_membership: dict[int, UserGroupMembersData] | None = None,
+    *,
+    assemble_active_with_rust: bool = False,
 ) -> SubscriptionInfo:
     realm = user_profile.realm
     all_streams = get_all_streams(
@@ -902,6 +904,23 @@ def gather_subscriptions_helper(
             get_recursive_membership_groups(user_profile).values_list("id", flat=True)
         )
     sub_unsub_stream_ids = set()
+    # Only the HTTP own-subscriptions caller may use this batch. The same
+    # Django scope, projection inputs, and roster authorization stay here.
+    native_rows: list[native_channel_payload.OwnSubscriptionInput] | None = (
+        []
+        if assemble_active_with_rust and native_channel_payload.own_subscriptions_available()
+        else None
+    )
+    threshold = (
+        settings.MIN_PARTIAL_SUBSCRIBERS_CHANNEL_SIZE
+        if native_rows is not None and include_subscribers == "partial"
+        else None
+    )
+    live_counts = (
+        {stream.id: stream.subscriber_count for stream in all_streams}
+        if native_rows is not None and threshold is not None
+        else {}
+    )
     for sub_dict in sub_dicts:
         stream_id = get_stream_id(sub_dict)
         sub_unsub_stream_ids.add(stream_id)
@@ -909,6 +928,9 @@ def gather_subscriptions_helper(
         stream_api_dict = build_stream_api_dict(
             raw_stream_dict, recent_traffic, anonymous_group_membership
         )
+        if sub_dict["active"] and native_rows is not None:
+            native_rows.append((sub_dict, stream_api_dict, live_counts.get(stream_id)))
+            continue
         stream_dict = build_stream_dict_for_sub(
             user=user_profile,
             sub_dict=sub_dict,
@@ -939,6 +961,21 @@ def gather_subscriptions_helper(
                 a reference to a private stream they had never been subscribed to.
                 """
                 unsubscribed.append(stream_dict)
+
+    native_batch = (
+        native_channel_payload.assemble_own_subscriptions(
+            native_rows, partial=include_subscribers == "partial", threshold=threshold
+        )
+        if native_rows is not None
+        else None
+    )
+    if native_batch is not None:
+        subscribed, native_partial_ids = native_batch
+    elif native_rows is not None:
+        subscribed.extend(
+            build_stream_dict_for_sub(user_profile, sub_dict, stream_dict)
+            for sub_dict, stream_dict, _ in native_rows
+        )
 
     if user_profile.can_access_public_streams():
         never_subscribed_stream_ids = set(all_streams_map) - sub_unsub_stream_ids
@@ -987,11 +1024,23 @@ def gather_subscriptions_helper(
         # - only bots and recently active users for other channels.
         streams_to_partially_fetch = []
         if include_subscribers == "partial":
-            streams_to_partially_fetch = [
-                stream.id
-                for stream in all_streams
-                if stream.subscriber_count >= settings.MIN_PARTIAL_SUBSCRIBERS_CHANNEL_SIZE
-            ]
+            if native_batch is not None:
+                assert threshold is not None
+                active_ids = {stream["stream_id"] for stream in subscribed}
+                streams_to_partially_fetch = [
+                    *native_partial_ids,
+                    *(
+                        stream.id
+                        for stream in all_streams
+                        if stream.id not in active_ids and stream.subscriber_count >= threshold
+                    ),
+                ]
+            else:
+                streams_to_partially_fetch = [
+                    stream.id
+                    for stream in all_streams
+                    if stream.subscriber_count >= settings.MIN_PARTIAL_SUBSCRIBERS_CHANNEL_SIZE
+                ]
 
         subscriber_map = bulk_get_subscriber_user_ids(
             all_stream_dicts,
@@ -1017,7 +1066,8 @@ def gather_subscriptions_helper(
             else:
                 slim_stream_dict["subscribers"] = subscriber_map[stream_id]
 
-    subscribed.sort(key=lambda x: x["name"])
+    if native_batch is None:
+        subscribed.sort(key=lambda x: x["name"])
     unsubscribed.sort(key=lambda x: x["name"])
     never_subscribed.sort(key=lambda x: x["name"])
 
@@ -1031,10 +1081,13 @@ def gather_subscriptions_helper(
 def gather_subscriptions(
     user_profile: UserProfile,
     include_subscribers: bool | Literal["partial"] = False,
+    *,
+    assemble_active_with_rust: bool = False,
 ) -> tuple[list[SubscriptionStreamDict], list[SubscriptionStreamDict]]:
     helper_result = gather_subscriptions_helper(
         user_profile,
         include_subscribers=include_subscribers,
+        assemble_active_with_rust=assemble_active_with_rust,
     )
     subscribed = helper_result.subscriptions
     unsubscribed = helper_result.unsubscribed

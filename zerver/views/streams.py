@@ -554,6 +554,7 @@ def list_subscriptions_backend(
     subscribed, _ = gather_subscriptions(
         user_profile,
         include_subscribers=parse_include_subscribers(include_subscribers),
+        assemble_active_with_rust=True,
     )
     return json_success(request, data={"subscriptions": subscribed})
 
