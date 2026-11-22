@@ -23,6 +23,7 @@ from zerver.actions.user_topics import (
     bulk_do_set_user_topic_visibility_policy,
     do_set_user_topic_visibility_policy,
 )
+from zerver.lib import native_user_message_flags
 from zerver.lib.addressee import Addressee
 from zerver.lib.alert_words import get_alert_word_matcher
 from zerver.lib.cache import (
@@ -1184,8 +1185,16 @@ def do_send_messages(
             topic_participant_user_ids=send_request.topic_participant_user_ids,
         )
 
-        for um in user_messages:
-            user_message_flags[send_request.message.id][um.user_profile_id] = um.flags_list()
+        native_flags = None
+        if user_messages and native_user_message_flags.available():
+            native_flags = native_user_message_flags.labels_by_id(
+                (um.user_profile_id, um.flags) for um in user_messages
+            )
+        if native_flags is not None:
+            user_message_flags[send_request.message.id].update(native_flags)
+        else:
+            for um in user_messages:
+                user_message_flags[send_request.message.id][um.user_profile_id] = um.flags_list()
 
         ums.extend(user_messages)
 

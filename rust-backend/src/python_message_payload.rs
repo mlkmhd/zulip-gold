@@ -474,3 +474,64 @@ pub(crate) fn adapt_mobile_message_events<'py>(
     }
     Ok(true)
 }
+
+/// Label receipt masks already chosen by Django; it also supplies the
+/// ordered public labels and leaves internal flag positions empty.
+#[pyfunction]
+pub(crate) fn label_user_message_flags<'py>(
+    py: Python<'py>,
+    records: &Bound<'py, PyAny>,
+    labels: &Bound<'py, PyAny>,
+) -> PyResult<Option<Bound<'py, PyDict>>> {
+    let (Ok(records), Ok(labels)) = (
+        records.cast_exact::<PyList>(),
+        labels.cast_exact::<PyTuple>(),
+    ) else {
+        return Ok(None);
+    };
+    if labels.len() > u64::BITS as usize {
+        return Ok(None);
+    }
+    let mut names = Vec::with_capacity(labels.len());
+    for name in labels.iter() {
+        if name.is_none() {
+            names.push(None);
+        } else {
+            let Ok(name) = name.cast_into_exact::<PyString>() else {
+                return Ok(None);
+            };
+            names.push(Some(name));
+        }
+    }
+
+    let result = PyDict::new(py);
+    for record in records.iter() {
+        let Ok(record) = record.cast_exact::<PyTuple>() else {
+            return Ok(None);
+        };
+        if record.len() != 2 {
+            return Ok(None);
+        }
+        let id = record.get_item(0)?;
+        if !id.is_exact_instance_of::<PyInt>() {
+            return Ok(None);
+        }
+        let mask = record.get_item(1)?;
+        let Ok(mask) = mask.cast_exact::<PyInt>() else {
+            return Ok(None);
+        };
+        let Ok(mut remaining) = mask.extract::<u64>() else {
+            return Ok(None);
+        };
+        let public = PyList::empty(py);
+        while remaining != 0 {
+            let bit = remaining.trailing_zeros() as usize;
+            if let Some(Some(name)) = names.get(bit) {
+                public.append(name)?;
+            }
+            remaining &= remaining - 1;
+        }
+        result.set_item(id, public)?;
+    }
+    Ok(Some(result))
+}

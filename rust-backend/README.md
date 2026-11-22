@@ -5767,3 +5767,27 @@ run_register_replay 0 && run_register_replay 1 && run_register_replay 0
 An older extension that supports projections but not replay continues
 to use Python for replay. This verifies an in-process fallback, not a
 production restart, network-proxy cutover, or independent Rust route.
+
+### Label message receipt flags in batches through Rust
+
+Set `ZULIP_RUST_USER_MESSAGE_FLAGS=1` before starting Django to label
+already selected receipt masks in message send events and message list
+responses. Django supplies its ordered public names and withholds
+internal flag positions. Only identifiers and numeric masks reach the
+extension; recipients, message selection and content, stored flags,
+historical defaults, and spectator behavior are unchanged. This switch
+is off by default and an older extension or unsupported batch uses the
+original Python loops.
+
+With the current extension built in an isolated test environment:
+
+```bash
+for enabled in 0 1; do
+    ZULIP_RUST_USER_MESSAGE_`ZULIP_RUST_USER_MESSAGE_FLAGS=1`S=$enabled ./tools/test-backend \
+        zerver.tests.test_user_message_flags_rust \
+        zerver.tests.test_message_send.DoSendMessagesTest.test_events_for_several_messages \
+        zerver.tests.test_message_fetch.GetOldMessagesTest.test_include_history
+done
+```
+
+This changes no standalone HTTP ownership.

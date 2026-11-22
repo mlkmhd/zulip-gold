@@ -10,7 +10,7 @@ from django.utils.translation import gettext as _
 from pydantic import Json, NonNegativeInt
 
 from zerver.context_processors import get_valid_realm_from_request
-from zerver.lib import native_search_highlights
+from zerver.lib import native_search_highlights, native_user_message_flags
 from zerver.lib.exceptions import (
     IncompatibleParametersError,
     JsonableError,
@@ -287,17 +287,34 @@ def get_messages_backend(
             um_rows = UserMessage.objects.filter(
                 user_profile=user_profile, message_id__in=result_message_ids
             )
-            user_message_flags = {um.message_id: um.flags_list() for um in um_rows}
+            native_flags = None
+            if native_user_message_flags.available():
+                native_flags = native_user_message_flags.labels_by_id(
+                    (um.message_id, int(um.flags)) for um in um_rows
+                )
+            if native_flags is None:
+                user_message_flags = {um.message_id: um.flags_list() for um in um_rows}
+            else:
+                user_message_flags = native_flags
 
             for message_id in result_message_ids:
                 if message_id not in user_message_flags:
                     user_message_flags[message_id] = ["read", "historical"]
         else:
-            for row in rows:
-                message_id = row[0]
-                flags = row[1]
-                user_message_flags[message_id] = UserMessage.flags_list_for_flags(flags)
-                result_message_ids.append(message_id)
+            native_flags = None
+            if native_user_message_flags.available():
+                native_flags = native_user_message_flags.labels_by_id(
+                    (row[0], row[1]) for row in rows
+                )
+            if native_flags is not None:
+                user_message_flags = native_flags
+                result_message_ids = [row[0] for row in rows]
+            else:
+                for row in rows:
+                    message_id = row[0]
+                    flags = row[1]
+                    user_message_flags[message_id] = UserMessage.flags_list_for_flags(flags)
+                    result_message_ids.append(message_id)
 
         search_fields: dict[int, dict[str, str]] = {}
         if is_search:
