@@ -359,6 +359,7 @@ mod _zulip_backend {
     #[pymodule_export]
     use crate::python_recent_conversations::{
         assemble_recent_conversations, finalize_recent_conversations,
+        replay_recent_conversation_message, replay_recent_conversation_pin,
     };
 
     #[pymodule_export]

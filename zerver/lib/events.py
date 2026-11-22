@@ -24,6 +24,7 @@ from zerver.lib import (
     emoji,
     native_channel_folder_replay,
     native_personal_replay,
+    native_recent_conversation_replay,
     native_recent_conversations,
     native_register_state,
     native_schedule_replay,
@@ -1053,6 +1054,10 @@ def apply_event(
             if "raw_recent_private_conversations" in state:
                 # Handle maintaining the recent_private_conversations data structure.
                 conversations = state["raw_recent_private_conversations"]
+                if native_recent_conversation_replay.message(
+                    conversations, user_profile.id, event["message"]
+                ):
+                    return
                 userset = frozenset(
                     user_dict["id"]
                     for user_dict in event["message"]["display_recipient"]
@@ -2056,6 +2061,8 @@ def apply_event(
     elif event["type"] == "direct_message_conversation":
         if "raw_recent_private_conversations" in state:
             conversations = state["raw_recent_private_conversations"]
+            if native_recent_conversation_replay.pin(conversations, event):
+                return
             userset = frozenset(event["user_ids"])
             if userset in conversations:
                 conversations[userset]["pinned"] = event["pinned"]

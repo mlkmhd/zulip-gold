@@ -5699,3 +5699,33 @@ done
 ```
 
 This is in-process register reconciliation, not a new HTTP route.
+
+### Replay recent direct-message conversations through Rust
+
+Set `ZULIP_RUST_RECENT_CONVERSATION_REPLAY=1` before starting Django to
+apply selected message-arrival and pin/unpin events during registration.
+The reducer groups the caller's existing participant IDs without self,
+keeps conversation order and existing pins when a new message arrives,
+and updates the pin in place only for a known conversation. Django still
+selects visible messages and events and queries the current rows again
+after a deletion. No message content, write, or HTTP path moves to Rust.
+
+This switch is independent of `ZULIP_RUST_RECENT_CONVERSATIONS`. Older
+extensions and unsupported inputs use the unchanged Python reducer. Run
+in an isolated test environment with the extension built and importable:
+
+```bash
+for assemble in 0 1; do
+    for replay in 0 1; do
+        ZULIP_RUST_RECENT_CONVERSATIONS=$assemble ZULIP_RUST_RECENT_CONVERSATION_REPLAY=$replay \
+            ./tools/test-backend \
+            zerver.tests.test_recent_conversation_replay_rust \
+            zerver.tests.test_events.NormalActionsTest.test_pm_send_message_events_via_direct_message_group \
+            zerver.tests.test_events.NormalActionsTest.test_direct_message_group_send_message_events \
+            zerver.tests.test_events.NormalActionsTest.test_pinned_direct_message_conversation_events \
+            zerver.tests.test_direct_message_groups.DirectMessageConversationPinTest
+    done
+done
+```
+
+This does not change the independent HTTP inventory.

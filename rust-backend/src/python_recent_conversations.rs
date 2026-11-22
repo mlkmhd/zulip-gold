@@ -4,6 +4,8 @@ use std::collections::{HashMap, HashSet};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFrozenSet, PyInt, PyList, PyString, PyTuple};
 
+use crate::python_schedule_replay::{fields, int_field};
+
 fn integer(value: &Bound<'_, PyAny>) -> Option<i64> {
     value.cast_exact::<PyInt>().ok()?.extract().ok()
 }
@@ -118,4 +120,93 @@ pub(crate) fn finalize_recent_conversations<'py>(
         result.append(row)?;
     }
     Ok(Some(result))
+}
+
+#[pyfunction]
+pub(crate) fn replay_recent_conversation_message<'py>(
+    py: Python<'py>,
+    conversations: &Bound<'py, PyAny>,
+    me: &Bound<'py, PyAny>,
+    latest: &Bound<'py, PyAny>,
+    recipients: &Bound<'py, PyAny>,
+) -> PyResult<bool> {
+    let (Ok(conversations), Some(me), Some(latest), Ok(recipients)) = (
+        conversations.cast_exact::<PyDict>(),
+        integer(me),
+        integer(latest),
+        recipients.cast_exact::<PyList>(),
+    ) else {
+        return Ok(false);
+    };
+    let mut participants = Vec::with_capacity(recipients.len());
+    for recipient in recipients.iter() {
+        let Some(id) = int_field(&recipient, "id") else {
+            return Ok(false);
+        };
+        // The display recipient may contain other fields. Only the
+        // identifier is read, and self never forms part of the key.
+        if id != me {
+            participants.push(id);
+        }
+    }
+    let key = PyFrozenSet::new(py, participants)?;
+    let pinned = if let Some(existing) = conversations.get_item(&key)? {
+        if existing.is_none() {
+            false
+        } else {
+            let Some(existing) = fields(&existing) else {
+                return Ok(false);
+            };
+            let Some(pinned) = existing.get_item("pinned")? else {
+                return Ok(false);
+            };
+            let Some(pinned) = boolean(&pinned) else {
+                return Ok(false);
+            };
+            pinned
+        }
+    } else {
+        false
+    };
+
+    // Assigning an existing dict key keeps its position, including
+    // when that conversation's latest ID is lower than before.
+    let row = PyDict::new(py);
+    row.set_item("max_message_id", latest)?;
+    row.set_item("pinned", pinned)?;
+    conversations.set_item(&key, row)?;
+    Ok(true)
+}
+
+#[pyfunction]
+pub(crate) fn replay_recent_conversation_pin<'py>(
+    py: Python<'py>,
+    conversations: &Bound<'py, PyAny>,
+    user_ids: &Bound<'py, PyAny>,
+    pinned: &Bound<'py, PyAny>,
+) -> PyResult<bool> {
+    let (Ok(conversations), Ok(user_ids), Some(pinned)) = (
+        conversations.cast_exact::<PyDict>(),
+        user_ids.cast_exact::<PyList>(),
+        boolean(pinned),
+    ) else {
+        return Ok(false);
+    };
+    let Some(participants) = user_ids
+        .iter()
+        .map(|id| integer(&id))
+        .collect::<Option<Vec<_>>>()
+    else {
+        return Ok(false);
+    };
+    let key = PyFrozenSet::new(py, participants)?;
+    if let Some(row) = conversations.get_item(&key)? {
+        let Some(row) = fields(&row) else {
+            return Ok(false);
+        };
+        // A pin for a conversation outside the register snapshot is a
+        // no-op. When present, update this exact row rather than replace it.
+        row.set_item("pinned", pinned)?;
+    }
+    Ok(true)
 }
