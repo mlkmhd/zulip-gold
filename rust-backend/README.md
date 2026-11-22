@@ -5729,3 +5729,41 @@ done
 ```
 
 This does not change the independent HTTP inventory.
+
+### Verify combined register replay and its rollback
+
+Run this in an isolated Zulip test environment with the current Python
+extension built and importable. The two tests use Django Basic and
+session requests and a private test database. Real actions enqueue
+draft, snippet, navigation, scheduled-message, reminder, folder,
+direct-message, pin, and read-flag updates while the view is between
+its initial snapshot and queue read. Only the queue transport is
+stubbed; Tornado's event queue and Django's access checks, database
+queries, and response processing run in the test process.
+
+The raced response must match a fresh snapshot apart from the expected
+queue cursor, and must not contain another account's private changes.
+Each invocation starts a new process. The final invocation verifies
+rollback by leaving the flags unset before process startup:
+
+```bash
+run_register_replay() (
+    for flag in \
+        ZULIP_RUST_PERSONAL_REPLAY ZULIP_RUST_SCHEDULE_REPLAY \
+        ZULIP_RUST_CHANNEL_FOLDER_REPLAY ZULIP_RUST_UNREAD_REPLAY \
+        ZULIP_RUST_RECENT_CONVERSATION_REPLAY \
+        ZULIP_RUST_UNREAD_PAYLOAD ZULIP_RUST_RECENT_CONVERSATIONS; do
+        if [ "$1" = 1 ]; then
+            export "$flag=1"
+        else
+            unset "$flag"
+        fi
+    done
+    ./tools/test-backend zerver.tests.test_register_rust_replay
+)
+run_register_replay 0 && run_register_replay 1 && run_register_replay 0
+```
+
+An older extension that supports projections but not replay continues
+to use Python for replay. This verifies an in-process fallback, not a
+production restart, network-proxy cutover, or independent Rust route.
