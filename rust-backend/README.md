@@ -4223,3 +4223,40 @@ over Python on that fixture was smaller (about 2%); plain highlighted
 input was slower than Python. The Python formatter and validators
 remain active. This is service-free evidence, not end-to-end Zulip
 parity or a basis for enabling a default.
+
+### Check planner parity through the actual Zulip Django renderer
+
+The integration check is separate from the service-free fixture. It
+compares complete `do_convert` results for fenced Markdown cases in the
+repository's Markdown fixtures, plus three targeted inputs, with and
+without a persisted synthetic realm. It also requires real KaTeX
+output and the realm's default code language. Only the planner varies;
+the synthetic rows are rolled back.
+
+Use a **disposable** checkout and cached matching dependencies. In the
+snapshot, generate fresh development settings with
+`scripts/setup/generate_secrets.py --development`; do not copy actual
+settings or credentials. Provide the generated emoji data matching
+`generate_sha1sum_emoji` and the KaTeX package version pinned in the lockfile.
+Put the locally built optimized extension on `PYTHONPATH`.
+
+Start a disposable PostgreSQL cluster with peer authentication, an
+owner-only (0700) Unix socket directory and `listen_addresses=''`.
+Create only its `zulip_test` database, load the existing `pgroonga`
+extension, and apply the real Django migrations. Use a local settings
+module inheriting `zproject.test_settings` and override only the test
+database connection to that socket, its port, the peer role and an
+empty password. Do not use an existing database or change any host
+service or global settings. Stop the cluster after the check.
+
+With that settings module and no Rust flags set, run:
+
+```sh
+DJANGO_SETTINGS_MODULE=isolated_test_settings PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
+  python rust-backend/tests/check_fenced_django_parity.py --socket-directory "$PG_SOCKET_DIR"
+```
+
+The check refuses non-test settings or a PostgreSQL listener on TCP,
+and blocks Python socket connections other than the guarded libpq
+connection. It does not exercise the complete Zulip test suite, client
+requests, or deployment-level performance.

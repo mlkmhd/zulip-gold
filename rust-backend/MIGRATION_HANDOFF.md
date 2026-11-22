@@ -6005,3 +6005,27 @@ OpenAPI (۱۶٫۴٪) و ۲۸/۱۹۰ وب (۱۴٫۷٪) است.
 ۴۵ تست Python هدفمند و ۲۷۲ تست Rust، بیلد آفلاین PyO3 بهینه
 و HTTP، fmt/Clippy/Ruff و نمونهٔ دو حالت قبلی benchmark پاس شدند.
 یک تست نیازمند PostgreSQL/Memcached اجرا نشد. CI بررسی نشد.
+
+## parity رندر واقعی Django برای planner دسته‌ای
+
+snapshot موقت همین شاخه با تنظیمات آزمایشی تازه، cache هم‌نسخهٔ
+emoji و KaTeX، و PostgreSQL موقت فقط با Unix socket راه افتاد.
+migrationهای رسمی روی دیتابیس خالی کامل شدند؛ هیچ تنظیم یا
+سرویس میزبان تغییر نکرد و وابستگی جدیدی دانلود نشد.
+
+۴۱ fixture رسمی Markdown و ۳ نمونهٔ هدفمند، هر کدام با Realm
+آزمایشی واقعی و بدون Realm (۸۸ مقایسه)، خروجی کامل یکسان در
+`do_convert` برای Python و planner-only داشتند. خروجی واقعی KaTeX
+و استفاده از زبان پیش‌فرض Realm نیز صریحاً بررسی شدند. Realm پس
+از تست rollback و PostgreSQL متوقف شد.
+[روش بازتولید](README.md#check-planner-parity-through-the-actual-zulip-django-renderer)
+
+این نتیجه فقط رندر هدفمند Django را پوشش می‌دهد؛ suite کامل backend،
+رفتار درخواست‌های واقعی و کارایی production بررسی نشدند. کد تولید،
+پیش‌فرض، فایل‌های Python بازنشسته و پوشش HTTP تغییر نکردند:
+۲۸/۱۷۱ OpenAPI (۱۶٫۴٪) و ۲۸/۱۹۰ وب (۱۴٫۷٪). گام بعد در صورت نیاز،
+آزمون نماینده‌تر روی همین محیط ایزوله است، نه فعال‌سازی پیش‌فرض.
+
+۴۵ تست سرویس‌گریز Python و ۲۷۲ تست Rust، build cache آفلاین
+PyO3/HTTP و fmt/Clippy/Ruff نیز گذشتند. یک تست جداگانهٔ Rust
+وابسته به Memcached اجرا نشد. CI بررسی نشد.
