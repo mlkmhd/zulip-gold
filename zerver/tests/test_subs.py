@@ -4132,6 +4132,25 @@ class SubscriptionAPITest(ZulipTestCase):
         # also check that this matches the list of your subscriptions
         self.assertEqual(sorted(list_streams), sorted(self.streams))
 
+    def test_subscriptions_list_keeps_muting_compatibility_and_weekly_traffic(self) -> None:
+        user = self.test_user
+        stream = self.subscribe(user, "Traffic compatibility")
+        Stream.objects.filter(id=stream.id).update(date_created=timezone_now() - timedelta(days=28))
+        subscription = Subscription.objects.get(user_profile=user, recipient=stream.recipient)
+        do_change_subscription_property(
+            user, subscription, stream, "is_muted", True, acting_user=user
+        )
+        with mock.patch(
+            "zerver.lib.subscription_info.get_streams_traffic", return_value={stream.id: 502}
+        ):
+            response = self.api_get(user, "/api/v1/users/me/subscriptions")
+        values = self.assert_json_success(response)["subscriptions"]
+        [entry] = [item for item in values if item["stream_id"] == stream.id]
+        self.assertIs(entry["is_muted"], True)
+        self.assertIs(entry["in_home_view"], False)
+        self.assertEqual(entry["stream_weekly_traffic"], 120)
+        self.assertNotIn("recipient_id", entry)
+
     def test_successful_subscriptions_list_subscribers(self) -> None:
         """
         Calling /api/v1/users/me/subscriptions should successfully return your subscriptions.

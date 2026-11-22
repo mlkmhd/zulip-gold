@@ -5,6 +5,7 @@ from django.utils.timezone import now as timezone_now
 
 from analytics.lib.counts import COUNT_STATS
 from analytics.models import StreamCount
+from zerver.lib import native_channel_payload
 from zerver.models import Realm
 
 
@@ -47,6 +48,9 @@ def get_average_weekly_stream_traffic(
         stream_traffic = 0
 
     stream_age = (timezone_now() - stream_date_created).days
+    native = native_channel_payload.average_weekly_traffic(stream_age, stream_traffic)
+    if native is not None:
+        return native[0]
 
     if stream_age >= 28:
         average_weekly_traffic = int(stream_traffic // 4)

@@ -4576,3 +4576,27 @@ PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
   python -m unittest discover -s rust-backend/tests -p test_register_state_parity.py
 ./tools/test-backend zerver.tests.test_event_system.EventsEndpointTest.test_events_register_legacy_subscription_and_topic_fields
 ```
+
+## Assemble channel subscriptions and calculate activity through Rust
+
+Set `ZULIP_RUST_CHANNEL_PAYLOAD=1` to format the existing 41-field
+channel subscription payload for register, GET subscriptions and
+unsubscribe state replay. The Rust formatter uses the same explicit
+field allowlist and insertion order, retains nullable notification
+preferences and existing group objects, and computes legacy
+`in_home_view` as the inverse of `is_muted`.
+
+The same switch moves the weekly activity calculation shared by
+channel response shapes to Rust. It preserves the seven- and
+28-day age boundaries, positive nonzero floor, Python integer
+division and half-even significant-digit rounding. Django still
+chooses the visible channels, queries traffic, checks authorization,
+reads the current time and augments subscribers. The default stays
+Python; an old wheel or unsupported object shape falls back.
+
+```sh
+PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
+  python -m unittest discover -s rust-backend/tests -p test_channel_payload_parity.py
+./tools/test-backend zerver.tests.test_subs.SubscriptionAPITest.test_subscriptions_list_keeps_muting_compatibility_and_weekly_traffic \
+  zerver.tests.test_subs.StreamTrafficTest
+```

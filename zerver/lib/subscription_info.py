@@ -10,6 +10,7 @@ from django.db.models import QuerySet
 from django.utils.translation import gettext as _
 from psycopg2.sql import SQL
 
+from zerver.lib import native_channel_payload
 from zerver.lib.channel_icon import channel_icon_url
 from zerver.lib.exceptions import JsonableError
 from zerver.lib.stream_color import STREAM_ASSIGNMENT_COLORS
@@ -289,6 +290,10 @@ def build_stream_dict_for_sub(
     sub_dict: RawSubscriptionDict,
     stream_dict: APIStreamDict,
 ) -> SubscriptionStreamDict:
+    native = native_channel_payload.assemble_subscription(sub_dict, stream_dict)
+    if native is not None:
+        return native
+
     # Handle Stream.API_FIELDS
     can_add_subscribers_group = stream_dict["can_add_subscribers_group"]
     can_administer_channel_group = stream_dict["can_administer_channel_group"]

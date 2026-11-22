@@ -199,6 +199,12 @@ mod python_recent_conversations;
 mod python_register_state;
 
 #[cfg(feature = "python")]
+mod python_channel_payload;
+
+#[cfg(any(feature = "python", test))]
+mod channel_traffic;
+
+#[cfg(feature = "python")]
 mod python_tex;
 #[cfg(feature = "python")]
 mod python_unread;
