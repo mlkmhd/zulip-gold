@@ -20,7 +20,7 @@ from zerver.actions.realm_settings import (
 from zerver.actions.saved_snippets import do_get_saved_snippets
 from zerver.actions.user_settings import do_change_user_setting
 from zerver.actions.users import get_owned_bot_dicts
-from zerver.lib import emoji, native_recent_conversations
+from zerver.lib import emoji, native_recent_conversations, native_register_state
 from zerver.lib.alert_words import user_alert_words
 from zerver.lib.avatar import avatar_url
 from zerver.lib.bot_config import load_bot_config_template
@@ -2314,23 +2314,27 @@ def post_process_state(
     See the note above; the same technique applies below.
     """
     if "raw_users" in ret:
-        user_dicts = sorted(ret["raw_users"].values(), key=lambda x: x["user_id"])
+        native_users = native_register_state.partition_users(ret["raw_users"])
+        if native_users is not None:
+            ret["realm_users"], ret["realm_non_active_users"] = native_users
+        else:
+            user_dicts = sorted(ret["raw_users"].values(), key=lambda x: x["user_id"])
 
-        ret["realm_users"] = [d for d in user_dicts if d["is_active"]]
-        ret["realm_non_active_users"] = [d for d in user_dicts if not d["is_active"]]
+            ret["realm_users"] = [d for d in user_dicts if d["is_active"]]
+            ret["realm_non_active_users"] = [d for d in user_dicts if not d["is_active"]]
 
-        """
-        Be aware that we do intentional aliasing in the below code.
-        We can now safely remove the `is_active` field from all the
-        dicts that got partitioned into the two lists above.
+            """
+            Be aware that we do intentional aliasing in the below code.
+            We can now safely remove the `is_active` field from all the
+            dicts that got partitioned into the two lists above.
 
-        We remove the field because it's already implied, and sending
-        it to clients makes clients prone to bugs where they "trust"
-        the field but don't actually update in live updates.  It also
-        wastes bandwidth.
-        """
-        for d in user_dicts:
-            d.pop("is_active")
+            We remove the field because it's already implied, and sending
+            it to clients makes clients prone to bugs where they "trust"
+            the field but don't actually update in live updates.  It also
+            wastes bandwidth.
+            """
+            for d in user_dicts:
+                d.pop("is_active")
 
         del ret["raw_users"]
 
@@ -2354,13 +2358,25 @@ def post_process_state(
             )
         del ret["raw_recent_private_conversations"]
 
-    if not notification_settings_null and "subscriptions" in ret:
+    if (
+        not notification_settings_null
+        and "subscriptions" in ret
+        and not native_register_state.fill_legacy_notifications(
+            ret["subscriptions"], ret["unsubscribed"], user_profile
+        )
+    ):
         for stream_dict in ret["subscriptions"] + ret["unsubscribed"]:
             handle_stream_notifications_compatibility(
                 user_profile, stream_dict, notification_settings_null
             )
 
-    if not allow_empty_topic_name and "user_topics" in ret:
+    if (
+        not allow_empty_topic_name
+        and "user_topics" in ret
+        and not native_register_state.fill_legacy_topics(
+            ret["user_topics"], Message.EMPTY_TOPIC_FALLBACK_NAME
+        )
+    ):
         for user_topic in ret["user_topics"]:
             if user_topic["topic_name"] == "":
                 user_topic["topic_name"] = Message.EMPTY_TOPIC_FALLBACK_NAME

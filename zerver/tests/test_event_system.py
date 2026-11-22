@@ -17,7 +17,8 @@ from zerver.actions.message_send import check_send_message
 from zerver.actions.presence import do_update_user_presence
 from zerver.actions.streams import do_change_stream_folder
 from zerver.actions.user_settings import do_change_avatar_fields, do_change_user_setting
-from zerver.actions.users import do_change_user_role
+from zerver.actions.user_topics import do_set_user_topic_visibility_policy
+from zerver.actions.users import do_change_user_role, do_deactivate_user
 from zerver.lib.event_schema import check_web_reload_client_event
 from zerver.lib.events import fetch_initial_state_data, post_process_state
 from zerver.lib.exceptions import AccessDeniedError
@@ -30,7 +31,14 @@ from zerver.lib.test_helpers import (
     stub_event_queue_user_events,
 )
 from zerver.lib.users import get_users_for_api
-from zerver.models import CustomProfileField, Message, UserMessage, UserPresence, UserProfile
+from zerver.models import (
+    CustomProfileField,
+    Message,
+    UserMessage,
+    UserPresence,
+    UserProfile,
+    UserTopic,
+)
 from zerver.models.clients import get_client
 from zerver.models.realms import get_realm
 from zerver.models.streams import get_stream
@@ -258,6 +266,47 @@ class EventsEndpointTest(ZulipTestCase):
                         for topic, message_ids in topics
                     ],
                 )
+
+    def test_events_register_legacy_subscription_and_topic_fields(self) -> None:
+        user = self.example_user("hamlet")
+        inactive = self.example_user("cordelia")
+        stream = self.subscribe(user, "Register compatibility")
+        do_deactivate_user(inactive, acting_user=None)
+        do_change_user_setting(user, "enable_stream_email_notifications", True, acting_user=user)
+        do_set_user_topic_visibility_policy(
+            user, stream, "", visibility_policy=UserTopic.VisibilityPolicy.MUTED
+        )
+        queue = EventQueueData(queue_id="15:26", idle_queue_timeout_secs=600)
+        for modern in (False, True):
+            with self.subTest(modern=modern), stub_event_queue_user_events(queue, []):
+                response = self.api_post(
+                    user,
+                    "/api/v1/register",
+                    {
+                        "event_types": orjson.dumps(
+                            ["realm_user", "subscription", "user_topic"]
+                        ).decode(),
+                        "client_capabilities": orjson.dumps(
+                            {"empty_topic_name": modern, "notification_settings_null": modern}
+                        ).decode(),
+                    },
+                )
+            snapshot = self.assert_json_success(response)
+            [sub] = [s for s in snapshot["subscriptions"] if s["stream_id"] == stream.id]
+            self.assertIs(sub["email_notifications"], None if modern else True)
+            [topic] = [t for t in snapshot["user_topics"] if t["stream_id"] == stream.id]
+            self.assertEqual(
+                topic["topic_name"], "" if modern else Message.EMPTY_TOPIC_FALLBACK_NAME
+            )
+            for category in ("realm_users", "realm_non_active_users"):
+                users = snapshot[category]
+                ids = [entry["user_id"] for entry in users]
+                self.assertEqual(ids, sorted(ids))
+                for entry in users:
+                    self.assertNotIn("is_active", entry)
+            self.assertIn(
+                inactive.id, [entry["user_id"] for entry in snapshot["realm_non_active_users"]]
+            )
 
     def test_events_register_spectators(self) -> None:
         # Verify that POST /register works for spectators, but not for

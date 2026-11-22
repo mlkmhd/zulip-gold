@@ -306,6 +306,11 @@ mod _zulip_backend {
     use crate::python_unread::{aggregate_unread_payload, format_unread_details};
 
     #[pymodule_export]
+    use crate::python_register_state::{
+        fill_legacy_register_notifications, fill_legacy_register_topics, partition_register_users,
+    };
+
+    #[pymodule_export]
     use crate::python_recent_conversations::{
         assemble_recent_conversations, finalize_recent_conversations,
     };

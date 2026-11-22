@@ -4554,3 +4554,25 @@ PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
   python -m unittest discover -s rust-backend/tests -p test_recent_conversations_parity.py
 ./tools/test-backend zerver.tests.test_direct_message_groups.DirectMessageConversationPinTest
 ```
+
+## Finalize register user lists and legacy client fields through Rust
+
+Set `ZULIP_RUST_REGISTER_STATE=1` to process already-selected register
+and browser bootstrap rows. Rust partitions the user directory by activity
+and stably sorts both lists by user ID, dropping only the redundant
+`is_active` field on the original rows.
+
+Legacy clients still inherit null per-channel notification settings from
+the user's defaults, or `false` for spectators. Explicit preferences are
+unchanged. Legacy clients continue to receive the existing fallback name
+for empty topics in `user_topics`; modern clients receive the original
+nullable settings and names. Django still selects the visible rows and
+decides which compatibility paths run. These formatters do not modify
+persisted settings. Older wheels and unusual inputs use Python; the switch
+is off by default.
+
+```sh
+PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
+  python -m unittest discover -s rust-backend/tests -p test_register_state_parity.py
+./tools/test-backend zerver.tests.test_event_system.EventsEndpointTest.test_events_register_legacy_subscription_and_topic_fields
+```

@@ -196,6 +196,9 @@ mod python_presence;
 mod python_recent_conversations;
 
 #[cfg(feature = "python")]
+mod python_register_state;
+
+#[cfg(feature = "python")]
 mod python_tex;
 #[cfg(feature = "python")]
 mod python_unread;
