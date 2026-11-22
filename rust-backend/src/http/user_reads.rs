@@ -21,7 +21,7 @@ use super::{
     DraftWriteConfig, UserReadConfig, WebPostScheme,
     activity::{ActivityPublisher, client_name},
     alert_word_cache, alert_words, attachments, bot_storage, channel_folders, channel_id,
-    custom_profile_fields,
+    channel_topics, custom_profile_fields,
     database::Database,
     draft_writes, drafts,
     form::{Form, FormError},
@@ -60,6 +60,7 @@ enum Endpoint {
     NavigationViews,
     ChannelFolders,
     ChannelId,
+    ChannelTopics(Option<i64>),
     UserGroups,
     GroupDetail(DetailKind, Option<i64>),
     GroupMembership(Option<i64>, Option<i32>),
@@ -112,6 +113,7 @@ impl Endpoint {
             Self::NavigationViews => "get_navigation_views",
             Self::ChannelFolders => "get_channel_folders",
             Self::ChannelId => "json_get_stream_id",
+            Self::ChannelTopics(_) => "get_topics_backend",
             Self::UserGroups => "get_user_groups",
             Self::GroupDetail(DetailKind::Members, _) => "get_user_group_members",
             Self::GroupDetail(DetailKind::Subgroups, _) => "get_subgroups_of_user_group",
@@ -127,7 +129,7 @@ impl Endpoint {
         user_id: i32,
         realm_id: i32,
         query: Option<&str>,
-        emoji_url_base: Option<&str>,
+        state: &UserReads,
     ) -> Result<String, ApiError> {
         let (field, serialized) = match self {
             Self::AlertWords => (
@@ -152,7 +154,10 @@ impl Endpoint {
                     &realm_emoji::list(
                         database,
                         realm_id,
-                        emoji_url_base.expect("emoji route configured"),
+                        state
+                            .emoji_url_base
+                            .as_deref()
+                            .expect("emoji route configured"),
                     )
                     .await?,
                 ),
@@ -214,6 +219,29 @@ impl Endpoint {
                     .ok_or_else(|| ApiError::InvalidChannelName(name.to_owned()))?;
                 let extra = ignored_parameters(&form, &[channel_id::STREAM, "client"]);
                 return Ok(format!("\"stream_id\":{stream_id}{extra}"));
+            }
+            Self::ChannelTopics(channel_id) => {
+                let form = Form::from_query(query).map_err(ApiError::Form)?;
+                let allow_empty = form
+                    .json_bool(channel_topics::ALLOW_EMPTY)
+                    .map_err(ApiError::Form)?
+                    .unwrap_or(false);
+                let topics = channel_topics::read(
+                    database,
+                    user_id,
+                    realm_id,
+                    channel_id.ok_or(ApiError::InvalidChannelId)?,
+                    allow_empty,
+                    state
+                        .channel_topics_lowercase
+                        .as_deref()
+                        .expect("topic route configured"),
+                )
+                .await?
+                .ok_or(ApiError::InvalidChannelId)?;
+                let topics = serde_json::to_string(&topics).expect("topics can serialize to JSON");
+                let extra = ignored_parameters(&form, &[channel_topics::ALLOW_EMPTY, "client"]);
+                return Ok(format!("\"topics\":{topics}{extra}"));
             }
             Self::ChannelFolders => {
                 let form = Form::from_query(query).map_err(ApiError::Form)?;
@@ -345,6 +373,7 @@ pub(super) struct UserReads {
     activity: Option<ActivityPublisher>,
     alert_word_cache_manifest: Option<Arc<FsPath>>,
     alert_word_lowercase: Option<Arc<UnicodeLowercase>>,
+    channel_topics_lowercase: Option<Arc<UnicodeLowercase>>,
     sessions: Option<Arc<Sessions>>,
     web_post_scheme: Option<WebPostScheme>,
     saved_snippet_max_content_length: Option<usize>,
@@ -379,6 +408,11 @@ impl UserReads {
         if alert_word_lowercase.is_some() && settings.alert_word_cache_manifest.is_none() {
             return Err("Alert-word DELETE requires ZULIP_RUST_ALERT_WORD_CACHE_MANIFEST".into());
         }
+        let channel_topics_lowercase = settings
+            .channel_topics_lowercase_file
+            .map(UnicodeLowercase::load)
+            .transpose()?
+            .map(Arc::new);
         let read_only = settings.activity.is_none()
             && !settings.bot_storage_deletes
             && settings.bot_storage_size_limit.is_none();
@@ -435,6 +469,7 @@ impl UserReads {
             activity,
             alert_word_cache_manifest: settings.alert_word_cache_manifest.map(Arc::from),
             alert_word_lowercase,
+            channel_topics_lowercase,
             sessions,
             web_post_scheme: settings.web_post_scheme,
             saved_snippet_max_content_length: settings.saved_snippet_max_content_length,
@@ -695,6 +730,7 @@ enum ApiError {
     BotStorageLimitExceeded { excess: i128, limit: u64 },
     InvalidNavigationView(&'static str),
     InvalidChannelName(String),
+    InvalidChannelId,
     NavigationViewNotFound,
     DeactivatedUser,
     DeactivatedRealm,
@@ -851,6 +887,20 @@ pub(super) async fn get_group_membership(
         return StatusCode::NOT_FOUND.into_response();
     }
     let endpoint = Endpoint::GroupMembership(group_id.parse().ok(), target_id.parse().ok());
+    respond(state, peer, uri, headers, None, Some(endpoint)).await
+}
+
+pub(super) async fn get_channel_topics(
+    State(state): State<UserReads>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    Path(channel_id): Path<String>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    if !numeric_group_path(&channel_id) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let endpoint = Endpoint::ChannelTopics(channel_id.parse().ok());
     respond(state, peer, uri, headers, None, Some(endpoint)).await
 }
 
@@ -1394,7 +1444,7 @@ async fn respond(
                     .await?;
                 // Django reads the current list again after the event has been published.
                 let fields = Endpoint::AlertWords
-                    .read(&database, user_id, realm_id, uri.query(), None)
+                    .read(&database, user_id, realm_id, uri.query(), &state)
                     .await?;
                 let processed: &[_] = if requested_write.is_some_and(WriteOperation::is_post)
                     || form.has_query_client()
@@ -1502,7 +1552,7 @@ async fn respond(
             ));
         }
         let fields = endpoint
-            .read(&database, user_id, realm_id, uri.query(), state.emoji_url_base.as_deref())
+            .read(&database, user_id, realm_id, uri.query(), &state)
             .await?;
         Ok(format!(
             "{{\"result\":\"success\",\"msg\":\"\",{fields}}}\n"
@@ -1588,6 +1638,7 @@ fn error_response(
             | Endpoint::CustomProfileFields
             | Endpoint::ChannelFolders
             | Endpoint::ChannelId
+            | Endpoint::ChannelTopics(_)
             | Endpoint::UserGroups
             | Endpoint::GroupDetail(..)
             | Endpoint::GroupMembership(..)
@@ -1638,6 +1689,9 @@ fn error_response(
         ApiError::Unauthorized(message) => (StatusCode::UNAUTHORIZED, "UNAUTHORIZED", message),
         ApiError::BadRequest(message) | ApiError::InvalidNavigationView(message) => {
             (StatusCode::BAD_REQUEST, "BAD_REQUEST", message)
+        }
+        ApiError::InvalidChannelId => {
+            (StatusCode::BAD_REQUEST, "BAD_REQUEST", "Invalid channel ID")
         }
         ApiError::InvalidChannelName(_) => (
             StatusCode::BAD_REQUEST,
@@ -1846,6 +1900,7 @@ fn error_response(
         | ApiError::SnippetNotFound
         | ApiError::InvalidNavigationView(_)
         | ApiError::InvalidChannelName(_)
+        | ApiError::InvalidChannelId
         | ApiError::NavigationViewNotFound
         | ApiError::DraftSyncDisabled
         | ApiError::UserGroupGuest

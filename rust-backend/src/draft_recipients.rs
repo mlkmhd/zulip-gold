@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 // These paths both require content access, not just channel metadata.
 macro_rules! channel_content_query {
-    ($actor:literal, $select:literal, $is_guest:literal) => {
+    ($actor:literal, $select:literal, $active_limit:literal, $is_guest:literal) => {
         concat!(
             "
     WITH RECURSIVE actor AS (",
@@ -16,8 +16,8 @@ macro_rules! channel_content_query {
     )
     ",
             $select,
+            $active_limit,
             "
-      AND NOT s.deactivated
       AND CASE
           WHEN s.is_web_public THEN TRUE
           WHEN EXISTS (
@@ -43,6 +43,8 @@ pub(crate) const CHANNEL_RECIPIENT_SQL: &str = channel_content_query!(
     "SELECT %s::integer AS id",
     "SELECT s.recipient_id FROM zulip.zerver_stream AS s CROSS JOIN actor
      WHERE s.id = %s::bigint AND s.realm_id = %s::integer",
+    "
+      AND NOT s.deactivated",
     "%s::boolean"
 );
 
@@ -57,7 +59,42 @@ pub(crate) const CHANNEL_ID_BY_NAME_SQL: &str = channel_content_query!(
          SELECT lookup.id FROM zulip.zerver_stream AS lookup
           WHERE lookup.realm_id = $2 AND UPPER(lookup.name::text) = UPPER($3::text)
      )",
+    "
+      AND NOT s.deactivated",
     "actor.role = 600"
+);
+
+// Archived channels are included here, matching topic history's content gate.
+// The lateral join leaves one empty row for a visible channel with no messages.
+#[cfg(feature = "http")]
+pub(crate) const CHANNEL_TOPIC_HISTORY_SQL: &str = concat!(
+    "SELECT history.subject, history.max_id FROM (",
+    channel_content_query!(
+        "SELECT id, role FROM zulip.zerver_userprofile
+         WHERE id = $1 AND realm_id = $2 AND is_active",
+        "SELECT s.recipient_id, s.history_public_to_subscribers AS public_history
+         FROM zulip.zerver_stream AS s CROSS JOIN actor
+         WHERE s.realm_id = $2 AND s.id = $3::bigint",
+        "",
+        "actor.role = 600"
+    ),
+    ") AS visible
+     LEFT JOIN LATERAL (
+         SELECT message.subject, max(message.id)::bigint AS max_id
+         FROM zulip.zerver_message AS message
+         WHERE visible.public_history AND message.realm_id = $2
+           AND message.recipient_id = visible.recipient_id AND message.is_channel_message
+         GROUP BY message.subject
+         UNION ALL
+         SELECT message.subject, max(message.id)::bigint AS max_id
+         FROM zulip.zerver_message AS message
+         JOIN zulip.zerver_usermessage AS own ON own.message_id = message.id
+         WHERE NOT visible.public_history AND own.user_profile_id = $1
+           AND message.realm_id = $2 AND message.recipient_id = visible.recipient_id
+           AND message.is_channel_message
+         GROUP BY message.subject
+     ) AS history ON TRUE
+     ORDER BY history.max_id DESC"
 );
 
 pub(crate) const DIRECT_RECIPIENTS_SQL: &str = "

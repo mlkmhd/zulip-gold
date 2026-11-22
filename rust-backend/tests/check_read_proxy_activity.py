@@ -92,6 +92,22 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
         query = urlencode({"stream": "Pilot lookup Café"})
         paths = ((f"/get_stream_id?{query}", "json_get_stream_id"),)
         group_pilot = {"ZULIP_RUST_CHANNEL_ID_READ_PILOT": "1"}
+    elif args.channel_topics:
+        from check_channel_topics import LOWERCASE, PUBLIC
+
+        from zerver.management.commands.export_rust_alert_word_cache import (
+            lowercase_tables,
+            publish_json,
+        )
+        from zerver.models import Stream
+
+        stream_id = Stream.objects.get(realm=member.realm, name=PUBLIC).id
+        maps = ("channel-topics-map.conf",)
+        route_groups = ((1, ("channel-topics-routes.conf",)),)
+        paths = ((f"/users/me/{stream_id}/topics", "get_topics_backend"),)
+        lowercase = directory / "python-lowercase.json"
+        publish_json(lowercase, lowercase_tables())
+        group_pilot = {LOWERCASE: str(lowercase)}
 
     def with_client(path: str, client: str) -> str:
         separator = "&" if "?" in path else "?"
@@ -121,6 +137,12 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
     assert session.session_key is not None
     cookie = {"Cookie": f"{settings.SESSION_COOKIE_NAME}={session.session_key}"}
     mobile_id, website_id = get_client("ZulipMobile").id, get_client("website").id
+    surfaces = (
+        ("/api/v1", member, basic(member), "ZulipMobile", mobile_id),
+        ("/api/v1", browser_user, basic(browser_user), "website", website_id)
+        if args.channel_topics
+        else ("/json", browser_user, cookie, "website", website_id),
+    )
     cases = [
         ActivityCase(
             f"{method} {prefix}{path}",
@@ -134,10 +156,7 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
             query,
         )
         for path, query in paths
-        for prefix, user, credentials, client, client_id in (
-            ("/api/v1", member, basic(member), "ZulipMobile", mobile_id),
-            ("/json", browser_user, cookie, "website", website_id),
-        )
+        for prefix, user, credentials, client, client_id in surfaces
         for method in ("GET", "HEAD")
     ]
     readiness = [
@@ -332,11 +351,18 @@ def main() -> None:
     group_modes.add_argument(
         "--channel-id", action="store_true", help="rehearse channel lookup by name"
     )
+    group_modes.add_argument(
+        "--channel-topics", action="store_true", help="rehearse authenticated API topic history"
+    )
     parser.add_argument("--uwsgi", type=Path, required=True)
     parser.add_argument("--venv", type=Path, required=True)
     args = parser.parse_args()
     if (
-        args.user_groups or args.user_group_details or args.user_group_membership or args.channel_id
+        args.user_groups
+        or args.user_group_details
+        or args.user_group_membership
+        or args.channel_id
+        or args.channel_topics
     ) and (args.redis_server is None or args.openssl is None):
         parser.error("selected pilot requires --redis-server and --openssl")
     if args.redis_server is not None and args.openssl is None:
@@ -344,7 +370,11 @@ def main() -> None:
     root = args.fixture_root.resolve(strict=True)
     validate_local_root(root)
     if (
-        args.user_groups or args.user_group_details or args.user_group_membership or args.channel_id
+        args.user_groups
+        or args.user_group_details
+        or args.user_group_membership
+        or args.channel_id
+        or args.channel_topics
     ) and socket.if_nameindex() != [(1, "lo")]:
         raise RuntimeError("the selected pilot requires a private loopback-only network namespace")
     if any(name.startswith("ZULIP_RUST_") and name != "ZULIP_RUST_HTTP_BIN" for name in os.environ):

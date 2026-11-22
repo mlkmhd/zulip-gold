@@ -5176,3 +5176,49 @@ OPTIONS and other hosts stay in Django; POST is checked in a separate nginx
 with no upstream. If Rust stops, the selected requests return 502 until the
 route include is removed and nginx is reloaded. There is no automatic
 failover. Production routing, ingress and load are not covered by this test.
+
+### Rehearse authenticated API topic history and rollback
+
+Only the loopback `GET` and `HEAD` for
+`/api/v1/users/me/{stream_id}/topics` are eligible, with Basic Auth and
+existing channel-content access. The browser `/json/` alias, including
+anonymous web-public access, remains in Django. Public history is grouped
+over channel messages, while restricted history uses only the caller's
+user-message rows. Archived channels are readable when the caller has the
+same content access Django requires.
+
+Generate a runtime lowercase table with the Python interpreter used by
+the corresponding Django deployment. Regenerate it if that interpreter's
+Unicode version changes. From the provisioned checkout:
+
+```sh
+./manage.py shell -c 'from pathlib import Path; from zerver.management.commands.export_rust_alert_word_cache import lowercase_tables, publish_json; publish_json(Path("var/rust-channel-topics-lowercase.json"), lowercase_tables())'
+export ZULIP_RUST_CHANNEL_TOPICS_LOWERCASE_FILE="$PWD/var/rust-channel-topics-lowercase.json"
+```
+
+This setting registers the direct read with a configured database. Keep it
+unset to leave the direct route disabled. The separate nginx opt-in uses
+`channel-topics-map.conf` and `channel-topics-routes.conf` in
+`rust-backend/staging/nginx/`; neither is installed by default.
+
+Use the same private disposable fixture with `WEB_PUBLIC_STREAMS_ENABLED = True`
+in its test-only Django settings to exercise the anonymous control.
+The first check seeds synthetic topic history in the fixture; the second
+uses its public test channel. Run them in the private loopback namespace:
+
+```sh
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" "$checkout/rust-backend/tests/check_channel_topics.py" \
+  --fixture-root "$fixture_root" --nginx "$nginx" --uwsgi "$uwsgi" --venv "$venv" \
+  --openssl "$openssl"
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" \
+  "$checkout/rust-backend/tests/check_read_proxy_activity.py" --channel-topics \
+  --fixture-root "$fixture_root" --nginx "$nginx" --uwsgi "$uwsgi" --venv "$venv" \
+  --openssl "$openssl" --redis-server "$redis_server" \
+  --rabbitmq-server "$rabbitmq_server" --epmd "$epmd"
+```
+
+Removing the route include and reloading nginx restores Django while Rust
+is offline. There is no automatic failover. Production ingress and load
+were not tested; deployment routing remains unchanged.

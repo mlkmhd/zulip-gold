@@ -64,6 +64,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             if enabled("ZULIP_RUST_CHANNEL_ID_READ_PILOT")? {
                 return Err("Channel ID read pilot requires ZULIP_RUST_DATABASE_URL".into());
             }
+            if env::var_os("ZULIP_RUST_CHANNEL_TOPICS_LOWERCASE_FILE").is_some() {
+                return Err("Channel topic reads require ZULIP_RUST_DATABASE_URL".into());
+            }
             if optional_env("ZULIP_RUST_EMOJI_URL_BASE")?.is_some() {
                 return Err("Custom emoji reads require ZULIP_RUST_DATABASE_URL".into());
             }
@@ -121,6 +124,8 @@ async fn user_read_router(
     navigation_view_writes: NavigationViewWrites,
 ) -> Result<Router, Box<dyn Error>> {
     let external_host = env::var("ZULIP_RUST_EXTERNAL_HOST")?;
+    let channel_topics_lowercase_file =
+        env::var_os("ZULIP_RUST_CHANNEL_TOPICS_LOWERCASE_FILE").map(PathBuf::from);
     let emoji_url_base = optional_env("ZULIP_RUST_EMOJI_URL_BASE")?;
     let redis_url = optional_env("ZULIP_RUST_REDIS_URL")?;
     let rules = if redis_url.is_some() {
@@ -213,6 +218,7 @@ async fn user_read_router(
                 "ZULIP_RUST_USER_GROUP_MEMBERSHIP_READ_PILOT",
             )?,
             channel_id_read_pilot: enabled("ZULIP_RUST_CHANNEL_ID_READ_PILOT")?,
+            channel_topics_lowercase_file: channel_topics_lowercase_file.as_deref(),
             emoji_url_base: emoji_url_base.as_deref(),
             rate_limit: redis_url.as_deref().map(|url| RateLimitConfig {
                 url,

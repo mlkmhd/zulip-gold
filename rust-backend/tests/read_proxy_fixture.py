@@ -501,6 +501,7 @@ def exercise_paired_read_routes(
     measure: Callable[[PrivateReadProxy, CaseT], tuple[float, float]] | None = None,
     rust_extra_env: dict[str, str] | None = None,
     paired_surfaces: int = 2,
+    upstreams_per_route: int = 2,
 ) -> None:
     # The first cases cover all paired GET/HEAD paths on reload and outage.
     assert paired_surfaces > 0
@@ -563,7 +564,7 @@ def exercise_paired_read_routes(
                     include_date=True,
                 )
                 compare(case, direct_result, before)
-        proxy.enable_routes((route,), rust_port, upstreams_per_route=2)
+        proxy.enable_routes((route,), rust_port, upstreams_per_route=upstreams_per_route)
         wait_for_routes(rust_address)
         for case, before in zip(cases, original, strict=True):
             target = rust_address if case.mapped else proxy.django_address

@@ -24,7 +24,7 @@
 
 ## وضعیت مهاجرت
 
-شمار فعلی Rust مستقل و اختیاری: ۳۳ از ۱۷۱ عملیات OpenAPI (۱۹٫۳٪)
+شمار فعلی Rust مستقل و اختیاری: ۳۴ از ۱۷۱ عملیات OpenAPI (۱۹٫۹٪)
 و ۳۳ از ۱۹۰ عملیات صریح وب (۱۷٫۴٪). فهرست‌ها هم‌پوشانی دارند؛
 `HEAD` متناظر جداگانه شمرده نشده و این اعداد درصد کل backend نیستند.
 
@@ -59,6 +59,7 @@
 | `GET /api/v1/realm/emoji` و alias وب با `HEAD` متناظر | ایموجی سازمان و نشانی عمومی فایل و تصویر ثابت | Rust مستقیم با تنظیم ریشهٔ نشانی یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی | Django |
 | `GET /api/v1/channel_folders` و alias وب با `HEAD` متناظر | پوشه‌های سازمان با فیلتر بایگانی و ترتیب نمایش از PostgreSQL | Rust مستقیم یا هدایت اختیاری در پروکسی توسعه و nginx آزمایشی | Django |
 | `GET /api/v1/get_stream_id` و alias وب با `HEAD` متناظر | شناسهٔ کانال مجاز همان سازمان از نام، Basic/نشست، سهمیه و فعالیت | Rust مستقیم و nginx آزمایشی با پایلوت جداگانه | Django |
+| `GET /api/v1/users/me/{stream_id}/topics` با `HEAD` متناظر | تاریخچهٔ موضوع‌های مجاز با Basic Auth، سهمیه و فعالیت؛ alias وب در Django | Rust مستقیم و nginx آزمایشی با پایلوت جداگانه | Django |
 | `POST /api/v1/scheduled_messages` و `POST /api/v1/reminders` و aliasهای وب | درج گروهی رکوردهای معتبر، در تراکنش Django | Django با افزونهٔ اختیاری Rust | Django |
 | `PATCH /api/v1/scheduled_messages/{scheduled_message_id}` و alias وب | ثبت تغییرات پس از قفل سطر و بررسی مجوز | Django با افزونهٔ اختیاری Rust | Django |
 | worker تحویل پیام‌های زمان‌بندی‌شده و یادآوری‌ها | انتخاب و قفل کار آماده و ثبت نتیجه در PostgreSQL | پردازش Django با افزونهٔ اختیاری Rust | Django |
@@ -660,7 +661,7 @@ audit ایجاد حفظ می‌شود و رویداد `saved_snippets/remove` پ
 | `PATCH`  | `/api/v1/users/me/subscriptions/muted_topics`           | `mute-topic`                           | `zerver.views.user_topics.update_muted_topic`                                  | Django         |
 | `POST`   | `/api/v1/users/me/subscriptions/properties`             | `update-subscription-settings`         | `zerver.views.streams.update_subscription_properties_backend`                  | Django         |
 | `PATCH`  | `/api/v1/users/me/subscriptions/{stream_id}`            | `update-subscription-property`         | `zerver.views.streams.update_subscriptions_property`                           | Django         |
-| `GET`    | `/api/v1/users/me/{stream_id}/topics`                   | `get-stream-topics`                    | `zerver.views.streams.get_topics_backend`                                      | Django         |
+| `GET`    | `/api/v1/users/me/{stream_id}/topics`                   | `get-stream-topics`                    | `zerver.views.streams.get_topics_backend`                                      | Rust اختیاری |
 | `GET`    | `/api/v1/users/{email}`                                 | `get-user-by-email`                    | `zerver.views.users.get_user_by_email`                                         | Django         |
 | `PATCH`  | `/api/v1/users/{email}`                                 | `update-user-by-email`                 | `zerver.views.users.update_user_by_email_api`                                  | Django         |
 | `GET`    | `/api/v1/users/{user_id_or_email}/presence`             | `get-user-presence`                    | `zerver.views.presence.get_presence_backend`                                   | Django         |
