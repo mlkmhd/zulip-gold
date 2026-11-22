@@ -299,7 +299,8 @@ mod _zulip_backend {
 
     #[pymodule_export]
     use crate::python_message_payload::{
-        assemble_message_reactions, assemble_message_submessages, finalize_message_payload_content,
+        adapt_mobile_message_events, assemble_cached_message_frame, assemble_message_reactions,
+        assemble_message_submessages, finalize_message_payload_content,
     };
 
     #[pymodule_export]

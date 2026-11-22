@@ -119,6 +119,10 @@ class ReactionDict:
         }
 
 
+_REFERENCE_STATUS_MESSAGE = Message.is_status_message
+_REFERENCE_REACTION_ROW = ReactionDict.build_dict_from_raw_db_row
+
+
 class MessageDict:
     """MessageDict is the core class responsible for marshalling Message
     objects obtained from the database into a format that can be sent
@@ -455,30 +459,21 @@ class MessageDict:
         reactions: list[RawReactionRow],
         submessages: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        obj = dict(
-            id=message_id,
-            sender_id=sender_id,
-            content=content,
-            recipient_type_id=recipient_type_id,
-            recipient_type=recipient_type,
-            recipient_id=recipient_id,
-            timestamp=datetime_to_timestamp(date_sent),
-            client=sending_client_name,
-        )
-
-        obj[TOPIC_NAME] = topic_name
-        obj["sender_realm_id"] = sender_realm_id
+        timestamp = datetime_to_timestamp(date_sent)
+        topic_name_key = TOPIC_NAME
 
         # Render topic_links with the stream's realm instead of the
         # sender's realm; this is important for messages sent by
         # cross-realm bots like NOTIFICATION_BOT.
-        obj[TOPIC_LINKS] = topic_links(rendering_realm_id, topic_name)
+        rendered_topic_links = topic_links(rendering_realm_id, topic_name)
+        topic_links_key = TOPIC_LINKS
 
+        edit = None
         if last_edit_time is not None:
-            obj["last_edit_timestamp"] = datetime_to_timestamp(last_edit_time)
+            last_edit_timestamp = datetime_to_timestamp(last_edit_time)
             assert edit_history_json is not None
             edit_history: list[EditHistoryEvent] = orjson.loads(edit_history_json)
-            obj["edit_history"] = edit_history
+            edit = (last_edit_timestamp, edit_history)
 
         if (
             rendered_content is None
@@ -501,6 +496,52 @@ class MessageDict:
             # in some cases.
             rendered_content = save_message_rendered_content(message, content)
 
+        if (
+            native_message_payload.is_enabled()
+            and type(topic_name_key) is str
+            and topic_name_key == "subject"
+            and type(topic_links_key) is str
+            and topic_links_key == "topic_links"
+            and Message.is_status_message is _REFERENCE_STATUS_MESSAGE
+            and ReactionDict.build_dict_from_raw_db_row is _REFERENCE_REACTION_ROW
+        ):
+            native = native_message_payload.assemble_cached_frame(
+                (
+                    message_id,
+                    sender_id,
+                    content,
+                    recipient_type_id,
+                    recipient_type,
+                    recipient_id,
+                    timestamp,
+                    sending_client_name,
+                    topic_name,
+                    sender_realm_id,
+                    rendered_topic_links,
+                ),
+                edit,
+                rendered_content,
+                reactions,
+                submessages,
+            )
+            if native is not None:
+                return native
+
+        obj = dict(
+            id=message_id,
+            sender_id=sender_id,
+            content=content,
+            recipient_type_id=recipient_type_id,
+            recipient_type=recipient_type,
+            recipient_id=recipient_id,
+            timestamp=timestamp,
+            client=sending_client_name,
+        )
+        obj[topic_name_key] = topic_name
+        obj["sender_realm_id"] = sender_realm_id
+        obj[topic_links_key] = rendered_topic_links
+        if edit is not None:
+            obj["last_edit_timestamp"], obj["edit_history"] = edit
         obj["rendered_content"] = rendered_content
 
         obj["is_me_message"] = Message.is_status_message(content, rendered_content)

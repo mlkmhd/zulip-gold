@@ -22,7 +22,9 @@ from tornado import autoreload
 from typing_extensions import override
 
 from version import API_FEATURE_LEVEL, ZULIP_MERGE_BASE, ZULIP_VERSION
+from zerver.lib import native_message_payload
 from zerver.lib.exceptions import JsonableError
+from zerver.lib.markdown import reply_links
 from zerver.lib.markdown.reply_links import needs_plain_reply_links, plain_reply_link_fields
 from zerver.lib.message_cache import MessageDict
 from zerver.lib.narrow_helpers import narrow_dataclasses_from_tuples
@@ -70,6 +72,9 @@ HEARTBEAT_MIN_FREQ_SECS = 45
 
 def create_heartbeat_event() -> dict[str, str]:
     return dict(type="heartbeat")
+
+
+_REFERENCE_EVENT_REPLY_FIELDS = plain_reply_link_fields
 
 
 class ClientDescriptor:
@@ -246,6 +251,13 @@ class ClientDescriptor:
     def events_for_client(self) -> list[dict[str, Any]]:
         events = self.event_queue.contents()
         if not needs_plain_reply_links(self.client_type_name):
+            return events
+        if (
+            native_message_payload.is_enabled()
+            and plain_reply_link_fields is _REFERENCE_EVENT_REPLY_FIELDS
+            and reply_links.uses_reference_reply_renderer()
+            and native_message_payload.adapt_mobile_events(events, plain_reply_link_fields)
+        ):
             return events
 
         for index, event in enumerate(events):

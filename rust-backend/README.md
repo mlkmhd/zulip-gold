@@ -4437,3 +4437,34 @@ For actual application checks, run `test_message_dict`, the fetch and
 event regressions, and the mocked outgoing-webhook payload test in a
 disposable test database with the flag off and on. Include both the
 Python and Rust plain reply-link modes while the payload flag is on.
+
+### Assemble cache frames and adapt queued mobile events
+
+With the same `ZULIP_RUST_MESSAGE_PAYLOAD=1` switch, a wheel exporting
+`assemble_cached_message_frame` assembles the client-neutral message
+dictionary before it is cached or finalized. Rust retains field
+insertion order, identifies `/me ` messages and projects the ordered
+reaction fields without changing identity of passed-through fields.
+Timestamp calculation, realm-scoped topic links, edit JSON decoding,
+and stale render lookup and persistence still run once in Django.
+
+The `adapt_mobile_message_events` export traverses an ordinary list of
+already-authorized Tornado events. It replaces only rows that need the
+existing mobile reply-link compatibility update, copying a nested
+message only when needed. Non-mobile clients, plain Markdown message
+bodies, unrelated event fields, and queued source objects are not
+changed. The existing plain reply-link renderer remains independently
+configurable. Eligibility checks can fall back before any list
+mutation; callback errors are propagated without a second pass.
+
+Older wheels or unsupported payloads retain the relevant Python path.
+The switch is still off by default. Compare both message paths with:
+
+```sh
+PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
+  python rust-backend/tests/test_cached_message_parity.py -v
+```
+
+In an isolated Django test database, the existing message dictionary,
+fetch and event tests and the mocked outgoing-webhook payload test can
+exercise all three flag combinations from the previous section.

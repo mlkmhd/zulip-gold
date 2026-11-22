@@ -80,3 +80,26 @@ def assemble_submessages(messages: object, submessages: object) -> bool:
     if native is None:
         return False
     return cast(bool, native(_message_rows(messages), submessages))
+
+
+def assemble_cached_frame(
+    fields: tuple[object, ...],
+    edit: tuple[int, object] | None,
+    rendered_content: object,
+    reactions: object,
+    submessages: object,
+) -> dict[str, object] | None:
+    native = getattr(_backend, "assemble_cached_message_frame", None)
+    if native is None:
+        return None
+    return cast(
+        dict[str, object] | None,
+        native(fields, edit, rendered_content, reactions, submessages),
+    )
+
+
+def adapt_mobile_events(events: object, plain_reply_fields: Callable[..., dict[str, str]]) -> bool:
+    native = getattr(_backend, "adapt_mobile_message_events", None)
+    if native is None:
+        return False
+    return cast(bool, native(events, plain_reply_fields))
