@@ -2,7 +2,7 @@ import os
 import re
 import sys
 from collections import defaultdict
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from importlib import import_module
@@ -17,6 +17,7 @@ from django_cte import CTE, with_cte
 
 from analytics.lib.counts import COUNT_STATS
 from analytics.models import RealmCount
+from zerver.lib import native_recent_conversations
 from zerver.lib.cache import generic_bulk_cached_fetch, to_dict_cache_key_id
 from zerver.lib.display_recipient import get_display_recipient_by_id
 from zerver.lib.event_types import MessageDetails
@@ -1579,7 +1580,17 @@ def get_recent_private_conversations(
     subscriptions = Subscription.objects.filter(recipient_id__in=all_recipients).values_list(
         "recipient_id", "user_profile_id", "pin_to_top"
     )
-    for recipient_id, subscriber_id, pin_to_top in subscriptions:
+    rows: Iterable[tuple[int, int, bool]] = subscriptions
+    if native_recent_conversations.assembly_available():
+        materialized = list(subscriptions)
+        native = native_recent_conversations.assemble(
+            user_profile.id, recipient_to_max_message_id, materialized
+        )
+        if native is not None:
+            return native
+        rows = materialized
+
+    for recipient_id, subscriber_id, pin_to_top in rows:
         if subscriber_id == user_profile.id:
             if pin_to_top:
                 pinned_recipient_ids.add(recipient_id)

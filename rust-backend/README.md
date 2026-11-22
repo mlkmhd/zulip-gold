@@ -4531,3 +4531,26 @@ PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
 ./tools/test-backend zerver.tests.test_event_system.EventsEndpointTest.test_events_register_unread_topic_compatibility \
   zerver.tests.test_message_flags.GetUnreadMsgsTest zerver.tests.test_message_flags.MarkUnreadTest
 ```
+
+## Assemble recent direct-message conversations through Rust
+
+Set `ZULIP_RUST_RECENT_CONVERSATIONS=1` to assemble the intermediate
+conversation state from the eligible recent/pinned rows and to format the
+final `recent_private_conversations` register or browser bootstrap field.
+Rust excludes the current user from each participant set (self-DMs have
+no other participants), reads the pin from the current user's subscription,
+and sorts the final conversation list by descending message ID, preserving
+insertion order for equal IDs. It does not move pinned rows out of their
+existing recency order.
+
+Django still selects the current user's visible messages, applies the
+recent-message window, loads older pinned conversations and applies event
+updates. Neither authorization nor the API contract changes. The switch is
+off by default, with Python fallback for older wheels and unusual object
+shapes.
+
+```sh
+PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
+  python -m unittest discover -s rust-backend/tests -p test_recent_conversations_parity.py
+./tools/test-backend zerver.tests.test_direct_message_groups.DirectMessageConversationPinTest
+```

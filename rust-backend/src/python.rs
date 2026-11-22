@@ -306,6 +306,11 @@ mod _zulip_backend {
     use crate::python_unread::{aggregate_unread_payload, format_unread_details};
 
     #[pymodule_export]
+    use crate::python_recent_conversations::{
+        assemble_recent_conversations, finalize_recent_conversations,
+    };
+
+    #[pymodule_export]
     use crate::python_message_payload::{
         adapt_mobile_message_events, assemble_cached_message_frame, assemble_message_reactions,
         assemble_message_submessages, finalize_message_payload_content,

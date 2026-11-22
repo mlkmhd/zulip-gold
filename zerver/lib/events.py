@@ -20,7 +20,7 @@ from zerver.actions.realm_settings import (
 from zerver.actions.saved_snippets import do_get_saved_snippets
 from zerver.actions.user_settings import do_change_user_setting
 from zerver.actions.users import get_owned_bot_dicts
-from zerver.lib import emoji
+from zerver.lib import emoji, native_recent_conversations
 from zerver.lib.alert_words import user_alert_words
 from zerver.lib.avatar import avatar_url
 from zerver.lib.bot_config import load_bot_config_template
@@ -2336,17 +2336,22 @@ def post_process_state(
 
     if "raw_recent_private_conversations" in ret:
         # Reformat recent_private_conversations to be a list of dictionaries, rather than a dict.
-        ret["recent_private_conversations"] = sorted(
-            (
-                {
-                    "user_ids": sorted(user_id_set),
-                    "max_message_id": value["max_message_id"],
-                    "pinned": value["pinned"],
-                }
-                for (user_id_set, value) in ret["raw_recent_private_conversations"].items()
-            ),
-            key=lambda x: -x["max_message_id"],
-        )
+        conversations = ret["raw_recent_private_conversations"]
+        native = native_recent_conversations.finalize(conversations)
+        if native is not None:
+            ret["recent_private_conversations"] = native
+        else:
+            ret["recent_private_conversations"] = sorted(
+                (
+                    {
+                        "user_ids": sorted(user_id_set),
+                        "max_message_id": value["max_message_id"],
+                        "pinned": value["pinned"],
+                    }
+                    for (user_id_set, value) in conversations.items()
+                ),
+                key=lambda x: -x["max_message_id"],
+            )
         del ret["raw_recent_private_conversations"]
 
     if not notification_settings_null and "subscriptions" in ret:

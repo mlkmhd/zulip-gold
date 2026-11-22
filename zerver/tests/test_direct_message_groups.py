@@ -6,8 +6,10 @@ import orjson
 from zerver.actions.direct_message_groups import do_set_direct_message_group_pin
 from zerver.lib.message import get_recent_private_conversations
 from zerver.lib.test_classes import ZulipTestCase
+from zerver.lib.test_helpers import stub_event_queue_user_events
 from zerver.models import Subscription, UserProfile
 from zerver.models.recipients import get_direct_message_group
+from zerver.tornado.django_api import EventQueueData
 
 if TYPE_CHECKING:
     from django.test.client import _MonkeyPatchedWSGIResponse as TestHttpResponse
@@ -74,6 +76,37 @@ class DirectMessageConversationPinTest(ZulipTestCase):
                 {frozenset([cordelia.id]): {"max_message_id": message_id, "pinned": True}},
             )
             self.assertEqual(get_recent_private_conversations(cordelia), {})
+
+    def test_register_orders_recent_conversations_and_preserves_pins(self) -> None:
+        hamlet = self.example_user("hamlet")
+        cordelia = self.example_user("cordelia")
+        othello = self.example_user("othello")
+        first = self.send_personal_message(hamlet, cordelia)
+        self.send_personal_message(cordelia, othello)
+        self_message = self.send_personal_message(hamlet, hamlet)
+        group = self.send_group_direct_message(hamlet, [cordelia, othello])
+        do_set_direct_message_group_pin(hamlet, [cordelia.id], pinned=True)
+
+        queue = EventQueueData(queue_id="15:21", idle_queue_timeout_secs=600)
+        with stub_event_queue_user_events(queue, []):
+            result = self.api_post(
+                hamlet,
+                "/api/v1/register",
+                {"event_types": orjson.dumps(["recent_private_conversations"]).decode()},
+            )
+        conversations = self.assert_json_success(result)["recent_private_conversations"]
+        self.assertEqual(
+            conversations,
+            [
+                {
+                    "user_ids": sorted([cordelia.id, othello.id]),
+                    "max_message_id": group,
+                    "pinned": False,
+                },
+                {"user_ids": [], "max_message_id": self_message, "pinned": False},
+                {"user_ids": [cordelia.id], "max_message_id": first, "pinned": True},
+            ],
+        )
 
     def test_pin_is_idempotent(self) -> None:
         hamlet = self.example_user("hamlet")

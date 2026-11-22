@@ -193,6 +193,9 @@ mod python_message_payload;
 mod python_presence;
 
 #[cfg(feature = "python")]
+mod python_recent_conversations;
+
+#[cfg(feature = "python")]
 mod python_tex;
 #[cfg(feature = "python")]
 mod python_unread;
