@@ -306,6 +306,11 @@ mod _zulip_backend {
     use crate::python_unread::{aggregate_unread_payload, format_unread_details};
 
     #[pymodule_export]
+    use crate::python_event_queue::{
+        classify_queued_event, fold_queued_flag_event, merge_queued_events,
+    };
+
+    #[pymodule_export]
     use crate::python_settings_payload::{
         format_settings_emoji_choices, format_settings_notification_sounds,
         snapshot_settings_properties,

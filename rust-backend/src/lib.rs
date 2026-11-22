@@ -204,6 +204,9 @@ mod python_channel_payload;
 #[cfg(feature = "python")]
 mod python_settings_payload;
 
+#[cfg(feature = "python")]
+mod python_event_queue;
+
 #[cfg(any(feature = "python", test))]
 mod channel_traffic;
 

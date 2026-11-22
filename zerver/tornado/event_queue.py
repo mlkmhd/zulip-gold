@@ -22,7 +22,7 @@ from tornado import autoreload
 from typing_extensions import override
 
 from version import API_FEATURE_LEVEL, ZULIP_MERGE_BASE, ZULIP_VERSION
-from zerver.lib import native_message_payload
+from zerver.lib import native_event_queue, native_message_payload
 from zerver.lib.exceptions import JsonableError
 from zerver.lib.markdown import reply_links
 from zerver.lib.markdown.reply_links import needs_plain_reply_links, plain_reply_link_fields
@@ -377,6 +377,9 @@ class ClientDescriptor:
 
 
 def compute_full_event_type(event: Mapping[str, Any]) -> str:
+    native = native_event_queue.classify(event)
+    if native is not None:
+        return native
     if event["type"] == "update_message_flags":
         if event["all"]:
             # Put the "all" case in its own category
@@ -454,10 +457,11 @@ class EventQueue:
 
             # Update the virtual event with the values from the event
             virtual_event = self.virtual_events[full_event_type]
-            virtual_event["id"] = event["id"]
-            virtual_event["messages"] += event["messages"]
-            if "timestamp" in event:
-                virtual_event["timestamp"] = event["timestamp"]
+            if not native_event_queue.fold_flag_event(virtual_event, event):
+                virtual_event["id"] = event["id"]
+                virtual_event["messages"] += event["messages"]
+                if "timestamp" in event:
+                    virtual_event["timestamp"] = event["timestamp"]
 
         else:
             self.queue.append(event)
@@ -478,6 +482,20 @@ class EventQueue:
             self.pop()
 
     def contents(self, include_internal_data: bool = False) -> list[dict[str, Any]]:
+        native = native_event_queue.merge(self.queue, self.virtual_events)
+        if native is not None:
+            contents: list[dict[str, Any]] = native
+        else:
+            contents = self._merge_events()
+
+        self.virtual_events = {}
+        self.queue = deque(contents)
+
+        if include_internal_data:
+            return contents
+        return prune_internal_data(contents)
+
+    def _merge_events(self) -> list[dict[str, Any]]:
         contents: list[dict[str, Any]] = []
         virtual_id_map: dict[str, dict[str, Any]] = {}
         for event_type in self.virtual_events:
@@ -495,13 +513,7 @@ class EventQueue:
         while index < length:
             contents.append(virtual_id_map[virtual_ids[index]])
             index += 1
-
-        self.virtual_events = {}
-        self.queue = deque(contents)
-
-        if include_internal_data:
-            return contents
-        return prune_internal_data(contents)
+        return contents
 
 
 def prune_internal_data(events: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -4621,3 +4621,24 @@ PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
   python -m unittest discover -s rust-backend/tests -p test_settings_payload_parity.py
 ./tools/test-backend zerver.tests.test_event_system.EventsEndpointTest.test_register_separates_personal_and_realm_settings_payloads
 ```
+
+## Classify, fold and merge Tornado event queues through Rust
+
+Set `ZULIP_RUST_EVENT_QUEUE=1` to classify queued events, fold later
+message IDs into an existing compatible flag event, and weave pending
+virtual events into the real queue. The opt-in preserves event order,
+event and list identity, timestamps, and duplicate-ID behavior for
+restored queues. Unusual Python values and older wheels use the Python
+implementation.
+
+Tornado still selects recipients and queues, assigns IDs, decides which
+flag events can collapse, prunes acknowledged events, and controls
+delivery. Internal-data removal before a client receives an event
+continues to run in Python regardless of the flag.
+
+```sh
+PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
+  python -m unittest discover -s rust-backend/tests -p test_event_queue_parity.py
+./tools/test-backend zerver.tests.test_event_queue.EventQueueTest \
+  zerver.tests.test_event_system.GetEventsTest
+```
