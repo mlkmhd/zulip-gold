@@ -1,4 +1,4 @@
-//! Data loading for a future user-group read route. It is not an authorization check.
+//! Data loading for user-group reads. It is not an authorization check.
 
 use std::{collections::HashSet, error::Error, io::ErrorKind};
 
@@ -73,7 +73,7 @@ struct SelectedGroup {
 /// Load the data used by Django's list operation for an already-authorized realm.
 ///
 /// Callers must authorize the requester independently before calling this
-/// function. No listener currently calls it.
+/// function. The opt-in pilot does so in its post-authentication operation.
 pub async fn load_user_group_listing(
     db: &impl GenericClient,
     realm_id: i32,

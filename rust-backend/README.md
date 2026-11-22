@@ -4893,7 +4893,37 @@ The Rust test uses only the private Unix socket in a read-only transaction.
 The new operation takes a principal that has already passed the existing
 authentication and realm checks. It reads the role for that user in that
 realm and applies the existing non-guest restriction before validation.
-This checks the operation after authentication, not Rust HTTP authentication.
-Binding the handler to the existing Basic and session adapters, rendering
-localized errors, and checking GET/HEAD, quota/activity, routing and
-rollback are separate steps. No route, default, or access policy changed.
+This lower-level check does not exercise Rust HTTP authentication. The
+separate direct pilot below covers the next layer.
+
+### Verify the direct user-group read pilot locally
+
+The Rust listener only attaches GET/HEAD for `/api/v1/user_groups` and
+`/json/user_groups` when `ZULIP_RUST_USER_GROUP_READ_PILOT=1`, with both the
+database and signed Django session settings present. The switch is off by
+default. The binary still binds only to loopback. No nginx map or deployment
+setting forwards these paths to Rust, so Django remains the served fallback.
+
+Build the HTTP binary offline and use the same owner-private database fixture
+as above. Run its setup and the commands below inside a [private network
+namespace with only loopback](#verify-a-browser-session-across-the-three-read-routes).
+Keep the fixture's Django settings and socket environment, with no Rust
+environment variables other than the test binary:
+
+```sh
+CARGO_NET_OFFLINE=true cargo build --manifest-path "$checkout/rust-backend/Cargo.toml" \
+  --locked --all-features --lib --bin zulip-http
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" \
+  "$checkout/rust-backend/tests/check_user_groups_direct.py" \
+  --fixture-root "$fixture_root" --nginx "$nginx" --uwsgi "$uwsgi" --venv "$venv"
+```
+
+The script compares 24 direct Rust responses with real Django/uWSGI via a
+disposable nginx left on Django. It covers Basic and signed session reads,
+authorized users in two organizations, guest/localized errors, normal
+parameter errors, unknown parameters, and empty HEAD bodies. It also checks
+that the default Rust listener has no group route, that the pilot cannot
+start without the database/session configuration, and that OPTIONS is not
+part of the direct Rust pilot. This test does not exercise switching the
+proxy to Rust, service accounting for this endpoint, or rollback.

@@ -25,6 +25,7 @@ use super::{
     database::Database,
     draft_writes, drafts,
     form::{Form, FormError},
+    group_listing_request::{self, ReadError as GroupReadError},
     linkifiers,
     locale::Locales,
     navigation_views::{self, NavigationViewUpdate, UpdateOutcome},
@@ -57,6 +58,7 @@ enum Endpoint {
     CustomProfileFields,
     NavigationViews,
     ChannelFolders,
+    UserGroups,
     ScheduledMessages,
     Reminders,
 }
@@ -105,6 +107,7 @@ impl Endpoint {
             Self::CustomProfileFields => "list_realm_custom_profile_fields",
             Self::NavigationViews => "get_navigation_views",
             Self::ChannelFolders => "get_channel_folders",
+            Self::UserGroups => "get_user_groups",
             Self::ScheduledMessages => "fetch_scheduled_messages",
             Self::Reminders => "fetch_reminders",
         }
@@ -154,6 +157,16 @@ impl Endpoint {
                 "navigation_views",
                 serde_json::to_string(&navigation_views::list(database, user_id).await?),
             ),
+            Self::UserGroups => {
+                let listing =
+                    group_listing_request::read_authenticated(database, user_id, realm_id, query)
+                        .await
+                        .map_err(group_read_error)?;
+                let object =
+                    serde_json::to_string(&listing).expect("group listing can serialize to JSON");
+                // The common read response adds result/msg to these object fields.
+                return Ok(object[1..object.len() - 1].to_owned());
+            }
             Self::ChannelFolders => {
                 let form = Form::from_query(query).map_err(ApiError::Form)?;
                 let folders = channel_folders::list(
@@ -624,6 +637,7 @@ enum ApiError {
     Csrf(String),
     Unauthorized(&'static str),
     BadRequest(&'static str),
+    UserGroupGuest,
     BotRequired,
     BotStorageKeyNotFound,
     BotStorageLimitExceeded { excess: i128, limit: u64 },
@@ -660,6 +674,22 @@ impl From<draft_writes::WriteError> for ApiError {
             draft_writes::WriteError::Database(error) => Self::from(error),
             other => Self::DraftWrite(other),
         }
+    }
+}
+
+fn group_read_error(error: GroupReadError) -> ApiError {
+    use group_listing_request::INCLUDE_DEACTIVATED;
+    match error {
+        GroupReadError::Guest => ApiError::UserGroupGuest,
+        GroupReadError::InvalidJson => ApiError::Form(FormError::InvalidJson(INCLUDE_DEACTIVATED)),
+        GroupReadError::ExpectedBoolean => {
+            ApiError::Form(FormError::ExpectedBoolean(INCLUDE_DEACTIVATED))
+        }
+        GroupReadError::MalformedQuery => ApiError::Form(FormError::Malformed),
+        // The previously authenticated account or realm assignment may no
+        // longer be available by the time we load its current role. Fail closed.
+        GroupReadError::PrincipalUnavailable => ApiError::MissingAuthentication,
+        GroupReadError::Database(error) => ApiError::database_unavailable(error),
     }
 }
 
@@ -905,6 +935,7 @@ async fn respond(
         }
         navigation_views::PATH | navigation_views::SESSION_PATH => Endpoint::NavigationViews,
         channel_folders::PATH | channel_folders::SESSION_PATH => Endpoint::ChannelFolders,
+        group_listing_request::PATH | group_listing_request::SESSION_PATH => Endpoint::UserGroups,
         scheduled_messages::PATH | scheduled_messages::SESSION_PATH => Endpoint::ScheduledMessages,
         scheduled_messages::REMINDERS_PATH | scheduled_messages::SESSION_REMINDERS_PATH => {
             Endpoint::Reminders
@@ -1459,6 +1490,7 @@ fn error_response(
             | Endpoint::RealmEmoji
             | Endpoint::CustomProfileFields
             | Endpoint::ChannelFolders
+            | Endpoint::UserGroups
             | Endpoint::ScheduledMessages
             | Endpoint::Reminders => {
                 unreachable!("endpoints without a Rust POST do not override methods")
@@ -1507,6 +1539,11 @@ fn error_response(
         ApiError::BadRequest(message) | ApiError::InvalidNavigationView(message) => {
             (StatusCode::BAD_REQUEST, "BAD_REQUEST", message)
         }
+        ApiError::UserGroupGuest => (
+            StatusCode::BAD_REQUEST,
+            "BAD_REQUEST",
+            "Not allowed for guest users",
+        ),
         ApiError::DeactivatedUser => (
             StatusCode::UNAUTHORIZED,
             "USER_DEACTIVATED",
@@ -1688,6 +1725,7 @@ fn error_response(
         | ApiError::InvalidNavigationView(_)
         | ApiError::NavigationViewNotFound
         | ApiError::DraftSyncDisabled
+        | ApiError::UserGroupGuest
         | ApiError::BotRequired
         | ApiError::BotStorageKeyNotFound
         | ApiError::BotStorageLimitExceeded { .. }

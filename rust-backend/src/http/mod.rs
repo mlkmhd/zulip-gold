@@ -45,6 +45,7 @@ pub struct UserReadConfig<'a> {
     pub database: &'a str,
     pub external_host: &'a str,
     pub emoji_url_base: Option<&'a str>,
+    pub user_group_read_pilot: bool,
     pub rate_limit: Option<RateLimitConfig<'a>>,
     pub activity: Option<ActivityConfig<'a>>,
     pub alert_word_cache_manifest: Option<&'a Path>,
@@ -97,6 +98,10 @@ pub async fn router_with_user_reads(
 ) -> Result<Router, Box<dyn Error>> {
     let locales = locale::Locales::load(locale_dir)?;
     let browser_enabled = config.session.is_some();
+    let user_group_read_pilot = config.user_group_read_pilot;
+    if user_group_read_pilot && !browser_enabled {
+        return Err("User-group read pilot requires signed Django sessions".into());
+    }
     let emoji_reads = config.emoji_url_base.is_some();
     let saved_snippet_writes = config.saved_snippet_max_content_length.is_some();
     let alert_word_writes = config.alert_word_lowercase_file.is_some();
@@ -203,6 +208,11 @@ pub async fn router_with_user_reads(
         .route("/health/rust-alert-words", get(user_reads::ready));
     if emoji_reads {
         routes = routes.route(realm_emoji::PATH, get(user_reads::get));
+    }
+    if user_group_read_pilot {
+        routes = routes
+            .route(group_listing_request::PATH, get(user_reads::get))
+            .route(group_listing_request::SESSION_PATH, get(user_reads::get));
     }
     let snippet_detail_route = patch(user_reads::write_saved_snippet_detail)
         .delete(user_reads::write_saved_snippet_detail)

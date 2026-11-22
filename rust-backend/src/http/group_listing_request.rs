@@ -1,4 +1,4 @@
-//! Request contract for a future user-group list handler. No router calls it.
+//! Post-authentication request contract used by the direct user-group read pilot.
 
 use std::{collections::BTreeSet, error::Error};
 
@@ -9,7 +9,9 @@ use super::form::{Form, FormError};
 use crate::group_listing::{ApiUserGroup, load_user_group_listing};
 
 const ROLE_GUEST: i16 = 600; // Django UserProfile.ROLE_GUEST
-const INCLUDE_DEACTIVATED: &str = "include_deactivated_groups";
+pub(super) const PATH: &str = "/api/v1/user_groups";
+pub(super) const SESSION_PATH: &str = "/json/user_groups";
+pub(super) const INCLUDE_DEACTIVATED: &str = "include_deactivated_groups";
 
 #[derive(Debug)]
 pub enum ReadError {

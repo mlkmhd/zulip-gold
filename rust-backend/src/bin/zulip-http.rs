@@ -50,6 +50,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .await?
         }
         Err(env::VarError::NotPresent) => {
+            if enabled("ZULIP_RUST_USER_GROUP_READ_PILOT")? {
+                return Err("User-group read pilot requires ZULIP_RUST_DATABASE_URL".into());
+            }
             if optional_env("ZULIP_RUST_EMOJI_URL_BASE")?.is_some() {
                 return Err("Custom emoji reads require ZULIP_RUST_DATABASE_URL".into());
             }
@@ -193,6 +196,7 @@ async fn user_read_router(
             web_post_scheme,
             saved_snippet_max_content_length,
             external_host: &external_host,
+            user_group_read_pilot: enabled("ZULIP_RUST_USER_GROUP_READ_PILOT")?,
             emoji_url_base: emoji_url_base.as_deref(),
             rate_limit: redis_url.as_deref().map(|url| RateLimitConfig {
                 url,
