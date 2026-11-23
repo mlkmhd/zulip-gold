@@ -4,6 +4,20 @@ import type {Page} from "puppeteer";
 
 import * as common from "./lib/common.ts";
 
+async function wait_for_sidebar_layout(page: Page, modern: boolean): Promise<void> {
+    await page.waitForFunction(
+        (modern) => {
+            const sidebar = document.querySelector("#left-sidebar-modal");
+            return (
+                sidebar !== null &&
+                (sidebar.querySelector(".channel-topics-panel-title") !== null) === modern
+            );
+        },
+        {},
+        modern,
+    );
+}
+
 async function test_dm_pins(page: Page): Promise<void> {
     await common.log_in(page);
     await common.send_message(page, "private", {
@@ -22,11 +36,11 @@ async function test_dm_pins(page: Page): Promise<void> {
         {},
         "A newer conversation",
     );
+    const hamlet_id = await common.get_user_id_from_name(page, common.fullname.hamlet);
     await page.waitForSelector(".accept-web-ui-version", {visible: true});
     await Promise.all([page.waitForNavigation(), page.click(".accept-web-ui-version")]);
+    await wait_for_sidebar_layout(page, true);
 
-    await page.waitForSelector(".dm-message-preview", {visible: true});
-    const hamlet_id = await common.get_user_id_from_name(page, common.fullname.hamlet);
     const row = `#direct-messages-list .dm-list-item[data-user-ids-string="${hamlet_id}"]`;
     const pinned = `${row}:first-child .dm-pin-button.dm-is-pinned`;
     await page.waitForSelector(row, {visible: true});
@@ -48,6 +62,7 @@ async function test_dm_pins(page: Page): Promise<void> {
     await page.click('[data-section="preferences"]');
     await page.waitForSelector("#web-ui-version", {visible: true});
     await Promise.all([page.waitForNavigation(), page.select("#web-ui-version", "classic")]);
+    await wait_for_sidebar_layout(page, false);
     await page.waitForSelector(`${pinned} .zulip-icon-pin-filled`, {visible: true});
     await page.click("#settings_page .content-wrapper .exit");
     await page.waitForSelector("#settings_overlay_container", {hidden: true});
