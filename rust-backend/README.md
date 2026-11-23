@@ -5527,6 +5527,37 @@ ZULIP_RUST_HTTP_BIN=/absolute/path/to/zulip-http \
     --rabbitmq-server /usr/lib/rabbitmq/bin/rabbitmq-server --epmd /usr/bin/epmd
 ```
 
+### Persist channel folder reordering through Rust
+
+The opt-in, default-off `ZULIP_RUST_CHANNEL_FOLDER_ORDER=1` writes a
+validated multi-folder order in one PostgreSQL statement on Django's
+transaction connection. Django still checks administrator access and
+the submitted order, selects only that organization's folders, and
+publishes the original reorder event after commit. Archived folders
+still receive their positions; duplicate IDs keep their last position,
+and obsolete extra IDs do not write rows.
+
+With the extension disabled or older, an empty or single-folder
+organization, a different database/router, or a model save hook,
+Django keeps its existing row-by-row behavior. If an attempted native
+batch misses any previously selected row, it rolls back and is not
+retried through the ORM. The HTTP routes and defaults do not change.
+
+```sh
+for enabled in 0 1; do
+    ZULIP_RUST_CHANNEL_FOLDER_ORDER=$enabled ./tools/test-backend \
+        zerver.tests.test_channel_folders.ReorderChannelFolderTest \
+        zerver.tests.test_channel_folder_order_rust.ChannelFolderOrderRustTest \
+        zerver.tests.test_events.ChannelFolderActionTest
+done
+```
+
+In a synthetic eight-folder organization, both the Basic and session
+reorders used one folder-table UPDATE instead of eight. The visible and
+archived-inclusive lists, event audience and payload, and ORM fallback
+matched. This is a statement count, not an HTTP latency measurement.
+Independent HTTP coverage does not change.
+
 ### Rehearse a single channel subscription read and rollback
 
 `ZULIP_RUST_SUBSCRIPTION_STATUS_READ_PILOT=1` enables only the loopback

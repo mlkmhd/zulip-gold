@@ -205,6 +205,8 @@ mod python_topic_history;
 mod python_user_status_batch;
 
 #[cfg(feature = "python")]
+mod python_channel_folder_order;
+#[cfg(feature = "python")]
 mod python_user_status_persistence;
 
 #[cfg(any(feature = "http", feature = "python", test))]

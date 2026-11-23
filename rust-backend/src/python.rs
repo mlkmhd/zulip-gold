@@ -382,6 +382,9 @@ mod _zulip_backend {
     use crate::python_user_status_persistence::update_existing_user_status;
 
     #[pymodule_export]
+    use crate::python_channel_folder_order::update_channel_folder_order;
+
+    #[pymodule_export]
     use crate::markdown_reply_links::{
         mobile_client_needs_plain_reply_links, mobile_plain_reply_link_fields,
         render_mobile_plain_reply_links,
