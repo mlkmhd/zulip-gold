@@ -1,6 +1,6 @@
 import logging
 from collections import defaultdict
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Collection, Iterable, Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from datetime import timedelta
@@ -23,7 +23,7 @@ from zerver.actions.user_topics import (
     bulk_do_set_user_topic_visibility_policy,
     do_set_user_topic_visibility_policy,
 )
-from zerver.lib import native_user_message_flags
+from zerver.lib import native_message_send_masks, native_user_message_flags
 from zerver.lib.addressee import Addressee
 from zerver.lib.alert_words import get_alert_word_matcher
 from zerver.lib.cache import (
@@ -919,22 +919,42 @@ def create_user_messages(
     #
     # See https://zulip.readthedocs.io/en/latest/subsystems/sending-messages.html#soft-deactivation
     # for details on this system.
+    planned = None
+    recipients: Iterable[int] = um_eligible_user_ids
+    if native_message_send_masks.available() and type(um_eligible_user_ids) in (set, frozenset):
+        ordered = list(um_eligible_user_ids)
+        planned = native_message_send_masks.plan(
+            ordered,
+            base_flags,
+            mark_as_read_user_ids,
+            mentioned_user_ids,
+            ids_with_alert_words,
+            topic_participant_user_ids if rendering_result.mentions_topic_wildcard else set(),
+            limit_unread_user_ids,
+        )
+        if planned is not None:
+            recipients = ordered
+
+    mask_iter = iter(planned) if planned is not None else None
     user_messages = []
-    for user_profile_id in um_eligible_user_ids:
-        flags = base_flags
-        if user_profile_id in mark_as_read_user_ids or (
-            limit_unread_user_ids is not None and user_profile_id not in limit_unread_user_ids
-        ):
-            flags |= UserMessage.flags.read
-        if user_profile_id in mentioned_user_ids:
-            flags |= UserMessage.flags.mentioned
-        if user_profile_id in ids_with_alert_words:
-            flags |= UserMessage.flags.has_alert_word
-        if (
-            rendering_result.mentions_topic_wildcard
-            and user_profile_id in topic_participant_user_ids
-        ):
-            flags |= UserMessage.flags.topic_wildcard_mentioned
+    for user_profile_id in recipients:
+        if mask_iter is not None:
+            flags = next(mask_iter)
+        else:
+            flags = base_flags
+            if user_profile_id in mark_as_read_user_ids or (
+                limit_unread_user_ids is not None and user_profile_id not in limit_unread_user_ids
+            ):
+                flags |= UserMessage.flags.read
+            if user_profile_id in mentioned_user_ids:
+                flags |= UserMessage.flags.mentioned
+            if user_profile_id in ids_with_alert_words:
+                flags |= UserMessage.flags.has_alert_word
+            if (
+                rendering_result.mentions_topic_wildcard
+                and user_profile_id in topic_participant_user_ids
+            ):
+                flags |= UserMessage.flags.topic_wildcard_mentioned
 
         if (
             user_profile_id in long_term_idle_user_ids

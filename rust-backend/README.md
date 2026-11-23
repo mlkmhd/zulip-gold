@@ -5816,3 +5816,28 @@ done
 ```
 
 The default and independent HTTP ownership are unchanged.
+
+### Calculate initial message receipt masks through Rust
+
+Set `ZULIP_RUST_MESSAGE_SEND_MASKS=1` before starting Django to calculate
+initial read, mention and alert bits for recipients already selected
+by Django. Rust gets ordered IDs, numeric masks, and ordinary membership
+sets. No further recipients can be selected. Python still owns the
+baseline channel/direct-message bits, which idle receipts can be
+omitted, row objects, database writes, and event dispatch.
+
+This switch is independent of the edit planner and public label switch.
+Older extensions and unsupported batches use the Python calculation.
+With the current extension built in an isolated test environment:
+
+```bash
+for enabled in 0 1; do
+    ZULIP_RUST_MESSAGE_SEND_MASKS=$enabled ./tools/test-backend \
+        zerver.tests.test_message_send_masks_rust \
+        zerver.tests.test_message_send.DoSendMessagesTest.test_events_for_several_messages \
+        zerver.tests.test_message_send.StreamMessagesTest.test_topic_wildcard_mentioned_flag \
+        zerver.tests.test_soft_deactivation.SoftDeactivationMessageTest.test_reactivate_user_if_soft_deactivated
+done
+```
+
+Default behavior and independent HTTP ownership are unchanged.

@@ -616,3 +616,66 @@ pub(crate) fn plan_user_message_flag_deltas(
     }
     Ok(Some(result))
 }
+
+/// Calculate receipt flags for the ordered recipients Django already
+/// selected. Zero-mask receipt omission and all writes stay in Django.
+#[pyfunction]
+pub(crate) fn plan_new_user_message_masks(
+    ids: &Bound<'_, PyAny>,
+    base: u64,
+    masks: (u64, u64, u64, u64),
+    membership: (
+        Bound<'_, PyAny>,
+        Bound<'_, PyAny>,
+        Bound<'_, PyAny>,
+        Bound<'_, PyAny>,
+    ),
+    limit_unread: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Option<Vec<u64>>> {
+    let (Ok(ids), Some(mark_read), Some(mentions), Some(alerts), Some(topics)) = (
+        ids.cast_exact::<PyList>(),
+        edit_set(&membership.0),
+        edit_set(&membership.1),
+        edit_set(&membership.2),
+        edit_set(&membership.3),
+    ) else {
+        return Ok(None);
+    };
+    let limit_unread = if let Some(limit_unread) = limit_unread {
+        let Some(limit) = edit_set(limit_unread) else {
+            return Ok(None);
+        };
+        Some(limit)
+    } else {
+        None
+    };
+    let (read_bit, mention_bit, alert_bit, topic_bit) = masks;
+    let mut result = Vec::with_capacity(ids.len());
+    for id in ids.iter() {
+        let Ok(id) = id.cast_exact::<PyInt>() else {
+            return Ok(None);
+        };
+        let Ok(id) = id.extract::<i64>() else {
+            return Ok(None);
+        };
+        let mut flags = base;
+        if mark_read.contains(&id)
+            || limit_unread
+                .as_ref()
+                .is_some_and(|limit| !limit.contains(&id))
+        {
+            flags |= read_bit;
+        }
+        if mentions.contains(&id) {
+            flags |= mention_bit;
+        }
+        if alerts.contains(&id) {
+            flags |= alert_bit;
+        }
+        if topics.contains(&id) {
+            flags |= topic_bit;
+        }
+        result.push(flags);
+    }
+    Ok(Some(result))
+}
