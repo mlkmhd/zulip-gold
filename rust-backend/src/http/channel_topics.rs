@@ -1,21 +1,15 @@
 //! Read topic history visible to an authenticated API client.
 
-use std::collections::HashSet;
-
-use serde::Serialize;
 use tokio_postgres::{Client, Error};
 
 use super::unicode_lowercase::UnicodeLowercase;
-use crate::draft_recipients::CHANNEL_TOPIC_HISTORY_SQL;
+use crate::{
+    draft_recipients::CHANNEL_TOPIC_HISTORY_SQL,
+    topic_history::{NewestTopicHistory, Topic},
+};
 
 pub(super) const PATH: &str = "/api/v1/users/me/{id}/topics";
 pub(super) const ALLOW_EMPTY: &str = "allow_empty_topic_name";
-
-#[derive(Serialize)]
-pub(super) struct Topic {
-    name: String,
-    max_id: i64,
-}
 
 pub(super) async fn read(
     database: &Client,
@@ -24,7 +18,7 @@ pub(super) async fn read(
     channel_id: i64,
     allow_empty: bool,
     lowercase: &UnicodeLowercase,
-) -> Result<Option<Vec<Topic>>, Error> {
+) -> Result<Option<Vec<Topic<String>>>, Error> {
     let rows = database
         .query(
             CHANNEL_TOPIC_HISTORY_SQL,
@@ -35,25 +29,14 @@ pub(super) async fn read(
         return Ok(None);
     }
 
-    // The newest spelling for each Python-lowercased topic wins. Replace the
-    // empty display name only after grouping; a literal "general chat" is distinct.
-    let mut seen = HashSet::new();
-    let mut topics = Vec::new();
+    let mut topics = NewestTopicHistory::new((!allow_empty).then(|| "general chat".to_owned()));
     for row in rows {
         let Some(name) = row.try_get::<_, Option<String>>(0)? else {
             continue;
         };
-        if seen.insert(lowercase.lower(&name)) {
-            let name = if name.is_empty() && !allow_empty {
-                "general chat".to_owned()
-            } else {
-                name
-            };
-            topics.push(Topic {
-                name,
-                max_id: row.try_get(1)?,
-            });
-        }
+        let lower = lowercase.lower(&name);
+        let is_empty = name.is_empty();
+        topics.push(name, lower, is_empty, row.try_get(1)?);
     }
-    Ok(Some(topics))
+    Ok(Some(topics.finish()))
 }

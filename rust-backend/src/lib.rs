@@ -199,6 +199,12 @@ mod python_message_payload;
 mod python_message_window;
 
 #[cfg(feature = "python")]
+mod python_topic_history;
+
+#[cfg(any(feature = "http", feature = "python", test))]
+mod topic_history;
+
+#[cfg(feature = "python")]
 mod python_presence;
 
 #[cfg(feature = "python")]

@@ -5304,6 +5304,39 @@ Removing the route include and reloading nginx restores Django while Rust
 is offline. There is no automatic failover. Production ingress and load
 were not tested; deployment routing remains unchanged.
 
+### Format visible topic history inside Django
+
+Set `ZULIP_RUST_TOPIC_HISTORY=1` to reuse the Rust topic-history
+formatter after Django admits the request and runs its existing query.
+Basic, signed web sessions, and web-public spectators still use their
+existing Django authorization, site and organization settings, and
+channel-history rules. Only the visible topics and their newest message
+IDs reach the formatter.
+
+The shared formatter keeps the newest spelling of each case-insensitive
+topic and substitutes the legacy empty-topic label only after grouping.
+This preserves a distinct literal "general chat" topic. Non-ASCII
+casing uses the running Python interpreter. Unsupported row types or
+non-unique or non-descending IDs, older wheels, and an unset flag retain
+the original Python path. The option is off by default and does not
+route the JSON alias to the independent listener.
+
+With the extension on `PYTHONPATH` and a disposable Django test
+database:
+
+```sh
+for enabled in 0 1; do
+    ZULIP_RUST_TOPIC_HISTORY=$enabled ./tools/test-backend \
+        zerver.tests.test_message_topics.TopicHistoryTest \
+        zerver.tests.test_topic_history_rust.TopicHistoryRustTest
+done
+```
+
+For 256 synthetic rows already read from the database, the formatting
+stage including FFI was about 1.5–1.6 times faster. SQL, authentication,
+and end-to-end HTTP were not benchmarked. Independent coverage is
+unchanged.
+
 ### Rehearse authenticated user status reads and rollback
 
 `ZULIP_RUST_USER_STATUS_READ_PILOT=1` adds loopback-only GET and HEAD

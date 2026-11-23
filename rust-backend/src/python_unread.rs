@@ -3,6 +3,8 @@ use std::collections::{BTreeMap, HashSet};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyInt, PyList, PySet, PyString};
 
+use crate::python_topic_history::topic_key;
+
 fn string_keys(value: &Bound<'_, PyDict>) -> bool {
     value
         .iter()
@@ -81,16 +83,6 @@ fn mentions_in_iteration_order(mentions: &Bound<'_, PySet>) -> Option<Vec<i64>> 
     // Despite the other arrays being sorted, the API built this list in
     // Python set iteration order. Preserve that order.
     mentions.iter().map(|id| int(&id)).collect()
-}
-
-fn topic_key(topic: &Bound<'_, PyString>) -> Option<String> {
-    let spelling = topic.to_str().ok()?;
-    if spelling.is_ascii() {
-        return Some(spelling.to_ascii_lowercase());
-    }
-    // Python lowercasing is contextual for characters such as Greek sigma and
-    // tied to the interpreter's Unicode database.
-    topic.call_method0("lower").ok()?.extract().ok()
 }
 
 fn stream_buckets<'py>(

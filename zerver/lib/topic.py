@@ -21,6 +21,7 @@ from django.db.models.functions import Cast
 from django.utils.translation import gettext as _
 from django.utils.translation import override as override_language
 
+from zerver.lib.native_topic_history import TopicHistoryEntry, format_visible_rows
 from zerver.lib.types import EditHistoryEvent, StreamMessageEditRequest
 from zerver.lib.utils import assert_is_not_none
 from zerver.models import Message, Reaction, UserMessage, UserProfile, UserTopic
@@ -265,7 +266,11 @@ def update_messages_for_topic_edit(
 def generate_topic_history_from_db_rows(
     rows: list[tuple[str, int]],
     allow_empty_topic_name: bool,
-) -> list[dict[str, Any]]:
+) -> list[TopicHistoryEntry]:
+    native = format_visible_rows(rows, allow_empty_topic_name, Message.EMPTY_TOPIC_FALLBACK_NAME)
+    if native is not None:
+        return native
+
     canonical_topic_names: dict[str, tuple[int, str]] = {}
 
     # Sort rows by max_message_id so that if a topic
@@ -277,12 +282,12 @@ def generate_topic_history_from_db_rows(
         canonical_name = topic_name.lower()
         canonical_topic_names[canonical_name] = (max_message_id, topic_name)
 
-    history = []
+    history: list[TopicHistoryEntry] = []
     for max_message_id, topic_name in canonical_topic_names.values():
         if topic_name == "" and not allow_empty_topic_name:
             topic_name = Message.EMPTY_TOPIC_FALLBACK_NAME
         history.append(
-            dict(name=topic_name, max_id=max_message_id),
+            {"name": topic_name, "max_id": max_message_id},
         )
     return sorted(history, key=lambda x: -x["max_id"])
 
@@ -291,7 +296,7 @@ def get_topic_history_for_public_stream(
     realm_id: int,
     recipient_id: int,
     allow_empty_topic_name: bool,
-) -> list[dict[str, Any]]:
+) -> list[TopicHistoryEntry]:
     cursor = connection.cursor()
     # Uses index: zerver_message_realm_recipient_subject
     # Note that this is *case-sensitive*, so that we can display the
@@ -323,7 +328,7 @@ def get_topic_history_for_stream(
     recipient_id: int,
     public_history: bool,
     allow_empty_topic_name: bool,
-) -> list[dict[str, Any]]:
+) -> list[TopicHistoryEntry]:
     if public_history:
         return get_topic_history_for_public_stream(
             user_profile.realm_id,
