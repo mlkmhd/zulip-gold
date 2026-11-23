@@ -165,4 +165,4 @@ class UserStatusBatchRustTest(ZulipTestCase):
             ):
                 matrix = user_status.get_all_users_status_dict(visible.realm, visible)
             self.assertIn(str(visible.id), matrix)
-            self.assertEqual(len(queries), 1)
+            self.assert_length(queries.captured_queries, 1)

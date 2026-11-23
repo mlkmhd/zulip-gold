@@ -53,10 +53,14 @@ OK = {"result": "success", "msg": ""}
 
 @dataclass(frozen=True)
 class Actor:
-    id: int
+    user: UserProfile = field(repr=False)
     host: str
     basic: dict[str, str] = field(repr=False)
     web: dict[str, str] = field(repr=False)
+
+    @property
+    def id(self) -> int:
+        return self.user.id
 
 
 class DraftState(TypedDict):
@@ -90,7 +94,7 @@ def actor(user: UserProfile) -> Iterator[Actor]:
     authorization = b64encode(f"{user.delivery_email}:{user.api_key}".encode()).decode()
     try:
         yield Actor(
-            user.id,
+            user,
             user.realm.host,
             {"Authorization": f"Basic {authorization}"},
             {
@@ -263,7 +267,8 @@ def send_and_clear(
     upstream: str,
     events: Events,
 ) -> None:
-    from zerver.models import Draft, Message
+    from zerver.lib.message import access_message
+    from zerver.models import Draft
 
     sent = request(
         proxy,
@@ -276,7 +281,9 @@ def send_and_clear(
         ),
     )
     message_id = json.loads(sent[1])["id"]
-    assert Message.objects.get(id=message_id, sender_id=owner.id).content == draft["content"]
+    message = access_message(owner.user, message_id, is_modifying_message=False)
+    assert message.sender_id == owner.id
+    assert message.content == draft["content"]
     events.sent(message_id, peer)
     assert stored(draft["id"], owner) == draft, "sending does not itself clear the draft"
     result = request(proxy, owner, "DELETE", f"{WEB}/{draft['id']}", upstream)

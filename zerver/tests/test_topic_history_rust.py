@@ -89,15 +89,17 @@ class TopicHistoryRustTest(ZulipTestCase):
 
         def ordinary_message(channel: Stream, topic: str) -> int:
             assert channel.recipient_id is not None
-            return Message.objects.create(
+            message = Message(
                 realm_id=writer.realm_id,
                 recipient_id=channel.recipient_id,
                 sender=writer,
                 sending_client=client,
                 date_sent=timezone_now(),
-                subject=topic,
                 content="Synthetic topic history.",
-            ).id
+            )
+            message.set_topic_name(topic)
+            message.save(force_insert=True)
+            return message.id
 
         ordinary_message(public, "Aς")
         chosen = ordinary_message(public, "AΣ")

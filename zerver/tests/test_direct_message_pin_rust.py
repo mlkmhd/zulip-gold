@@ -4,7 +4,7 @@ from unittest import SkipTest
 from unittest.mock import Mock, patch
 
 import orjson
-from django.db import connection, transaction
+from django.db import connection
 from django.db.models.signals import post_save
 from django.test.utils import CaptureQueriesContext
 from typing_extensions import override
@@ -137,7 +137,7 @@ class DirectMessagePinRustTest(ZulipTestCase):
             ),
             self.capture_send_event_calls(expected_num_events=0),
             self.assertRaisesMessage(RuntimeError, "synthetic abort after native pin"),
-            transaction.atomic(),
+            self.artificial_transaction_savepoint(),
         ):
             do_set_direct_message_group_pin(self.owner, [self.peer.id], pinned=True)
         self.row.refresh_from_db()

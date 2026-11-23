@@ -177,7 +177,7 @@ def run_parity() -> None:
             "real-katex": "~~~math\nx^2 + y^2\n~~~",
         }
     )
-    with transaction.atomic():
+    with transaction.atomic(durable=True):
         realm = Realm(
             name="Temporary fenced parity",
             string_id="fenced-parity",

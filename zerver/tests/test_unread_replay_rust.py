@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 from zerver.lib import native_unread_replay
 from zerver.lib.events import apply_events
 from zerver.lib.test_classes import ZulipTestCase
+from zerver.lib.topic import TOPIC_NAME
 
 METHODS = ("remove_unread_messages", "restore_unread_messages", "move_unread_messages")
 
@@ -92,7 +93,7 @@ class UnreadReplayRustTest(ZulipTestCase):
                 if index % 3 != 0:
                     move["new_stream_id"] = 1 + index % 9
                 if index % 3 != 1:
-                    move["subject"] = "بحث" if index % 2 else ""
+                    move[TOPIC_NAME] = "بحث" if index % 2 else ""
                 events.append(move)
 
         def timeline(candidate: object) -> list[str]:
@@ -156,7 +157,7 @@ class UnreadReplayRustTest(ZulipTestCase):
                     "type": "update_message",
                     "message_ids": [2],
                     "new_stream_id": 11,
-                    "subject": "Moved",
+                    TOPIC_NAME: "Moved",
                 },
             )
         self.assertEqual(set(raw["pm_dict"]), {8, 9})

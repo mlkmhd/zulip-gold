@@ -60,7 +60,10 @@ class NativeHtmlBridgeTest(unittest.TestCase):
         legacy = extension.plan_markdown_native_inline(*args)
         media = extension.plan_markdown_native_inline_media(*args)
         html = extension.plan_markdown_native_inline_html(*args)
-        self.assertEqual(len(legacy), 6)
+        self.assertIsInstance(legacy, tuple)
+        _nodes, _edits, _stash, _ancestors, changed, mention_effects = legacy
+        self.assertTrue(changed)
+        self.assertEqual(mention_effects, ([], [], False, False))
         self.assertEqual(media, (legacy, [], False))
         self.assertEqual(html, (*media, []))
 

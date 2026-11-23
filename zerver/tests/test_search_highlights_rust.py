@@ -8,10 +8,12 @@ import orjson
 from django.conf import settings
 from django.db import connection
 from django.test import SimpleTestCase, override_settings
+from psycopg2.sql import SQL, Identifier
 
 from zerver.lib import native_search_highlights
 from zerver.lib.native_search_highlights import SearchHighlightRow
 from zerver.lib.test_classes import ZulipTestCase
+from zerver.lib.topic import DB_TOPIC_NAME
 from zerver.views.message_fetch import get_search_fields_batch
 from zerver.views.message_fetch import highlight_string as python_highlight
 
@@ -99,13 +101,17 @@ class SearchHighlightEndpointTest(ZulipTestCase):
         nonmatching_id = self.send_stream_message(reader, "Verona", content="No search term")
         with connection.cursor() as cursor:
             cursor.execute(
-                "UPDATE zerver_message SET search_tsvector = "
-                "to_tsvector('zulip.english_us_search', subject || rendered_content)"
+                SQL(
+                    "UPDATE zerver_message SET search_tsvector = "
+                    "to_tsvector('zulip.english_us_search', {} || rendered_content)"
+                ).format(Identifier(DB_TOPIC_NAME))
             )
             if settings.USING_PGROONGA:
                 cursor.execute(
-                    "UPDATE zerver_message SET search_pgroonga = "
-                    "escape_html(subject) || ' ' || rendered_content"
+                    SQL(
+                        "UPDATE zerver_message SET search_pgroonga = "
+                        "escape_html({}) || ' ' || rendered_content"
+                    ).format(Identifier(DB_TOPIC_NAME))
                 )
 
         encoded_narrow = orjson.dumps([{"operator": "search", "operand": "lunch"}]).decode()

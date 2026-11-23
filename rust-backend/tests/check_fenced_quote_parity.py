@@ -342,11 +342,16 @@ class NestedFencedLineParity(unittest.TestCase):
             if stage == event:
                 raise error
 
-        def check(*args: object, **kwargs: object) -> None:
-            self.assertEqual(len(args), 3)
-            self.assertIs(args[0], processor)
-            self.assertIs(args[1], output)
-            self.assertIs(args[2], line)
+        def check(
+            actual_processor: object,
+            actual_output: object,
+            actual_line: object,
+            /,
+            **kwargs: object,
+        ) -> None:
+            self.assertIs(actual_processor, processor)
+            self.assertIs(actual_output, output)
+            self.assertIs(actual_line, line)
             if owner == "QuoteHandler":
                 self.assertEqual(set(kwargs), {"default_language"})
                 self.assertIs(kwargs["default_language"], language)

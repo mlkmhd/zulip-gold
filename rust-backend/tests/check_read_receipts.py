@@ -57,19 +57,16 @@ def seed_accounting_message(member: UserProfile) -> Message:
     Realm.objects.filter(id=member.realm_id).update(enable_read_receipts=True)
     stream, _ = create_stream_if_needed(member.realm, "Read receipt pilot public")
     assert stream.recipient_id is not None
-    message, _ = Message.objects.get_or_create(
+    return Message.objects.create(
         recipient_id=stream.recipient_id,
         sender=member,
         realm_id=member.realm_id,
         content="Synthetic read receipt pilot",
-        defaults={
-            "date_sent": timezone_now(),
-            "sending_client": get_client("website"),
-            "is_channel_message": True,
-            "rendered_content": "<p>Synthetic read receipt pilot</p>",
-        },
+        date_sent=timezone_now(),
+        sending_client=get_client("website"),
+        is_channel_message=True,
+        rendered_content="<p>Synthetic read receipt pilot</p>",
     )
-    return message
 
 
 def make_cases(cleanup: ExitStack) -> list[ReceiptCase]:

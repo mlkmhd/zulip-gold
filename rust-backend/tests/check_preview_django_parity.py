@@ -230,7 +230,7 @@ def run() -> tuple[int, int]:
     from zerver.models import Realm
 
     backend = import_module("_zulip_backend")
-    with transaction.atomic():
+    with transaction.atomic(durable=True):
         realm = Realm(
             name="Disposable Preview Parity",
             string_id="isolated-preview-parity",
