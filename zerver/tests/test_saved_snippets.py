@@ -181,6 +181,7 @@ class SavedSnippetReadHTTPTest(ZulipTransactionTestCase, LiveServerTestCase):
                 "Basic " + b64encode(f"{user.delivery_email}:{user.api_key}".encode()).decode()
             )
             host = user.realm.host
+            other_realm = Realm.objects.get(string_id="zephyr")
             cases = [
                 ("own", "GET", host, valid, 200, [own.to_api_dict()]),
                 ("other user", "GET", host, cookie(other), 200, [foreign.to_api_dict()]),
@@ -202,7 +203,7 @@ class SavedSnippetReadHTTPTest(ZulipTransactionTestCase, LiveServerTestCase):
                 (
                     "wrong realm",
                     "GET",
-                    Realm.objects.get(string_id="zephyr").host,
+                    other_realm.host,
                     valid,
                     400,
                     None,
@@ -236,6 +237,19 @@ class SavedSnippetReadHTTPTest(ZulipTransactionTestCase, LiveServerTestCase):
                     django_port = urlsplit(self.live_server_url).port
                     assert django_port is not None
                     path = "/json/saved_snippets"
+                    expected_warnings = {
+                        "tampered": (
+                            "django.security.SuspiciousSession",
+                            "WARNING:django.security.SuspiciousSession:Session data corrupted",
+                        ),
+                        "wrong realm": (
+                            "root",
+                            (
+                                f"WARNING:root:User {user.delivery_email} ({user.realm.subdomain}) "
+                                f"attempted to access API on wrong subdomain ({other_realm.subdomain})"
+                            ),
+                        ),
+                    }
                     for label, method, realm_host, headers, status, snippets in cases:
                         with self.subTest(label=label):
                             rust = (
@@ -243,9 +257,18 @@ class SavedSnippetReadHTTPTest(ZulipTransactionTestCase, LiveServerTestCase):
                                 if rust_port is not None
                                 else None
                             )
-                            django = request_test_http(
-                                django_port, method, realm_host, headers, path
-                            )
+                            expected_warning = expected_warnings.get(label)
+                            with (
+                                self.assertLogs(expected_warning[0], level="WARNING")
+                                if expected_warning is not None
+                                else nullcontext()
+                            ) as logs:
+                                django = request_test_http(
+                                    django_port, method, realm_host, headers, path
+                                )
+                            if expected_warning is not None:
+                                assert logs is not None
+                                self.assertEqual(logs.output, [expected_warning[1]])
                             self.assertEqual(django[0], status)
                             if snippets is not None:
                                 self.assertEqual(
@@ -402,7 +425,18 @@ class SavedSnippetReadHTTPTest(ZulipTransactionTestCase, LiveServerTestCase):
         with service as rust_port:
             for label, method, status, host, headers, query, expected_ids in cases:
                 with self.subTest(label=label):
-                    django = request_test_http(django_port, method, host, headers, path + query)
+                    with (
+                        self.assertLogs(level="WARNING")
+                        if label == "wrong organization"
+                        else nullcontext()
+                    ) as logs:
+                        django = request_test_http(django_port, method, host, headers, path + query)
+                    if logs is not None:
+                        expected_warning = (
+                            f"WARNING:root:User {user.delivery_email} ({user.realm.subdomain}) "
+                            f"attempted to access API on wrong subdomain ({other_realm.realm.subdomain})"
+                        )
+                        self.assertEqual(logs.output, [expected_warning])
                     self.assertEqual(django[0], status)
                     if expected_ids is not None:
                         data = orjson.loads(django[1])

@@ -1377,8 +1377,14 @@ class DraftReadHTTPTest(ZulipTransactionTestCase, LiveServerTestCase):
                             self.assertEqual(data["drafts"][0]["timestamp"], 0)
                             self.assertEqual(check_request("HEAD", path, headers, 200), b"")
                             check_request("GET", path, {}, 401)
-                    other_host = Realm.objects.get(string_id="zephyr").host
-                    check_request("GET", api, api_headers, 401, other_host)
+                    other_realm = Realm.objects.get(string_id="zephyr")
+                    with self.assertLogs(level="WARNING") as logs:
+                        check_request("GET", api, api_headers, 401, other_realm.host)
+                    expected_warning = (
+                        f"WARNING:root:User {user.delivery_email} ({user.realm.subdomain}) "
+                        f"attempted to access API on wrong subdomain ({other_realm.subdomain})"
+                    )
+                    self.assertEqual(logs.output, [expected_warning])
                     user.enable_drafts_synchronization = False
                     user.save(update_fields=["enable_drafts_synchronization"])
                     for path, headers in ((api, api_headers), (web, web_headers)):

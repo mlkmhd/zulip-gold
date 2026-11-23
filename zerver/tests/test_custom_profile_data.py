@@ -129,7 +129,13 @@ class CustomProfileFieldReadHTTPTest(ZulipTransactionTestCase, LiveServerTestCas
                         )
                         check("GET", path, user.realm.host, {}, 401)
 
-                check("GET", api, other_user.realm.host, api_auth(user), 401)
+                with self.assertLogs(level="WARNING") as logs:
+                    check("GET", api, other_user.realm.host, api_auth(user), 401)
+                expected_warning = (
+                    f"WARNING:root:User {user.delivery_email} ({user.realm.subdomain}) "
+                    f"attempted to access API on wrong subdomain ({other_user.realm.subdomain})"
+                )
+                self.assertEqual(logs.output, [expected_warning])
                 other_body = check("GET", api, other_user.realm.host, api_auth(other_user), 200)
                 self.assertEqual(
                     orjson.loads(other_body)["custom_fields"],

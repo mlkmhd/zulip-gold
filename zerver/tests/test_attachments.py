@@ -140,7 +140,13 @@ class AttachmentReadHTTPTest(ZulipTransactionTestCase, LiveServerTestCase):
                 assert_attachments(
                     check("GET", api, external.realm.host, api_auth(external), 200), 400, foreign
                 )
-                check("GET", api, external.realm.host, api_auth(user), 401)
+                with self.assertLogs(level="WARNING") as logs:
+                    check("GET", api, external.realm.host, api_auth(user), 401)
+                expected_warning = (
+                    f"WARNING:root:User {user.delivery_email} ({user.realm.subdomain}) "
+                    f"attempted to access API on wrong subdomain ({external.realm.subdomain})"
+                )
+                self.assertEqual(logs.output, [expected_warning])
 
                 counts = RealmCount.objects.filter(property="upload_quota_used_bytes::day")
                 for realm, end, value, subgroup in (

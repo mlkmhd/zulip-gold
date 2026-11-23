@@ -103,7 +103,13 @@ class RealmDomainReadHTTPTest(ZulipTransactionTestCase, LiveServerTestCase):
                             check("HEAD", path, user.realm.host, credentials, 200), b""
                         )
                         check("GET", path, user.realm.host, {}, 401)
-                check("GET", api, other_user.realm.host, api_auth(user), 401)
+                with self.assertLogs(level="WARNING") as logs:
+                    check("GET", api, other_user.realm.host, api_auth(user), 401)
+                expected_warning = (
+                    f"WARNING:root:User {user.delivery_email} ({user.realm.subdomain}) "
+                    f"attempted to access API on wrong subdomain ({other_user.realm.subdomain})"
+                )
+                self.assertEqual(logs.output, [expected_warning])
                 data = orjson.loads(
                     check("GET", api, other_user.realm.host, api_auth(other_user), 200)
                 )

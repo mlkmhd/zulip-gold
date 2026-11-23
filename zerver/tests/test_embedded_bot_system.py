@@ -171,7 +171,19 @@ class BotStorageReadHTTPTest(ZulipTransactionTestCase, LiveServerTestCase):
                     original = stored()
                     try:
                         if path.startswith("/json/"):
-                            remove('["plain"]', 403, include_csrf=False)
+                            with (
+                                self.assertLogs("django.security.csrf", level="WARNING")
+                                if port == django_port
+                                else nullcontext()
+                            ) as logs:
+                                remove('["plain"]', 403, include_csrf=False)
+                            if logs is not None:
+                                self.assertEqual(
+                                    logs.output,
+                                    [
+                                        "WARNING:django.security.csrf:Forbidden (CSRF token missing.): /json/bot_storage"
+                                    ],
+                                )
                             self.assertEqual(stored(), original)
                         for raw in ('["plain","secret"]', '["plain","plain"]'):
                             result = remove(raw, 400)
@@ -315,7 +327,19 @@ class BotStorageReadHTTPTest(ZulipTransactionTestCase, LiveServerTestCase):
                     return result
 
                 check(api_path, self.basic(human), "{}", 400, message="Must be a bot user")
-                check(web_path, cookie, '{"x":"no CSRF"}', 403)
+                with (
+                    self.assertLogs("django.security.csrf", level="WARNING")
+                    if port == django_port
+                    else nullcontext()
+                ) as logs:
+                    check(web_path, cookie, '{"x":"no CSRF"}', 403)
+                if logs is not None:
+                    self.assertEqual(
+                        logs.output,
+                        [
+                            "WARNING:django.security.csrf:Forbidden (CSRF token missing.): /json/bot_storage"
+                        ],
+                    )
                 self.assertEqual(stored(), {})
                 for path, headers in (
                     (api_path, self.basic(bot)),

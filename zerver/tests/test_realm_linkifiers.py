@@ -761,7 +761,13 @@ class RealmLinkifiersReadHTTPTest(ZulipTransactionTestCase, LiveServerTestCase):
                         self.assertEqual(check("HEAD", path, user.realm.host, headers, 200), b"")
                         check("GET", path, user.realm.host, {}, 401)
                 api, basic = routes[0]
-                check("GET", api, other_realm.host, basic, 401)
+                with self.assertLogs(level="WARNING") as logs:
+                    check("GET", api, other_realm.host, basic, 401)
+                expected_warning = (
+                    f"WARNING:root:User {user.delivery_email} ({user.realm.subdomain}) "
+                    f"attempted to access API on wrong subdomain ({other_realm.subdomain})"
+                )
+                self.assertEqual(logs.output, [expected_warning])
 
                 earlier.order = 9
                 earlier.save(update_fields=["order"])
