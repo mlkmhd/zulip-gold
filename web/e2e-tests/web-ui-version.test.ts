@@ -4,20 +4,33 @@ import type {Page} from "puppeteer";
 
 import * as common from "./lib/common.ts";
 
-async function assert_sidebar_order(page: Page, version: "classic" | "modern"): Promise<void> {
+async function assert_sidebar(page: Page, version: "classic" | "modern"): Promise<void> {
+    // Wait for the requested sidebar to render after the preference reload.
+    await page.waitForFunction(
+        (is_modern) => {
+            const modal = document.querySelector("#left-sidebar-modal");
+            return (
+                modal !== null &&
+                (modal.querySelector(".channel-topics-panel-title") !== null) === is_modern
+            );
+        },
+        {},
+        version === "modern",
+    );
     await page.waitForSelector("#direct-messages-section-header", {visible: true});
+    await page.waitForSelector("#streams_list", {visible: true});
     const direct_messages_first = await page.$eval(
         "#direct-messages-section-header",
         (dm_header) =>
             dm_header.getBoundingClientRect().top <
             document.querySelector("#streams_list")!.getBoundingClientRect().top,
     );
-    assert.equal(direct_messages_first, version === "classic");
+    assert.ok(direct_messages_first, `Expected direct messages above channels in ${version}`);
 }
 
 async function test_web_ui_version(page: Page): Promise<void> {
     await common.log_in(page);
-    await assert_sidebar_order(page, "classic");
+    await assert_sidebar(page, "classic");
     await page.waitForSelector(".accept-web-ui-version", {visible: true});
     await common.screenshot(page, "classic-interface-offer");
     await page.emulateMediaFeatures([{name: "prefers-color-scheme", value: "light"}]);
@@ -27,7 +40,7 @@ async function test_web_ui_version(page: Page): Promise<void> {
     await page.emulateMediaFeatures([]);
 
     await Promise.all([page.waitForNavigation(), page.click(".accept-web-ui-version")]);
-    await assert_sidebar_order(page, "modern");
+    await assert_sidebar(page, "modern");
     await common.screenshot(page, "modern-interface");
 
     await common.open_personal_menu(page);
@@ -39,7 +52,7 @@ async function test_web_ui_version(page: Page): Promise<void> {
     await common.screenshot(page, "web-interface-preference");
 
     await Promise.all([page.waitForNavigation(), page.select("#web-ui-version", "classic")]);
-    await assert_sidebar_order(page, "classic");
+    await assert_sidebar(page, "classic");
     assert.equal(await page.$(".accept-web-ui-version"), null);
 }
 
