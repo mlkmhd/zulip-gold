@@ -5463,6 +5463,38 @@ Rust formatter for each row, and about 1.1–1.3 times faster than the
 Python formatter. These are formatting measurements, not database or
 whole registration timings. Independent HTTP coverage does not change.
 
+### Persist an existing user status through Rust
+
+The separate, default-off `ZULIP_RUST_USER_STATUS_PERSISTENCE=1` option
+writes an existing status with one parameterized PostgreSQL UPDATE
+on Django's transaction connection. Django retains authentication,
+target selection, emoji and presence settings, timestamps, and
+post-commit event recipients. An omitted field is not written;
+explicit empty text and clearing an emoji still work.
+
+Django still creates a first status and handles creation races.
+An older extension, unsupported values or a model save hook uses
+the original ORM path. SQL errors propagate without an ORM retry.
+The Rust formatter and independent read routes do not change.
+
+In a disposable Django database with the extension on `PYTHONPATH`:
+
+```sh
+for enabled in 0 1; do
+    ZULIP_RUST_USER_STATUS_PERSISTENCE=$enabled ./tools/test-backend \
+        zerver.tests.test_user_status.UserStatusTest \
+        zerver.tests.test_user_status_persistence_rust.UserStatusPersistenceRustTest
+done
+```
+
+For an existing synthetic status the update used one status-table SQL
+statement rather than the ORM's locking SELECT and UPDATE. Initial
+creation can do an extra no-match UPDATE before the unchanged ORM
+creation. A separate local two-connection check preserved concurrent
+text and emoji edits for first and existing statuses in both modes.
+Statement counts are not HTTP latency measurements. Independent coverage
+does not change.
+
 ### Rehearse a single channel subscription read and rollback
 
 `ZULIP_RUST_SUBSCRIPTION_STATUS_READ_PILOT=1` enables only the loopback

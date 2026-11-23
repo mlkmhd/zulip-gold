@@ -10,6 +10,7 @@ from django.utils.translation import gettext as _
 
 from zerver.lib.emoji import check_emoji_request, get_emoji_data
 from zerver.lib.exceptions import JsonableError
+from zerver.lib.native_user_status_persistence import update_existing_status
 from zerver.lib.users import check_user_can_access_all_users, get_accessible_user_ids
 from zerver.models import Realm, UserProfile, UserStatus
 
@@ -129,6 +130,14 @@ def update_user_status(
     reaction_type: str | None,
 ) -> None:
     timestamp = timezone_now()
+    changes = (
+        status_text,
+        emoji_name,
+        emoji_code if emoji_name is not None else None,
+        reaction_type if emoji_name is not None else None,
+    )
+    if update_existing_status(user_profile_id, client_id, timestamp, changes):
+        return
 
     defaults = dict(
         client_id=client_id,
