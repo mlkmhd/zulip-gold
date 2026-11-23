@@ -902,6 +902,37 @@ and port. Validate and reload nginx. To roll back, remove the development
 option or remove the nginx routes include, validate and reload. Attachment
 detail requests, uploads and OPTIONS use Django.
 
+### Rehearse the attachment lifecycle and rollback
+
+In a new [private Django fixture](#rehearse-saved-snippet-read-routing-and-rollback-locally),
+seed the database before choosing an empty, owner-private local upload
+directory under the fixture root. In that test settings module only,
+set `DEVELOPMENT = True` for local file responses. Set `LOCAL_UPLOADS_DIR` to that directory
+and `LOCAL_FILES_DIR` to its `files` subdirectory. From the fixture project,
+inside the loopback-only namespace:
+
+```sh
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" \
+  "$checkout/rust-backend/tests/check_attachment_workflow.py" \
+  --fixture-root "$fixture_root" --nginx /usr/sbin/nginx \
+  --uwsgi "$venv/bin/uwsgi" --venv "$venv" --openssl /usr/bin/openssl
+```
+
+The rehearsal uploads two small text files through Django and links each
+to a direct message, including a new upload while the Rust list is
+selected. It compares Basic and Django-session lists, message links,
+organization upload usage, and empty HEAD responses. The recipient can
+download the shared bytes from Django without seeing the sender's files
+in their own list. Rust outage leaves Django downloads working; removing
+the optional route include and reloading nginx restores both lists on
+the same session.
+
+This gate uses private nginx/uWSGI, verified TLS, and local development
+storage. It does not test production file offload, S3, usage under load,
+request rate limits or activity delivery. The distinct routes, defaults,
+and independent HTTP coverage do not change.
+
 ## Read custom emoji through Rust
 
 Set `ZULIP_RUST_EMOJI_URL_BASE` to the public upload root from the Django

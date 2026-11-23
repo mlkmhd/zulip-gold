@@ -159,6 +159,7 @@ class PrivateReadProxy:
         path: str,
         *,
         include_date: bool = False,
+        body: bytes | str | None = None,
     ) -> ReadResult:
         return request_test_http(
             self.port,
@@ -166,6 +167,7 @@ class PrivateReadProxy:
             host,
             headers,
             path,
+            body=body,
             include_date=include_date,
             tls_context=self.tls_context,
         )
@@ -187,6 +189,8 @@ class PrivateReadProxy:
         host: str,
         headers: dict[str, str],
         path: str,
+        *,
+        body: bytes | str | None = None,
     ) -> tuple[ReadResult, str]:
         self.marker += 1
         marker = str(self.marker)
@@ -197,6 +201,7 @@ class PrivateReadProxy:
             {**headers, "X-Pilot-Case": marker},
             path,
             include_date=True,
+            body=body,
         )
         row: list[str] = []
 
