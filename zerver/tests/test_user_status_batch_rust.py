@@ -12,6 +12,7 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now as timezone_now
 
+from zerver.actions.users import change_user_is_active
 from zerver.lib import user_status
 from zerver.lib.test_classes import ZulipTestCase
 from zerver.models import UserProfile, UserStatus
@@ -89,8 +90,7 @@ class UserStatusBatchRustTest(ZulipTestCase):
         client = get_client("website")
         visible.presence_enabled = False
         visible.save(update_fields=["presence_enabled"])
-        inactive.is_active = False
-        inactive.save(update_fields=["is_active"])
+        change_user_is_active(inactive, False)
         for profile, text in (
             (visible, "Visible آزمایش"),
             (hidden, "Restricted example"),

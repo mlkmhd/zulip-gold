@@ -10,7 +10,7 @@ from urllib import parse as urlparse
 
 from markdown import inlinepatterns
 
-from zerver.lib import upload
+from zerver.lib import mime_types, upload
 from zerver.lib.upload.s3 import S3UploadBackend
 
 if TYPE_CHECKING:
@@ -38,14 +38,24 @@ _UPLOAD_CALLBACKS = (
 )
 _CAMO_CALLBACKS = (hmac.new, hmac.HMAC, hashlib.sha1)
 _SURROGATE_RE = re.compile("[\ud800-\udfff]")
-_MIME_CALLBACKS = (
-    mimetypes.guess_type,
-    mimetypes.MimeTypes.guess_type,
-    posixpath.splitext,
-    posixpath.splitdrive,
-    os.fspath,
-    urlparse.urlparse,
-)
+
+
+def _mime_callbacks() -> tuple[object, ...]:
+    # CPython's MIME classifier has its own URL parser (including its
+    # semicolon-parameter rules). Inspect callback identities without ever
+    # invoking that parser here; a different callback must use Python.
+    return (
+        mime_types.guess_type,
+        mimetypes.MimeTypes.guess_type,
+        posixpath.splitext,
+        posixpath.splitdrive,
+        os.fspath,
+        vars(mimetypes).get("guess_type"),
+        vars(urlparse).get("urlparse"),
+    )
+
+
+_MIME_CALLBACKS = _mime_callbacks()
 
 
 def standard_pattern(pattern: "AudioInlineProcessor | ImageInlineProcessor") -> bool:
@@ -101,15 +111,7 @@ def snapshot(renderer: "ZulipMarkdown") -> MediaInputs | None:
         or inlinepatterns.ImageInlineProcessor.handleMatch is not _native_media_callbacks[4]
         or getattr(markdown._rust_markdown_upload_paths, "local_markdown_upload_path", None)
         is not _native_media_callbacks[5]
-        or (
-            mimetypes.guess_type,
-            mimetypes.MimeTypes.guess_type,
-            posixpath.splitext,
-            posixpath.splitdrive,
-            os.fspath,
-            urlparse.urlparse,
-        )
-        != _MIME_CALLBACKS
+        or _mime_callbacks() != _MIME_CALLBACKS
         or (hmac.new, hmac.HMAC, hashlib.sha1) != _CAMO_CALLBACKS
         or vars(camo).get("hmac") is not hmac
         or vars(camo).get("hashlib") is not hashlib

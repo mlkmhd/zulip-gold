@@ -16,7 +16,6 @@ import tempfile
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, nullcontext, suppress
-from functools import partial
 from pathlib import Path
 from secrets import token_urlsafe
 
@@ -36,6 +35,7 @@ from read_proxy_fixture import (
 )
 from read_quota_fixture import QuotaCounter, QuotaSample, private_redis, rust_quota_environment
 
+from zerver.lib.partial import partial
 from zerver.lib.test_rust_http import rust_http_service
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -371,10 +371,12 @@ def run_session(
             }
         ) as rust_port:
             rust_address = f"127.0.0.1:{rust_port}"
+
+            def enable_routes(routes: tuple[str, ...], port: int, count: int) -> None:
+                proxy.enable_routes(routes, port, upstreams_per_route=count)
+
             for count, routes in ROUTES:
-                reconfigure(
-                    partial(proxy.enable_routes, routes, rust_port, upstreams_per_route=count)
-                )
+                reconfigure(partial(enable_routes, routes, rust_port, count))
             for path, expected in original.items():
                 assert observe(path) == (expected, rust_address), path
 

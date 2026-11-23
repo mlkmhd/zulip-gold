@@ -4,7 +4,6 @@
 import argparse
 import socket
 from collections.abc import Callable
-from functools import partial
 from importlib import import_module
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -35,7 +34,7 @@ def check_previews(realm: "Realm", backend: object) -> int:
     dropbox_video = "https://dropbox.com/scl/fi/demo/video.mp4?dl=0"
     dropbox_album = "https://dropbox.com/scl/fo/demo/album"  # codespell:ignore fo
     dropbox_document = "https://dropbox.com/scl/fi/demo/document.pdf"
-    tests = (
+    tests: tuple[tuple[str, str, dict[str, UrlEmbedData | None] | None, str, set[str]], ...] = (
         ("youtube", youtube, None, 'data-id="clip_01"', {youtube}),
         (
             "vimeo",
@@ -90,17 +89,18 @@ def check_previews(realm: "Realm", backend: object) -> int:
         for label, content, metadata, html_part, expected_links in tests:
             for message_realm in (None, realm):
                 for no_previews in (False, True):
-                    render = partial(
-                        do_convert,
-                        content,
-                        message_realm=message_realm,
-                        url_embed_data=metadata,
-                        no_previews=no_previews,
-                    )
-                    with patch.object(native_preview_urls, "_backend", None):
-                        reference = render()
-                    with patch.object(native_preview_urls, "_backend", backend):
-                        migrated = render()
+                    results = []
+                    for active_backend in (None, backend):
+                        with patch.object(native_preview_urls, "_backend", active_backend):
+                            results.append(
+                                do_convert(
+                                    content,
+                                    message_realm=message_realm,
+                                    url_embed_data=metadata,
+                                    no_previews=no_previews,
+                                )
+                            )
+                    reference, migrated = results
                     if reference != migrated:
                         raise AssertionError(
                             f"preview parity failed for {label}, realm={message_realm is not None}"

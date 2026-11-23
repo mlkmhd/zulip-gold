@@ -7,7 +7,6 @@ import json
 import platform
 import statistics
 import timeit
-from functools import partial
 from pathlib import Path
 from types import ModuleType
 
@@ -18,6 +17,8 @@ from check_fenced_quote_parity import (
     make_fenced_render_fixture,
     render_fenced_fixture,
 )
+
+from zerver.lib.partial import partial
 
 EXPORT_GROUPS = {
     "dispatch": frozenset({"dispatch_fenced_input_lines"}),

@@ -2366,7 +2366,8 @@ class MarkdownNativeInlineTest(TestCase):
                         "![a](https://other.example/a.custom) "
                         "![b](https://other.example/a.mp3.gz) "
                         "![c](/static/sound.mp3) "
-                        "![d](https://zulip.zulip.testserver/sound.mp3)"
+                        "![d](https://zulip.zulip.testserver/sound.mp3) "
+                        "![e](https://other.example/sound.mp3;source=example)"
                     )
                     return root
 
@@ -2583,6 +2584,8 @@ class MarkdownNativeInlineTest(TestCase):
         mime_db = cast(mimetypes.MimeTypes, vars(mimetypes)["_db"])
         guards: list[tuple[object, str, object]] = [
             (mimetypes, "_db", None),
+            (mimetypes, "guess_type", mock.Mock()),
+            (urlparse, "urlparse", mock.Mock()),
             (mime_db, "guess_type", mock.Mock()),
             (mime_db, "types_map", ({},)),
             (mime_db, "suffix_map", []),
