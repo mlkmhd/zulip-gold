@@ -712,6 +712,38 @@ replace `drafts-delete-map.conf` with `drafts-map.conf` and reload nginx.
 To roll back all draft routing, also remove `--rust-draft-reads` or remove
 `drafts-routes.conf` and reload after validation.
 
+### Rehearse draft composition and rollback
+
+Use a new [private Django fixture](#rehearse-saved-snippet-read-routing-and-rollback-locally)
+with `TORNADO_PROCESSES = 1` in its test settings and only loopback networking.
+From the fixture project, use the cached Rust listener and executables:
+
+```sh
+ZULIP_RUST_HTTP_BIN="$checkout/rust-backend/target/debug/zulip-http" \
+  PYTHONPATH="$PWD" "$venv/bin/python" \
+  "$checkout/rust-backend/tests/check_draft_workflow.py" \
+  --fixture-root "$fixture_root" --nginx /usr/sbin/nginx \
+  --uwsgi "$venv/bin/uwsgi" --venv "$venv" --openssl /usr/bin/openssl \
+  --rabbitmq-server /usr/lib/rabbitmq/bin/rabbitmq-server --epmd /usr/bin/epmd
+```
+
+The rehearsal creates an ordinary draft using Basic Auth, edits it
+using a Django session and its normal CSRF header, and checks both
+lists and empty HEAD responses. It sends the draft as a direct message
+through Django, then issues the separate draft deletion the client
+normally makes. It checks the other account cannot see the owner's
+draft and reads each owner-only draft notification from the private
+RabbitMQ broker. Fractional edit timestamps survive in storage while
+the API and events retain their integer timestamps.
+
+After stopping Rust, the selected draft lists return 502 and a retained
+draft remains in storage. Removing the optional route include and
+reloading nginx restores the same edited draft and session; the user
+can still send it through Django and clear it. This tests ordinary
+synthetic composition over private TLS, not browser login, live
+Tornado delivery or production. No defaults or independent HTTP
+coverage change.
+
 ## Read organization linkifiers through Rust
 
 The listener serves `GET` and `HEAD` on `/api/v1/realm/linkifiers` with Basic
