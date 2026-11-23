@@ -4,7 +4,7 @@ from base64 import b64encode
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from tempfile import NamedTemporaryFile
 from time import monotonic, sleep
@@ -328,14 +328,14 @@ class SavedSnippetReadHTTPTest(ZulipTransactionTestCase, LiveServerTestCase):
                     realm=user.realm,
                     title='سلام "☃"',
                     content="**Markdown**\n📌\r\t\\",
-                    date_created=datetime(2024, 2, 29, 12, 0, 0, 987654, tzinfo=UTC),
+                    date_created=datetime(2024, 2, 29, 12, 0, 0, 987654, tzinfo=timezone.utc),
                 ),
                 SavedSnippet(
                     user_profile=user,
                     realm=user.realm,
                     title="Older",
                     content="Legacy content",
-                    date_created=datetime(1969, 12, 31, 23, 59, 59, 250000, tzinfo=UTC),
+                    date_created=datetime(1969, 12, 31, 23, 59, 59, 250000, tzinfo=timezone.utc),
                 ),
                 SavedSnippet(
                     user_profile=other,
@@ -1072,7 +1072,7 @@ class SavedSnippetWriteHTTPTest(ZulipTransactionTestCase, LiveServerTestCase):
         channel: pika.adapters.blocking_connection.BlockingChannel,
     ) -> list[tuple[int, bytes, dict[str, str | None]]]:
         other = self.example_user("othello")
-        created = datetime(2024, 2, 29, 12, 0, 0, 987654, tzinfo=UTC)
+        created = datetime(2024, 2, 29, 12, 0, 0, 987654, tzinfo=timezone.utc)
         own, foreign = SavedSnippet.objects.bulk_create(
             [
                 SavedSnippet(
