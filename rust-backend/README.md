@@ -5841,3 +5841,37 @@ done
 ```
 
 Default behavior and independent HTTP ownership are unchanged.
+
+### Verify the combined message receipt lifecycle
+
+Use an isolated Zulip test environment with the current extension
+built and importable. The test runs an authenticated private channel
+through Basic auth and a group direct message through a Django
+session. It verifies stored receipt bits, public send/edit event flags,
+and byte-identical authorized fetches before and after editing. Read
+and starred bits survive, the private storage bit is not exposed, and
+a former subscriber no longer sees the message or gets its edit event.
+
+Run each independent startup combination, then a fresh process with
+all three switches unset:
+
+```bash
+for send in 0 1; do
+    for edit in 0 1; do
+        for labels in 0 1; do
+            ZULIP_RUST_MESSAGE_SEND_MASKS=$send \
+                ZULIP_RUST_MESSAGE_EDIT_FLAGS=$edit \
+                ZULIP_RUST_USER_MESSAGE_FLAGS=$labels \
+                ./tools/test-backend zerver.tests.test_message_receipt_lifecycle_rust || exit 1
+        done
+    done
+done
+(
+    unset ZULIP_RUST_MESSAGE_SEND_MASKS ZULIP_RUST_MESSAGE_EDIT_FLAGS ZULIP_RUST_USER_MESSAGE_FLAGS
+    ./tools/test-backend zerver.tests.test_message_receipt_lifecycle_rust
+)
+```
+
+A missing symbol in an older extension leaves its stage on Python.
+The test uses Django's in-process HTTP client and synthetic database,
+not a deployed listener or a production rollback.
