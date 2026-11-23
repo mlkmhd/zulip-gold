@@ -3,11 +3,12 @@ import gc
 import weakref
 from importlib import import_module
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Protocol, cast, override
+from typing import TYPE_CHECKING, Protocol, cast
 from unittest import TestCase
 from xml.etree.ElementTree import Element, SubElement
 
 from markdown import util
+from typing_extensions import override
 
 if TYPE_CHECKING:
     from zerver.lib.markdown.native_inline import Plan
