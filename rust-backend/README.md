@@ -4627,16 +4627,24 @@ versus submessage targets follow the Python behavior.
 
 Django still chooses and authorizes messages, hydrates users and
 recipients, applies sender redaction and avatar policy, and removes
-private internal payload fields. The existing plain reply-link helper
-runs when requested and retains its separate flag. Neither cached
-message HTML nor database contents are changed by the formatter.
+private internal payload fields. The content finalizer receives only
+requested rendered content and the fields it needs from already
+selected edit history or search matches. It gets a presence marker
+rather than the edit-rendering version, and only empty topic placeholders
+are needed for legacy substitution. Django keeps the full card, raw
+Markdown and identity fields, and applies only the expected content
+changes back to that card. The existing plain reply-link
+helper runs when requested and retains its separate flag. Neither
+cached message HTML nor database contents are changed by the formatter.
 
-Ordinary dictionaries and lists can use Rust directly while retaining
-the existing shallow-copy and in-place mutation semantics. Old wheels,
+The existing shallow-copy and in-place mutation semantics stay the
+same for ordinary dictionaries and lists. Old wheels,
 custom callbacks and unsupported shapes use the Python path. Native
 declines happen before any writing to caller containers; an exception
 after the callback has started propagates without retry. The switch is
-off by default.
+off by default. The narrower interface adds a small allocation and
+copying cost on the opt-in path; it is an input boundary, not a
+performance improvement or a new authorization boundary.
 
 With the new extension available on `PYTHONPATH`, run:
 
@@ -4649,6 +4657,12 @@ For actual application checks, run `test_message_dict`, the fetch and
 event regressions, and the mocked outgoing-webhook payload test in a
 disposable test database with the flag off and on. Include both the
 Python and Rust plain reply-link modes while the payload flag is on.
+With the extension available, run
+`zerver.tests.test_message_payload_boundary_rust` through
+`tools/test-backend` to compare exact Basic, Django session, and
+web-public spectator responses across the three edit-history policies.
+It also checks the projected input allowlist at the real native call,
+raw and rendered output, and disabled, older-wheel, and decline paths.
 
 ### Assemble cache frames and adapt queued mobile events
 

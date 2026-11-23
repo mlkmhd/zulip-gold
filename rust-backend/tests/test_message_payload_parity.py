@@ -12,9 +12,11 @@ from email.headerregistry import Address
 from importlib import import_module, util
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+from typing import ClassVar, cast
 from unittest.mock import ANY, patch
 
 from test_mobile_reply_links import PLAIN, REPLY, load_reply_links
+from typing_extensions import override
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -125,7 +127,14 @@ def example() -> dict[str, object]:
 
 
 class MessagePayloadParityTest(unittest.TestCase):
+    bridge: ClassVar[ModuleType]
+    reference: ClassVar[ModuleType]
+    mobile_python: ClassVar[ModuleType]
+    native: ClassVar[ModuleType]
+    extension: ClassVar[ModuleType]
+
     @classmethod
+    @override
     def setUpClass(cls) -> None:
         cls.bridge = load_bridge(enabled=True)
         cls.reference = load_cache(load_bridge(enabled=False), load_reply_links(enabled=False))
@@ -244,6 +253,84 @@ class MessagePayloadParityTest(unittest.TestCase):
         self.assertEqual(calls, [ANY])
         self.assertEqual(obj["content"], obj["rendered_content"])
         self.assertEqual(obj["content_type"], "text/html")
+
+    def test_narrow_projection_preserves_order_identity_and_declines_without_mutation(self) -> None:
+        obj = example()
+        history = cast(list[dict[str, object]], obj["edit_history"])
+        history[0].update(user_id=8, prev_content="Authorized earlier Markdown")
+        # The real Python finalizer owns the surrounding card and never applies
+        # additions from outside the closed content contract.
+        obj["unrelated"] = marker = object()
+        row = history[0]
+
+        real_finalize = self.extension.finalize_message_payload_content
+
+        def finalize(payload: dict[str, object], *args: object) -> bool:
+            self.assertEqual(set(payload), {"rendered_content", "edit_history"})
+            projected = cast(list[dict[str, object]], payload["edit_history"])
+            self.assertEqual(projected[0], {"prev_rendered_content_version": None})
+            self.assertIsNot(projected, history)
+            self.assertIsNot(projected[0], row)
+            result = real_finalize(payload, *args)
+            payload["unrelated"] = "not a content output"
+            projected[0]["user_id"] = "not an edit output"
+            return result
+
+        def decline(payload: dict[str, object], *args: object) -> bool:
+            payload["content_type"] = "ignore transient content"
+            cast(list[dict[str, object]], payload["edit_history"])[0].clear()
+            return False
+
+        def run() -> bool:
+            return self.bridge.finalize_content(
+                obj,
+                apply_markdown=True,
+                allow_empty_topic=True,
+                empty_topic_fallback="general chat",
+                plain_reply_fields=None,
+            )
+
+        before = list(obj.items())
+        with patch.object(self.extension, "finalize_message_payload_content", side_effect=decline):
+            self.assertFalse(run())
+        self.assertEqual(list(obj.items()), before)
+        self.assertEqual(row["prev_rendered_content_version"], 31)
+        with patch.object(self.extension, "finalize_message_payload_content", side_effect=finalize):
+            self.assertTrue(run())
+        self.assertEqual(obj["content"], REPLY)
+        self.assertEqual(list(obj)[-1], "content_type")
+        self.assertIs(obj["unrelated"], marker)
+        self.assertIs(obj["edit_history"], history)
+        self.assertIs(history[0], row)
+        self.assertEqual(row["user_id"], 8)
+        self.assertEqual(row["prev_content"], "Authorized earlier Markdown")
+        self.assertNotIn("prev_rendered_content_version", row)
+
+    def test_projected_callback_error_preserves_partial_assignments_without_retry(self) -> None:
+        obj = example()
+        history = cast(list[dict[str, object]], obj["edit_history"])
+        calls = []
+
+        def failure(payload: object, *fields: str) -> dict[str, str]:
+            calls.append(fields)
+            if fields == ("prev_rendered_content",):
+                raise RuntimeError("callback failed during history")
+            return {"match_content": PLAIN}
+
+        with self.assertRaisesRegex(RuntimeError, "callback failed during history"):
+            self.bridge.finalize_content(
+                obj,
+                apply_markdown=True,
+                allow_empty_topic=False,
+                empty_topic_fallback="general chat",
+                plain_reply_fields=failure,
+            )
+        self.assertEqual(calls, [("content", "match_content"), ("prev_rendered_content",)])
+        self.assertEqual(obj["content"], REPLY)
+        self.assertEqual(obj["content_type"], "text/html")
+        self.assertEqual(obj["match_content"], PLAIN)
+        self.assertIs(obj["edit_history"], history)
+        self.assertEqual(history[0]["prev_rendered_content_version"], 31)
 
     def test_lazy_values_evaluate_after_initialization_and_raise_once(self) -> None:
         messages = [{"id": 1}, {"id": 2}]

@@ -24,8 +24,60 @@ def is_enabled() -> bool:
     return _backend is not None
 
 
+def _ordinary_dict(obj: object) -> bool:
+    return type(obj) is dict and all(type(key) is str for key in obj)
+
+
+def _ordinary_finalizer_options(
+    apply_markdown: object, allow_empty_topic: object, empty_topic_fallback: object
+) -> bool:
+    return (
+        type(apply_markdown) is bool
+        and type(allow_empty_topic) is bool
+        and type(empty_topic_fallback) is str
+    )
+
+
+def _plain_string(value: object) -> bool:
+    return value is None or type(value) is str
+
+
+def _apply_finalized_content(
+    obj: dict[str, object],
+    payload: dict[str, object],
+    history: list[dict[str, object]] | None,
+    projected_history: list[dict[str, object]] | None,
+    edit_fields: tuple[str, ...],
+    *,
+    apply_markdown: bool,
+    plain_reply_links: bool,
+) -> None:
+    # Match the reference assignment order, including when content_type is new.
+    obj["content_type"] = payload["content_type"]
+    if apply_markdown and "content" in payload:
+        obj["content"] = payload["content"]
+    if plain_reply_links and "match_content" in payload:
+        obj["match_content"] = payload["match_content"]
+
+    if history is None:
+        return
+    updates = cast(list[dict[str, object]], payload["edit_history"])
+    if plain_reply_links:
+        if updates is projected_history:
+            # The callback raised before the native finalizer replaced the list.
+            return
+        history = [row.copy() for row in history]
+        obj["edit_history"] = history
+    for row, update in zip(history, updates, strict=True):
+        for field in edit_fields:
+            if field != "prev_rendered_content_version" and field in update:
+                row[field] = update[field]
+        if "prev_rendered_content_version" not in update:
+            row.pop("prev_rendered_content_version", None)
+
+
 def finalize_content(
-    obj: Mapping[str, object],
+    obj: dict[str, object],
     *,
     apply_markdown: bool,
     allow_empty_topic: bool,
@@ -33,17 +85,89 @@ def finalize_content(
     plain_reply_fields: Callable[..., dict[str, str]] | None,
 ) -> bool:
     native = getattr(_backend, "finalize_message_payload_content", None)
-    if (
-        native is None
-        or type(apply_markdown) is not bool
-        or type(allow_empty_topic) is not bool
-        or type(empty_topic_fallback) is not str
+    if native is None or not _ordinary_finalizer_options(
+        apply_markdown, allow_empty_topic, empty_topic_fallback
     ):
         return False
-    return cast(
-        bool,
-        native(obj, apply_markdown, allow_empty_topic, empty_topic_fallback, plain_reply_fields),
-    )
+    if not _ordinary_dict(obj) or not _plain_string(obj.get("content_type")):
+        return False
+
+    # Django owns the full card. Send only what this operation reads, not raw
+    # message text, sender fields, or identity/raw text from the edit rows.
+    payload: dict[str, object] = {}
+    if apply_markdown:
+        if "rendered_content" not in obj or not _plain_string(obj.get("content")):
+            return False
+        rendered = obj["rendered_content"]
+        if not _plain_string(rendered):
+            return False
+        payload["rendered_content"] = rendered
+    if plain_reply_fields is not None and "match_content" in obj:
+        match = obj["match_content"]
+        if not _plain_string(match):
+            return False
+        payload["match_content"] = match
+
+    history: list[dict[str, object]] | None = None
+    projected_history: list[dict[str, object]] | None = None
+    edit_fields: tuple[str, ...] = ()
+    if "edit_history" in obj:
+        projected_history = []
+        edit_fields = ("prev_rendered_content_version",)
+        if plain_reply_fields is not None:
+            edit_fields += ("prev_rendered_content",)
+        if not allow_empty_topic:
+            edit_fields += ("prev_topic", "topic")
+        if type(obj["edit_history"]) is not list:
+            return False
+        history = cast(list[dict[str, object]], obj["edit_history"])
+        for row in history:
+            if not _ordinary_dict(row):
+                return False
+            projected_row: dict[str, object] = {}
+            for field in edit_fields:
+                if field not in row:
+                    continue
+                value = row[field]
+                if field == "prev_rendered_content_version":
+                    if value is not None and type(value) is not int:
+                        return False
+                    # Rust only removes this field; it needs no version value.
+                    value = None
+                elif field == "prev_rendered_content":
+                    if not _plain_string(value):
+                        return False
+                elif type(value) is not str:
+                    return False
+                elif value:
+                    # Only the legacy substitution of an empty topic is needed.
+                    continue
+                projected_row[field] = value
+            projected_history.append(projected_row)
+        payload["edit_history"] = projected_history
+
+    # A decline has no effect on the Django card. If the callback raises,
+    # retain the reference path's partial assignments without replaying it.
+    accepted = True
+    try:
+        accepted = cast(
+            bool,
+            native(
+                payload, apply_markdown, allow_empty_topic, empty_topic_fallback, plain_reply_fields
+            ),
+        )
+    finally:
+        if accepted and "content_type" in payload:
+            _apply_finalized_content(
+                obj,
+                payload,
+                history,
+                projected_history,
+                edit_fields,
+                apply_markdown=apply_markdown,
+                plain_reply_links=plain_reply_fields is not None,
+            )
+    return accepted
 
 
 def _is_values_queryset(rows: object) -> bool:
