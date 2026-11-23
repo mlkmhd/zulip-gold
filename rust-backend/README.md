@@ -5791,3 +5791,28 @@ done
 ```
 
 This changes no standalone HTTP ownership.
+
+### Plan message-edit receipt changes through Rust
+
+Set `ZULIP_RUST_MESSAGE_EDIT_FLAGS=1` before starting Django to
+calculate which rendering-derived receipt bits change after a message
+edit or embedded-content rewrite. Only receipt IDs, numeric masks and
+the membership sets that Django already calculated enter the bridge.
+Django decides who and what to edit and saves only the same changed
+receipts in the same order. Read, starred, private and any other bits
+are unchanged. Older extensions and unsupported batches use the original
+Python path.
+
+With the extension built in an isolated test environment, run both modes:
+
+```bash
+for enabled in 0 1; do
+    ZULIP_RUST_MESSAGE_EDIT_`ZULIP_RUST_MESSAGE_EDIT_FLAGS=1`S=$enabled ./tools/test-backend \
+        zerver.tests.test_message_edit_flags_rust \
+        zerver.tests.test_alert_words.AlertWordTests.test_alert_flags \
+        zerver.tests.test_message_edit.EditMessageTest.test_remove_topic_wildcard_mention \
+        zerver.tests.test_events.NormalActionsTest.test_stream_update_message_events
+done
+```
+
+The default and independent HTTP ownership are unchanged.

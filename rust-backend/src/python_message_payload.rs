@@ -1,8 +1,10 @@
 //! Message payload assembly over ordinary Python dictionaries.
 
+use std::collections::HashSet;
+
 use pyo3::exceptions::PyKeyError;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyInt, PyList, PyString, PyTuple};
+use pyo3::types::{PyDict, PyFrozenSet, PyInt, PyList, PySet, PyString, PyTuple};
 
 fn ordinary_dict<'a, 'py>(value: &'a Bound<'py, PyAny>) -> Option<&'a Bound<'py, PyDict>> {
     let dict = value.cast_exact::<PyDict>().ok()?;
@@ -532,6 +534,85 @@ pub(crate) fn label_user_message_flags<'py>(
             remaining &= remaining - 1;
         }
         result.set_item(id, public)?;
+    }
+    Ok(Some(result))
+}
+
+fn edit_set(value: &Bound<'_, PyAny>) -> Option<HashSet<i64>> {
+    fn exact_int(value: Bound<'_, PyAny>) -> Option<i64> {
+        value.cast_exact::<PyInt>().ok()?.extract().ok()
+    }
+    if let Ok(set) = value.cast_exact::<PySet>() {
+        return set.iter().map(exact_int).collect();
+    }
+    if let Ok(set) = value.cast_exact::<PyFrozenSet>() {
+        return set.iter().map(exact_int).collect();
+    }
+    None
+}
+
+/// Plan only changes to the four rendering-derived bits. Django retains
+/// the actual receipt objects, chooses their inputs, and applies saves.
+#[pyfunction]
+pub(crate) fn plan_user_message_flag_deltas(
+    rows: &Bound<'_, PyAny>,
+    masks: (u64, u64, u64, u64),
+    membership: (Bound<'_, PyAny>, Bound<'_, PyAny>, Bound<'_, PyAny>),
+    stream_mention: bool,
+) -> PyResult<Option<Vec<(usize, u64)>>> {
+    let (alert_bit, mention_bit, stream_bit, topic_bit) = masks;
+    let affected = alert_bit | mention_bit | stream_bit | topic_bit;
+    if affected.count_ones() != 4
+        || ![alert_bit, mention_bit, stream_bit, topic_bit]
+            .into_iter()
+            .all(u64::is_power_of_two)
+    {
+        return Ok(None);
+    }
+    let (Ok(rows), Some(alert), Some(mention), Some(topic)) = (
+        rows.cast_exact::<PyList>(),
+        edit_set(&membership.0),
+        edit_set(&membership.1),
+        edit_set(&membership.2),
+    ) else {
+        return Ok(None);
+    };
+    let mut seen = HashSet::with_capacity(rows.len());
+    let mut result = Vec::new();
+    for (index, row) in rows.iter().enumerate() {
+        let Ok(row) = row.cast_exact::<PyTuple>() else {
+            return Ok(None);
+        };
+        if row.len() != 2 {
+            return Ok(None);
+        }
+        let (id, flags) = (row.get_item(0)?, row.get_item(1)?);
+        let (Ok(id), Ok(flags)) = (id.cast_exact::<PyInt>(), flags.cast_exact::<PyInt>()) else {
+            return Ok(None);
+        };
+        let (Ok(id), Ok(flags)) = (id.extract::<i64>(), flags.extract::<u64>()) else {
+            return Ok(None);
+        };
+        if !seen.insert(id) {
+            return Ok(None);
+        }
+        let mut wanted = 0;
+        if alert.contains(&id) {
+            wanted |= alert_bit;
+        }
+        if mention.contains(&id) {
+            wanted |= mention_bit;
+        }
+        if stream_mention {
+            wanted |= stream_bit;
+        }
+        if topic.contains(&id) {
+            wanted |= topic_bit;
+        }
+        let delta = (flags & affected) ^ wanted;
+        if delta != 0 {
+            result.push((index, delta));
+        }
     }
     Ok(Some(result))
 }

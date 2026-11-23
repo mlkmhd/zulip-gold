@@ -25,7 +25,7 @@ from zerver.actions.message_send import (
 )
 from zerver.actions.uploads import AttachmentChangeResult, check_attachment_reference_change
 from zerver.actions.user_topics import bulk_do_set_user_topic_visibility_policy
-from zerver.lib import utils
+from zerver.lib import native_message_edit_flags, utils
 from zerver.lib.cache import cache_delete, cache_delete_many, to_dict_cache_key_id
 from zerver.lib.event_types import TopicLink
 from zerver.lib.exceptions import (
@@ -433,6 +433,25 @@ def update_user_message_flags(
     ids_with_alert_words = rendering_result.user_ids_with_alert_words
     stream_wildcard_mentioned = rendering_result.mentions_stream_wildcard
     changed_ums: set[UserMessage] = set()
+
+    if native_message_edit_flags.available():
+        rows = list(ums)
+        deltas = native_message_edit_flags.plan(
+            rows,
+            ids_with_alert_words,
+            mentioned_ids,
+            topic_participant_user_ids,
+            stream_wildcard_mentioned,
+        )
+        if deltas is not None:
+            for index, delta in deltas:
+                um = rows[index]
+                um.flags ^= delta
+                changed_ums.add(um)
+            for um in changed_ums:
+                um.save(update_fields=["flags"])
+            return
+        ums = rows
 
     def update_flag(um: UserMessage, should_set: bool, flag: int) -> None:
         if should_set:
