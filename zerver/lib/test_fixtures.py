@@ -21,6 +21,7 @@ from scripts.lib.zulip_tools import (
 )
 
 BACKEND_DATABASE_TEMPLATE = "zulip_test_template"
+MIGRATION_TEST_DB_SUFFIX = "migration"
 UUID_VAR_DIR = get_dev_uuid_var_path()
 
 IMPORTANT_FILES = [
@@ -328,7 +329,10 @@ def destroy_leaked_test_databases(expiry_time: int = 60 * 60) -> int:
     for file in files:
         if round(time.time()) - os.path.getmtime(file) < expiry_time:
             with open(file) as f:
-                databases_in_use.update(f"zulip_test_template_{line}".rstrip() for line in f)
+                for line in f:
+                    worker_database = f"{BACKEND_DATABASE_TEMPLATE}_{line.rstrip()}"
+                    databases_in_use.add(worker_database)
+                    databases_in_use.add(f"{worker_database}_{MIGRATION_TEST_DB_SUFFIX}")
         else:
             # Any test-backend run older than expiry_time can be
             # cleaned up, both the database and the file listing its

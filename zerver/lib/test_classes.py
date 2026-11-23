@@ -79,6 +79,7 @@ from zerver.lib.test_console_output import (
     tee_stderr_and_find_extra_console_output,
     tee_stdout_and_find_extra_console_output,
 )
+from zerver.lib.test_fixtures import BACKEND_DATABASE_TEMPLATE, MIGRATION_TEST_DB_SUFFIX
 from zerver.lib.test_helpers import (
     cache_tries_captured,
     find_key_by_email,
@@ -2462,8 +2463,8 @@ class ZulipTestCase(ZulipTestCaseMixin, TestCase):
 def get_row_pks_in_all_tables() -> Iterator[tuple[str, set[int]]]:
     all_models = apps.get_models(include_auto_created=True)
     ignored_tables = {"django_session"}
-    # A test may leave the schema behind the current models, so that a
-    # model's table does not exist yet; see MigrationsTestCase.
+    # A migration test checks its historical schema, which may not yet
+    # have tables for all current models.
     db_existing_tables = set(connection.introspection.table_names())
 
     for model in all_models:
@@ -2813,8 +2814,24 @@ class MigrationsTestCase(ZulipTransactionTestCase):  # nocoverage
     migrate_from: str | None = None
     migrate_to: str | None = None
 
+    def _restore_worker_database(self, worker_database: str) -> None:
+        connection.close()
+        connection.settings_dict["NAME"] = worker_database
+        connection.creation.destroy_test_db(verbosity=0, suffix=MIGRATION_TEST_DB_SUFFIX)
+
     @override
     def setUp(self) -> None:
+        # Keep schema rewinds and committed fixture changes off the worker DB.
+        worker_database = connection.settings_dict["NAME"]
+        assert worker_database.startswith(f"{BACKEND_DATABASE_TEMPLATE}_")
+        assert not worker_database.endswith(f"_{MIGRATION_TEST_DB_SUFFIX}")
+        migration_database = connection.creation.get_test_db_clone_settings(
+            MIGRATION_TEST_DB_SUFFIX
+        )["NAME"]
+        connection.creation.clone_test_db(suffix=MIGRATION_TEST_DB_SUFFIX, verbosity=0)
+        self.addCleanup(self._restore_worker_database, worker_database)
+        connection.settings_dict["NAME"] = migration_database
+
         super().setUp()
         assert self.migrate_from and self.migrate_to, (
             f"TestCase '{type(self).__name__}' must define migrate_from and migrate_to properties"
