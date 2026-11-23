@@ -5875,3 +5875,30 @@ done
 A missing symbol in an older extension leaves its stage on Python.
 The test uses Django's in-process HTTP client and synthetic database,
 not a deployed listener or a production rollback.
+
+### Plan visible message windows through Rust
+
+Set `ZULIP_RUST_MESSAGE_WINDOW=1` before starting Django
+to locate the anchor and requested window in rows already selected,
+sorted and filtered for visible history by Django. The Rust planner
+reads only message IDs, finds the stable boundaries, and returns
+positions. Django slices the original rows and calculates the
+completeness and history indicators as before. Permission checks,
+explicit message-ID fetches and SQL are unchanged.
+
+The switch is off by default. An older extension or an unsupported
+input still uses the original Python page assembly.
+
+In an isolated test environment with the extension built:
+
+```bash
+for enabled in 0 1; do
+    ZULIP_RUST_MESSAGE_WINDOW=$enabled ./tools/test-backend \
+        zerver.tests.test_message_window_rust \
+        zerver.tests.test_message_fetch.PostProcessTest \
+        zerver.tests.test_message_fetch.GetOldMessagesTest.test_get_visible_messages_with_anchor \
+        zerver.tests.test_message_fetch.GetOldMessagesTest.test_use_first_unread_anchor_with_some_unread_messages
+done
+```
+
+Independent HTTP ownership does not change.

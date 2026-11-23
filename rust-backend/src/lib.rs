@@ -196,6 +196,9 @@ mod presence;
 mod python_message_payload;
 
 #[cfg(feature = "python")]
+mod python_message_window;
+
+#[cfg(feature = "python")]
 mod python_presence;
 
 #[cfg(feature = "python")]

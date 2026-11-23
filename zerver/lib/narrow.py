@@ -15,6 +15,7 @@ from psycopg2.sql import SQL, Composable, Identifier
 from pydantic import BaseModel, model_validator
 from typing_extensions import override
 
+from zerver.lib import native_message_window
 from zerver.lib.addressee import get_user_profiles, get_user_profiles_by_ids
 from zerver.lib.exceptions import ErrorCode, JsonableError, MissingAuthenticationError
 from zerver.lib.message import (
@@ -1341,6 +1342,8 @@ def post_process_limited_query(
     anchored_to_left: bool,
     anchored_to_right: bool,
     first_visible_message_id: int,
+    *,
+    rows_sorted_by_id: bool = False,
 ) -> LimitedMessages[MessageRowT]:
     # Our queries may have fetched extra rows if they added
     # "headroom" to the limits, but we want to truncate those
@@ -1357,37 +1360,55 @@ def post_process_limited_query(
 
     rows_limited = len(visible_rows) != len(rows)
 
-    before_rows: list[MessageRowT]
-    anchor_rows: list[MessageRowT]
-    after_rows: list[MessageRowT]
-    if anchored_to_right:
-        num_after = 0
-        before_rows = list(visible_rows)
-        anchor_rows = []
-        after_rows = []
+    window = None
+    if rows_sorted_by_id:
+        window = native_message_window.plan(
+            visible_rows, anchor, num_before, num_after, anchored_to_right
+        )
+    if window is not None:
+        start, anchor_start, after_start, end = window
+        assert isinstance(visible_rows, list)
+        limited_rows = visible_rows[start:end]
+        before_count = anchor_start - start
+        anchor_count = after_start - anchor_start
+        after_count = end - after_start
     else:
-        before_rows = []
-        anchor_rows = []
-        after_rows = []
-        for r in visible_rows:
-            if r[0] < anchor:
-                before_rows.append(r)
-            elif r[0] == anchor:
-                anchor_rows.append(r)
-            else:
-                after_rows.append(r)
+        before_rows: list[MessageRowT]
+        anchor_rows: list[MessageRowT]
+        after_rows: list[MessageRowT]
+        if anchored_to_right:
+            num_after = 0
+            before_rows = list(visible_rows)
+            anchor_rows = []
+            after_rows = []
+        else:
+            before_rows = []
+            anchor_rows = []
+            after_rows = []
+            for r in visible_rows:
+                if r[0] < anchor:
+                    before_rows.append(r)
+                elif r[0] == anchor:
+                    anchor_rows.append(r)
+                else:
+                    after_rows.append(r)
 
-    if num_before:
-        before_rows = before_rows[-1 * num_before :]
+        if num_before:
+            before_rows = before_rows[-1 * num_before :]
 
-    if num_after:
-        after_rows = after_rows[:num_after]
+        if num_after:
+            after_rows = after_rows[:num_after]
 
-    limited_rows = [*before_rows, *anchor_rows, *after_rows]
+        limited_rows = [*before_rows, *anchor_rows, *after_rows]
+        before_count, anchor_count, after_count = (
+            len(before_rows),
+            len(anchor_rows),
+            len(after_rows),
+        )
 
-    found_anchor = len(anchor_rows) == 1
-    found_oldest = anchored_to_left or (len(before_rows) < num_before)
-    found_newest = anchored_to_right or (len(after_rows) < num_after)
+    found_anchor = anchor_count == 1
+    found_oldest = anchored_to_left or (before_count < num_before)
+    found_newest = anchored_to_right or (after_count < num_after)
     # BUG: history_limited is incorrect False in the event that we had
     # to bump `anchor` up due to first_visible_message_id, and there
     # were actually older messages.  This may be a rare event in the
@@ -1607,6 +1628,7 @@ def fetch_messages(
         anchored_to_left=anchored_to_left,
         anchored_to_right=anchored_to_right,
         first_visible_message_id=first_visible_message_id,
+        rows_sorted_by_id=True,
     )
 
     return FetchedMessages(
