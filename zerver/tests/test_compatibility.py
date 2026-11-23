@@ -107,6 +107,8 @@ class CompatibilityTest(ZulipTestCase):
     ) -> "HttpResponse | TestHttpResponse":
         rust_port = os.environ.get("ZULIP_RUST_COMPATIBILITY_TEST_PORT")
         if rust_port is None:
+            if method == "GET":
+                return self.client_get("/compatibility", skip_user_agent=True, headers=headers)
             return self.client.generic(method, "/compatibility", headers=headers)
 
         # Keep the existing assertions and send the request over HTTP to Rust.
