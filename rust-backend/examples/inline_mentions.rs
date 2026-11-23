@@ -12,7 +12,9 @@ fn decode(value: &str) -> String {
     String::from_utf8(
         value
             .as_bytes()
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
             .collect(),
     )
@@ -67,7 +69,9 @@ fn main() {
             max_id_digits: fields[3].parse().unwrap(),
         };
         let users: Vec<_> = fields[6..]
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .map(|user| {
                 (
                     user[0].parse::<i32>().unwrap(),

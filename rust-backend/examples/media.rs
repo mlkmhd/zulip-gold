@@ -13,7 +13,9 @@ use _zulip_backend::markdown_media::{
 fn decode(text: &str) -> String {
     String::from_utf8(
         text.as_bytes()
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
             .collect(),
     )
@@ -113,7 +115,9 @@ fn main() {
         let stash_count = fields[index];
         index += 1;
         let stash: TextStash = fields[index..]
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| (decode(pair[0]), decode(pair[1])))
             .collect();
         if fields[0] == "audio" {

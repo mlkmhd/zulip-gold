@@ -9,7 +9,9 @@ use _zulip_backend::markdown_link_syntax::{
 fn decode(text: &str) -> String {
     String::from_utf8(
         text.as_bytes()
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
             .collect(),
     )
@@ -27,7 +29,9 @@ fn main() {
         let data = decode(fields[2]);
         let start = fields[1].parse().unwrap();
         let stash: TextStash = fields[4..]
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| (decode(pair[0]), decode(pair[1])))
             .collect();
         let stash = (fields[3] == "present").then_some(&stash);
