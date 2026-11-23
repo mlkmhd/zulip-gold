@@ -5371,6 +5371,35 @@ If Rust stops, remove the route include and reload nginx to restore
 Django. There is no automatic failover. Live ingress and production load
 were not tested and deployment routing is unchanged.
 
+### Batch visible statuses for registration
+
+With the existing default-off `ZULIP_RUST_USER_STATUS=1`, initial
+registration can format its visible user statuses in one Rust call.
+Django applies the same organization, active-account and audience
+filters first. Rust reads only the selected user IDs, presence-enabled
+booleans and status fields. The single-user GET and status updates do
+not change.
+
+An older extension still uses the established single-row formatter.
+A declined batch formats the same rows one at a time without rerunning
+the authorization or database query. The unset flag still uses Python.
+
+In a disposable Django database with the extension on `PYTHONPATH`:
+
+```sh
+for enabled in 0 1; do
+    ZULIP_RUST_USER_STATUS=$enabled ./tools/test-backend \
+        zerver.tests.test_user_status.UserStatusTest \
+        zerver.tests.test_user_status_batch_rust.UserStatusBatchRustTest
+done
+```
+
+For 256 already-selected synthetic rows, status formatting through
+the Rust batch was about 1.8–2.6 times faster than calling the existing
+Rust formatter for each row, and about 1.1–1.3 times faster than the
+Python formatter. These are formatting measurements, not database or
+whole registration timings. Independent HTTP coverage does not change.
+
 ### Rehearse a single channel subscription read and rollback
 
 `ZULIP_RUST_SUBSCRIPTION_STATUS_READ_PILOT=1` enables only the loopback

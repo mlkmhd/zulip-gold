@@ -201,6 +201,9 @@ mod python_message_window;
 #[cfg(feature = "python")]
 mod python_topic_history;
 
+#[cfg(feature = "python")]
+mod python_user_status_batch;
+
 #[cfg(any(feature = "http", feature = "python", test))]
 mod topic_history;
 

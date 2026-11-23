@@ -1,4 +1,5 @@
 import os
+from collections.abc import Iterable
 from dataclasses import dataclass
 from importlib import import_module
 from typing import Literal, TypedDict, cast
@@ -87,7 +88,7 @@ def get_all_users_status_dict(realm: Realm, user_profile: UserProfile) -> dict[s
         accessible_user_ids = get_accessible_user_ids(user_profile)
         query = query.filter(user_profile_id__in=accessible_user_ids)
 
-    rows = query.values(
+    fields = (
         "user_profile_id",
         "user_profile__presence_enabled",
         "status_text",
@@ -95,6 +96,21 @@ def get_all_users_status_dict(realm: Realm, user_profile: UserProfile) -> dict[s
         "emoji_code",
         "reaction_type",
     )
+    rows: Iterable[RawUserInfoDict]
+    batch = getattr(_rust_user_status, "format_visible_user_statuses", None)
+    if callable(batch):
+        # Use the same authorized query, but avoid building Django row dicts
+        # before passing these six values through the native boundary.
+        visible = list(query.values_list(*fields))
+        if not visible:
+            return {}
+        native = batch(visible)
+        if native is not None:
+            return cast(dict[str, UserInfoDict], native)
+        # A declined batch uses these same rows; never run the query twice.
+        rows = (cast(RawUserInfoDict, dict(zip(fields, row, strict=True))) for row in visible)
+    else:
+        rows = cast(Iterable[RawUserInfoDict], query.values(*fields))
 
     user_dict: dict[str, UserInfoDict] = {}
     for row in rows:
