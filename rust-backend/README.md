@@ -5495,6 +5495,38 @@ text and emoji edits for first and existing statuses in both modes.
 Statement counts are not HTTP latency measurements. Independent coverage
 does not change.
 
+### Rehearse status writes, reads, and independent rollback
+
+This private rehearsal combines the two separate opt-ins without
+changing either default. It compares a Django-only cycle with Django
+Basic and signed-session writes using native persistence and Rust
+GET/HEAD reads through the checked-in nginx map. The same synthetic user
+sets text and an emoji, clears the emoji, and then clears the text.
+A guest without access cannot read the status or receive its notice.
+The private RabbitMQ queue must receive exactly one post-commit notice
+per successful write, with the Django-selected recipients and fields.
+
+With the Rust listener stopped, reads return 502 and the signed-session
+Django writer can still commit. Removing the read-only nginx include
+and reloading restores reads of that exact saved status. A separate
+private Django restart without native persistence then reads the same
+row and writes through the ORM, using the same session fixture. This
+does not test Tornado's delivery to a browser or a live rollout.
+
+From a fresh disposable Django fixture in its loopback-only namespace
+with one Tornado queue, use the freshly built Rust listener and copy
+the matching extension into the fixture as `_zulip_backend.so`:
+
+```sh
+ZULIP_RUST_HTTP_BIN=/absolute/path/to/zulip-http \
+    ./.venv/bin/python rust-backend/tests/check_user_status_workflow.py \
+    --fixture-root /absolute/path/to/disposable-fixture \
+    --native /absolute/path/to/disposable-fixture/native/_zulip_backend.so \
+    --nginx /usr/sbin/nginx --uwsgi /absolute/path/to/uwsgi \
+    --venv /absolute/path/to/venv --openssl /usr/bin/openssl \
+    --rabbitmq-server /usr/lib/rabbitmq/bin/rabbitmq-server --epmd /usr/bin/epmd
+```
+
 ### Rehearse a single channel subscription read and rollback
 
 `ZULIP_RUST_SUBSCRIPTION_STATUS_READ_PILOT=1` enables only the loopback
