@@ -253,6 +253,8 @@ python_rules = RuleList(
                 ("zerver/lib/message.py", "message__subject__iexact=message.topic_name(),"),
                 ("zerver/lib/streams.py", '.exclude(subject="")'),
                 ("zerver/views/streams.py", "message__subject__iexact=topic_name,"),
+                # This guard must match the Rust cached-frame wire key.
+                ("zerver/lib/message_cache.py", 'and topic_name_key == "subject"'),
                 ("zerver/lib/message_cache.py", 'and obj["subject"] == ""'),
                 (
                     "zerver/lib/message_cache.py",
@@ -406,6 +408,13 @@ python_rules = RuleList(
             "pattern": r"\.pk",
             "exclude_pattern": "[.]_meta[.]pk",
             "description": "Use `id` instead of `pk`.",
+            "exclude_line": {
+                # This is Chrome's NSS trust database path, not an ORM attribute.
+                (
+                    "rust-backend/tests/check_read_proxy_browser.py",
+                    'install_anchor(home / ".pki/nssdb", certificate)',
+                ),
+            },
             "good_lines": ["if my_django_model.id == 42", "self.user_profile._meta.pk"],
             "bad_lines": ["if my_django_model.pk == 42"],
         },
@@ -549,6 +558,27 @@ prose_style_rules: list["Rule"] = [
     {
         "pattern": r"""[^\n\/\-\."'\_\=\>]([gG]ithub)[^\n\.\-\_"\<]""",  # exclude usage in hrefs/divs
         "description": "github should be spelled GitHub",
+        "exclude_line": {
+            # These entries contain exact integration identifiers.
+            (
+                "rust-backend/API_INVENTORY.md",
+                (
+                    "| `github`              | `/api/v1/external/github`"
+                    "                                             | "
+                    "`zerver.webhooks.github.view.api_github_webhook`"
+                    "                           |"
+                ),
+            ),
+            (
+                "rust-backend/API_INVENTORY.md",
+                (
+                    "| `githubsponsors`      | `/api/v1/external/githubsponsors`"
+                    "                                     | "
+                    "`zerver.webhooks.github.view.api_github_webhook`"
+                    "                           |"
+                ),
+            ),
+        },
     },
     {
         "pattern": "[oO]rganisation",  # exclude usage in hrefs/divs
