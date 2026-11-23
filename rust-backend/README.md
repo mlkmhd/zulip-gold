@@ -5934,6 +5934,37 @@ done
 
 This is in-process register reconciliation, not a new HTTP route.
 
+### Persist a direct-message pin through Rust
+
+The optional, default-off `ZULIP_RUST_DM_PIN=1` uses one PostgreSQL
+statement for the existing-conversation lookup, owner subscription lock,
+and a changed pin value on Django's current transaction. Django still
+authenticates, validates the request, and sends the same owner-only
+event after commit. It never creates a conversation for a pin request
+and an unchanged pin sends no event.
+
+An older extension, nondefault write routing, model save hooks, or IDs
+that do not fit the native storage type use the original ORM path.
+Once the native statement is attempted, a database error is not
+retried through the ORM. This does not expose a new HTTP route.
+
+With the matching extension importable in a disposable fixture:
+
+```sh
+for enabled in 0 1; do
+    ZULIP_RUST_DM_PIN=$enabled ./tools/test-backend \
+        zerver.tests.test_direct_message_groups.DirectMessageConversationPinTest \
+        zerver.tests.test_direct_message_pin_rust.DirectMessagePinRustTest
+done
+```
+
+The synthetic changed and unchanged requests used one domain statement,
+down from four and three respectively. Across three local rehearsals with
+five paired batches each, median action-time speedups varied from about
+1.3 to 2.6 times for changes and 1.2 to 2.3 times for no-ops. This includes
+the Python bridge and database transaction, not HTTP or broker latency.
+Independent HTTP coverage is unchanged.
+
 ### Replay recent direct-message conversations through Rust
 
 Set `ZULIP_RUST_RECENT_CONVERSATION_REPLAY=1` before starting Django to

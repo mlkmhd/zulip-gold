@@ -1,6 +1,7 @@
 from django.db import transaction
 from django.utils.translation import gettext as _
 
+from zerver.lib import native_dm_pin
 from zerver.lib.exceptions import JsonableError
 from zerver.models import Subscription, UserProfile
 from zerver.models.recipients import get_direct_message_group
@@ -14,9 +15,28 @@ def do_set_direct_message_group_pin(
     # Clients identify a conversation by its other participants ([] for a
     # self-conversation), so add the current user to get the full membership.
     member_ids = {user_profile.id, *other_user_ids}
+    result = native_dm_pin.set_existing_pin(user_profile, member_ids, pinned)
+    if result is None:
+        result = _set_existing_pin_via_orm(user_profile, member_ids, pinned)
+    if result == "missing_conversation":
+        raise JsonableError(_("No such direct message conversation."))
+    if result == "unchanged":
+        return
+
+    event = {
+        "type": "direct_message_conversation",
+        "user_ids": sorted(member_ids - {user_profile.id}),
+        "pinned": pinned,
+    }
+    send_event_on_commit(user_profile.realm, event, [user_profile.id])
+
+
+def _set_existing_pin_via_orm(
+    user_profile: UserProfile, member_ids: set[int], pinned: bool
+) -> native_dm_pin.PinResult:
     direct_message_group = get_direct_message_group(sorted(member_ids))
     if direct_message_group is None or direct_message_group.recipient is None:
-        raise JsonableError(_("No such direct message conversation."))
+        return "missing_conversation"
 
     # The current user is always a member of a direct message group
     # keyed by a membership hash that includes them, so their
@@ -27,14 +47,8 @@ def do_set_direct_message_group_pin(
     )
 
     if subscription.pin_to_top == pinned:
-        return
+        return "unchanged"
 
     subscription.pin_to_top = pinned
     subscription.save(update_fields=["pin_to_top"])
-
-    event = {
-        "type": "direct_message_conversation",
-        "user_ids": sorted(member_ids - {user_profile.id}),
-        "pinned": pinned,
-    }
-    send_event_on_commit(user_profile.realm, event, [user_profile.id])
+    return "changed"

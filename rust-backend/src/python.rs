@@ -385,6 +385,9 @@ mod _zulip_backend {
     use crate::python_channel_folder_order::update_channel_folder_order;
 
     #[pymodule_export]
+    use crate::python_dm_pin::set_existing_dm_pin;
+
+    #[pymodule_export]
     use crate::markdown_reply_links::{
         mobile_client_needs_plain_reply_links, mobile_plain_reply_link_fields,
         render_mobile_plain_reply_links,
