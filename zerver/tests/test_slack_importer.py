@@ -3285,6 +3285,7 @@ To Do
         on the import page, and the user can start the import again
         with the same uploaded file after correcting them in Slack.
         """
+        upload_path_id = "import/test/slack.zip"
         prereg_realm = PreregistrationRealm.objects.create(
             string_id="test-realm",
             name="Test Realm",
@@ -3293,6 +3294,7 @@ To Do
                 "import_from": "slack",
                 "slack_access_token": "xoxb-valid-token",
                 "uploaded_import_file_name": "slack.zip",
+                "uploaded_import_file_path_id": upload_path_id,
                 "is_import_work_queued": True,
             },
         )
@@ -3318,7 +3320,7 @@ To Do
 
         event = {
             "preregistration_realm_id": prereg_realm.id,
-            "filename": "import/test/slack.zip",
+            "filename": upload_path_id,
             "slack_access_token": "xoxb-valid-token",
         }
         with (
