@@ -32,5 +32,6 @@ jobs:
         run: |
           python3 -m venv "$RUNNER_TEMP/zulip-rust"
           source "$RUNNER_TEMP/zulip-rust/bin/activate"
+          python -m pip install --require-hashes --only-binary=:all: -r rust-backend/tests/requirements-ci.txt
           python -m pip install ./rust-backend
           ZULIP_RUST_STREAM_COLOR=1 python -m unittest discover -s rust-backend/tests
