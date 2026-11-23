@@ -196,8 +196,17 @@ class RemindersTest(ZulipTestCase):
         )
 
         Message.objects.filter(id=current_id).update(content="Content edited after access was lost")
-        with time_machine.travel(reminder.scheduled_timestamp, tick=False):
+        with (
+            time_machine.travel(reminder.scheduled_timestamp, tick=False),
+            self.assertLogs(level="INFO") as logs,
+        ):
             self.assertTrue(try_deliver_one_scheduled_message())
+        self.assertEqual(
+            logs.output,
+            [
+                f"INFO:root:Sending scheduled message {reminder.id} with date {reminder.scheduled_timestamp} (sender: {reminder.sender_id})"
+            ],
+        )
         reminder.refresh_from_db()
         self.assertTrue(reminder.delivered)
         assert reminder.delivered_message_id is not None
