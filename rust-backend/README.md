@@ -1663,7 +1663,7 @@ This does not exercise SSO, actual ingress, real user accounts, production
 browser assets or load. It never changes the user's Chrome profile or
 system trust. The test browser, temporary credentials, database and proxy
 are discarded after the rehearsal. For the combined evidence and the
-remaining go/no-go checks, see the [three-pilot staging readiness guide](STAGING_READINESS.md).
+remaining go/no-go checks, see the [three-pilot staging readiness guide](https://github.com/mlkmhd/zulip-gold/blob/main/rust-backend/STAGING_READINESS.md).
 
 ### Enable saved-snippet web creation
 
@@ -4454,7 +4454,7 @@ python rust-backend/tests/benchmark_fenced_markdown.py --isolate-exports --sampl
 The JSON includes the omitted exports, timing order, and paired ratios
 within each repeat. The numerator and denominator are named in each key.
 Use a multiple of ten repeats for equal position counts in the five-mode
-experiment. The [recorded sample](tests/fenced_markdown_export_omission_sample.json)
+experiment. The [recorded sample](https://github.com/mlkmhd/zulip-gold/blob/main/rust-backend/tests/fenced_markdown_export_omission_sample.json)
 shows a net contribution for both omissions on the batched fixture, but
 does not measure individual call cost. Interactions and measurement noise
 remain; this is not a production performance or compatibility result.
@@ -4476,7 +4476,7 @@ python rust-backend/tests/benchmark_fenced_markdown.py --isolate-parser-factory 
 ```
 
 Use a multiple of twelve repeats for equal timing-order position counts.
-The [recorded sample](tests/fenced_markdown_parser_factory_sample.json)
+The [recorded sample](https://github.com/mlkmhd/zulip-gold/blob/main/rust-backend/tests/fenced_markdown_parser_factory_sample.json)
 shows no consistent stand-alone parser or factory improvement in the
 batch, and a residual Python/Rust gap after both omissions. There is no
 basis here to change the production dispatch or defaults.
@@ -4495,7 +4495,7 @@ python rust-backend/tests/benchmark_fenced_markdown.py --compare-planner \
   --report fenced-batch-planner.json
 ```
 
-The [recorded sample](tests/fenced_markdown_batch_planner_sample.json)
+The [recorded sample](https://github.com/mlkmhd/zulip-gold/blob/main/rust-backend/tests/fenced_markdown_batch_planner_sample.json)
 shows the planner-only mode about 12% faster than scalar Rust without
 Pygments and 7% faster with Pygments on the batched fixture. The advantage
 over Python on that fixture was smaller (about 2%); plain highlighted
