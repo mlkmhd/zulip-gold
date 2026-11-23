@@ -950,17 +950,16 @@ class ScheduledMessageTest(ZulipTestCase):
         future = self.last_scheduled_message()
 
         now = timezone_now()
-        ScheduledMessage.objects.exclude(id=future.id).update(
-            scheduled_timestamp=now - timedelta(minutes=1)
-        )
-        ScheduledMessage.objects.filter(id=second.id).update(
-            scheduled_timestamp=now - timedelta(minutes=2)
-        )
+        first_due_at = now - timedelta(minutes=1)
+        second_due_at = now - timedelta(minutes=2)
+        ScheduledMessage.objects.exclude(id=future.id).update(scheduled_timestamp=first_due_at)
+        ScheduledMessage.objects.filter(id=second.id).update(scheduled_timestamp=second_due_at)
         ScheduledMessage.objects.filter(id=delivered.id).update(delivered=True)
         ScheduledMessage.objects.filter(id=failed.id).update(failed=True)
         with (
             time_machine.travel(now, tick=False),
             mock.patch("zerver.actions.scheduled_messages.send_scheduled_message") as send,
+            self.assertLogs(level="INFO") as logs,
         ):
             self.assertTrue(try_deliver_one_scheduled_message())
             send.assert_called_once_with(first)
@@ -974,6 +973,13 @@ class ScheduledMessageTest(ZulipTestCase):
             send.reset_mock()
             self.assertFalse(try_deliver_one_scheduled_message())
             send.assert_not_called()
+        self.assertEqual(
+            logs.output,
+            [
+                f"INFO:root:Sending scheduled message {first.id} with date {first_due_at} (sender: {first.sender_id})",
+                f"INFO:root:Sending scheduled message {second.id} with date {second_due_at} (sender: {second.sender_id})",
+            ],
+        )
 
     def test_successful_deliver_stream_scheduled_message(self) -> None:
         # No scheduled message
@@ -1574,31 +1580,42 @@ class ScheduledMessageTest(ZulipTestCase):
         self.send_stream_message(owner, stream.name, content)
 
         def check_claim(expected: bool) -> None:
-            result = self.api_post(
-                sender,
-                "/api/v1/scheduled_messages",
-                {
-                    "type": "direct",
-                    "to": orjson.dumps([owner.id]).decode(),
-                    "content": content,
-                    "scheduled_delivery_timestamp": int(time.time()) + 86400,
-                },
-            )
-            job_id = self.assert_json_success(result)["scheduled_message_id"]
-            job = ScheduledMessage.objects.get(id=job_id)
-            self.assertEqual(job.has_attachment, expected)
-            self.assertEqual(job.attachment_set.filter(id=attachment.id).exists(), expected)
-            self.assert_json_success(
-                self.api_patch(
-                    sender, f"/api/v1/scheduled_messages/{job_id}", {"content": "No file"}
+            with (
+                self.assertNoLogs(level="WARNING") if expected else self.assertLogs(level="WARNING")
+            ) as logs:
+                result = self.api_post(
+                    sender,
+                    "/api/v1/scheduled_messages",
+                    {
+                        "type": "direct",
+                        "to": orjson.dumps([owner.id]).decode(),
+                        "content": content,
+                        "scheduled_delivery_timestamp": int(time.time()) + 86400,
+                    },
                 )
-            )
-            job.refresh_from_db()
-            self.assertFalse(job.has_attachment)
-            self.assertFalse(job.attachment_set.exists())
-            self.assert_json_success(
-                self.api_patch(sender, f"/api/v1/scheduled_messages/{job_id}", {"content": content})
-            )
+                job_id = self.assert_json_success(result)["scheduled_message_id"]
+                job = ScheduledMessage.objects.get(id=job_id)
+                self.assertEqual(job.has_attachment, expected)
+                self.assertEqual(job.attachment_set.filter(id=attachment.id).exists(), expected)
+                self.assert_json_success(
+                    self.api_patch(
+                        sender, f"/api/v1/scheduled_messages/{job_id}", {"content": "No file"}
+                    )
+                )
+                job.refresh_from_db()
+                self.assertFalse(job.has_attachment)
+                self.assertFalse(job.attachment_set.exists())
+                self.assert_json_success(
+                    self.api_patch(
+                        sender, f"/api/v1/scheduled_messages/{job_id}", {"content": content}
+                    )
+                )
+            if logs is not None:
+                expected_warning = (
+                    f"WARNING:root:User {sender.id} tried to share upload {attachment.path_id} "
+                    f"in message {job_id}, but lacks permission"
+                )
+                self.assertEqual(logs.output, [expected_warning, expected_warning])
             job.refresh_from_db()
             self.assertEqual(job.has_attachment, expected)
             self.assertEqual(job.attachment_set.filter(id=attachment.id).exists(), expected)
@@ -1683,10 +1700,19 @@ class ScheduledMessageTest(ZulipTestCase):
         attachment.refresh_from_db()
         self.assertTrue(attachment.is_realm_public)
         Attachment.objects.filter(id=attachment.id).update(is_realm_public=None)
-        with mock.patch.object(Attachment, "refresh_from_db", side_effect=Attachment.DoesNotExist):
+        with (
+            mock.patch.object(Attachment, "refresh_from_db", side_effect=Attachment.DoesNotExist),
+            self.assertLogs(level="WARNING") as logs,
+        ):
             job_id = self.assert_json_success(
                 self.api_post(sender, "/api/v1/scheduled_messages", payload)
             )["scheduled_message_id"]
+        self.assertEqual(
+            logs.output,
+            [
+                f"WARNING:root:User {sender.id} tried to share upload {attachment.path_id} in message {job_id}, but lacks permission"
+            ],
+        )
         self.assertFalse(ScheduledMessage.objects.get(id=job_id).has_attachment)
 
     def test_scheduled_attachment_keeps_existing_visibility_and_other_jobs(self) -> None:
@@ -1708,9 +1734,16 @@ class ScheduledMessageTest(ZulipTestCase):
             ]
             for _ in range(2)
         ]
-        unclaimed = self.assert_json_success(
-            self.api_post(other, "/api/v1/scheduled_messages", payload)
-        )["scheduled_message_id"]
+        with self.assertLogs(level="WARNING") as logs:
+            unclaimed = self.assert_json_success(
+                self.api_post(other, "/api/v1/scheduled_messages", payload)
+            )["scheduled_message_id"]
+        self.assertEqual(
+            logs.output,
+            [
+                f"WARNING:root:User {other.id} tried to share upload {attachment.path_id} in message {unclaimed}, but lacks permission"
+            ],
+        )
 
         self.assertTrue(ScheduledMessage.objects.get(id=ids[0]).has_attachment)
         self.assertFalse(ScheduledMessage.objects.get(id=unclaimed).has_attachment)
