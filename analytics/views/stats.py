@@ -88,6 +88,20 @@ _CHART_HOUR_MICROSECONDS = 3_600_000_000
 _CHART_DAY_MICROSECONDS = 24 * _CHART_HOUR_MICROSECONDS
 
 
+try:
+    _rust_subgroup_projection = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_ANALYTICS_SUBGROUP_PROJECTION") == "1"
+        else None
+    )
+except ImportError:
+    _rust_subgroup_projection = None
+
+_project_analytics_subgroup_series = getattr(
+    _rust_subgroup_projection, "project_analytics_subgroup_series", None
+)
+
+
 def is_analytics_ready(realm: Realm) -> bool:
     return (timezone_now() - realm.date_created) > MAX_TIME_FOR_FULL_ANALYTICS_GENERATION
 
@@ -743,6 +757,49 @@ def rewrite_client_arrays(value_arrays: dict[str, list[int]]) -> dict[str, list[
     return mapped_arrays
 
 
+def _project_grouped_chart_rows(
+    value_dicts: dict[str | None, dict[datetime, int]],
+    end_times: list[datetime],
+    subgroup_to_label: dict[str | None, str],
+    include_empty_subgroups: bool,
+) -> dict[str, list[int]] | None:
+    if (
+        _project_analytics_subgroup_series is None
+        or type(subgroup_to_label) is not dict
+        or type(end_times) is not list
+        or type(include_empty_subgroups) is not bool
+    ):
+        return None
+
+    # Convert only exact UTC datetimes: the scalar token has the same
+    # equality as these original Python keys, with no rounding or conversion.
+    if any(type(value) is not datetime or value.tzinfo is not timezone.utc for value in end_times):
+        return None
+    # Avoid custom equality/hashing before applying the original eligibility rule.
+    if any(group is not None and type(group) is not str for group in value_dicts):
+        return None
+    if any(
+        (group is not None and type(group) is not str) or type(label) is not str
+        for group, label in subgroup_to_label.items()
+    ):
+        return None
+    eligible_labels = [
+        (group, label)
+        for group, label in subgroup_to_label.items()
+        if group in value_dicts or include_empty_subgroups
+    ]
+    points = []
+    for group, _label in eligible_labels:
+        for end_time, count in value_dicts.get(group, {}).items():
+            if type(end_time) is not datetime or end_time.tzinfo is not timezone.utc:
+                return None
+            if type(count) is not int:
+                return None
+            points.append((group, _chart_time_in_microseconds(end_time), count))
+    times = [_chart_time_in_microseconds(end_time) for end_time in end_times]
+    return _project_analytics_subgroup_series(points, times, eligible_labels)
+
+
 def get_time_series_by_subgroup(
     stat: CountStat,
     table: type[BaseCount],
@@ -759,10 +816,14 @@ def get_time_series_by_subgroup(
     value_dicts: dict[str | None, dict[datetime, int]] = defaultdict(lambda: defaultdict(int))
     for subgroup, end_time, value in queryset:
         value_dicts[subgroup][end_time] = value
-    value_arrays = {}
-    for subgroup, label in subgroup_to_label.items():
-        if (subgroup in value_dicts) or include_empty_subgroups:
-            value_arrays[label] = [value_dicts[subgroup][end_time] for end_time in end_times]
+    value_arrays = _project_grouped_chart_rows(
+        value_dicts, end_times, subgroup_to_label, include_empty_subgroups
+    )
+    if value_arrays is None:
+        value_arrays = {}
+        for subgroup, label in subgroup_to_label.items():
+            if (subgroup in value_dicts) or include_empty_subgroups:
+                value_arrays[label] = [value_dicts[subgroup][end_time] for end_time in end_times]
 
     if stat == COUNT_STATS["messages_sent:client:day"]:
         # HACK: We rewrite these arrays to collapse the Client objects

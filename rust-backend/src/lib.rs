@@ -265,6 +265,9 @@ mod python_migration_display;
 mod python_api_type_display;
 
 #[cfg(feature = "python")]
+mod python_analytics_subgroup_projection;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]

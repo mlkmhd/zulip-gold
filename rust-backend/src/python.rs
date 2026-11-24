@@ -463,6 +463,9 @@ mod _zulip_backend {
     };
 
     #[pymodule_export]
+    use crate::python_analytics_subgroup_projection::project_analytics_subgroup_series;
+
+    #[pymodule_export]
     use crate::python_push_text::{quote_mobile_push_text, truncate_mobile_push_text};
 
     #[pymodule_export]

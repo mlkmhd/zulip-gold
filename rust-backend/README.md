@@ -6739,3 +6739,11 @@ label assembly for the API documentation tables. Python retains schema
 traversal, validation and error behavior, and all markup and escaping. Python is
 the default and the fallback if the extension or an individual helper is missing
 or declines an already-prepared value.
+
+### Opt-in analytics subgroup projection
+
+`ZULIP_RUST_ANALYTICS_SUBGROUP_PROJECTION=1` fills chart arrays for already
+selected subgroup labels and prepared UTC time keys. Django retains chart
+queries, grouping and eligible-label selection; the unchanged client alias
+step runs afterward. The default and unsupported-value fallback is the
+original Python fill loop. No time conversion or scope decision runs in Rust.
