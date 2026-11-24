@@ -211,6 +211,9 @@ mod python_digest_rank;
 mod python_topic_text;
 
 #[cfg(feature = "python")]
+mod python_compose_quote;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]

@@ -1,6 +1,9 @@
 # The web app composes the same quote-and-reply format in
 # web/src/compose_reply.ts; keep the two in sync.
 from dataclasses import dataclass
+from importlib import import_module
+from os import environ
+from typing import cast
 
 from django.conf import settings
 from django.utils.translation import gettext_lazy
@@ -19,6 +22,16 @@ QUOTE_AND_REPLY_TEMPLATE = "{quote_context}\n{quote_body}\n{reply_content}"
 QUOTE_CONTENT_MINIMUM_LENGTH = 1000
 TRUNCATION_MESSAGE = "\n[message truncated]"
 
+_python_close_unclosed_fences = close_unclosed_fences
+try:
+    _rust_compose_quote = (
+        import_module("_zulip_backend") if environ.get("ZULIP_RUST_COMPOSE_QUOTE") == "1" else None
+    )
+except ModuleNotFoundError as error:
+    if error.name != "_zulip_backend":
+        raise
+    _rust_compose_quote = None
+
 
 @dataclass
 class MaxContentLengths:
@@ -36,7 +49,29 @@ def get_measurements_for_quote_and_reply_content(
     when it at least has that much to say, and the reply gets whatever room
     is left.
     """
-    available_length = max(settings.MAX_MESSAGE_LENGTH - template_syntax_length, 0)
+    message_limit = settings.MAX_MESSAGE_LENGTH
+    if (
+        _rust_compose_quote is not None
+        and type(message_limit) is int
+        and type(QUOTE_CONTENT_MINIMUM_LENGTH) is int
+        and QUOTE_CONTENT_MINIMUM_LENGTH == 1000
+    ):
+        allocate_native = getattr(_rust_compose_quote, "allocate_compose_quote_lengths", None)
+        if callable(allocate_native):
+            lengths = cast(
+                "tuple[int, int] | None",
+                allocate_native(
+                    reply_content_length,
+                    quote_content_length,
+                    template_syntax_length,
+                    message_limit,
+                ),
+            )
+            if lengths is not None:
+                reply_length, quote_length = lengths
+                return MaxContentLengths(reply_content=reply_length, quoted_content=quote_length)
+
+    available_length = max(message_limit - template_syntax_length, 0)
     minimum_for_quote = min(QUOTE_CONTENT_MINIMUM_LENGTH, available_length)
 
     quoted_content = min(
@@ -55,6 +90,22 @@ def truncate_quote_content(content: str, max_length: int) -> str:
     fences need room too, and cutting shorter to make it can leave a
     different set of blocks open, so this cuts until the result fits.
     """
+    if (
+        _rust_compose_quote is not None
+        and close_unclosed_fences is _python_close_unclosed_fences
+        and type(max_length) is int
+        and type(TRUNCATION_MESSAGE) is str
+        and TRUNCATION_MESSAGE == "\n[message truncated]"
+    ):
+        truncate_native = getattr(_rust_compose_quote, "truncate_compose_quote_text", None)
+        if callable(truncate_native):
+            result = cast(
+                "str | None",
+                truncate_native(content, max_length, _python_close_unclosed_fences),
+            )
+            if result is not None:
+                return result
+
     if len(content) <= max_length:
         return content
 

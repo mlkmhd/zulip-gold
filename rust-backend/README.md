@@ -5605,6 +5605,26 @@ for enabled in 0 1; do
 done
 ```
 
+### Size and clip prepared quote-and-reply text through Rust
+
+Set `ZULIP_RUST_COMPOSE_QUOTE=1` before starting Django to allocate the
+existing quote and reply length budget and clip the quote at the existing
+Unicode code point limit. If clipping leaves fences open, the retry loop
+calls the existing Python fence closer. The parser, translated templates,
+quote context, links, and delivery remain in Python.
+
+The switch defaults to off. Missing extension methods, unsupported
+inputs, or a different Python minimum, suffix, or fence closer retain
+the corresponding Python path. Test both modes using the current
+extension and synthetic composition inputs:
+
+```bash
+for enabled in 0 1; do
+    ZULIP_RUST_COMPOSE_QUOTE=$enabled ./tools/test-backend \
+        zerver.tests.test_compose_quote_rust zerver.tests.test_compose_reply
+done
+```
+
 ### Format prepared mobile push text through Rust
 
 Set `ZULIP_RUST_PUSH_TEXT=1` on a Django worker to prefix extracted
