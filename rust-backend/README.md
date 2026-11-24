@@ -5763,6 +5763,23 @@ for enabled in 0 1; do
 done
 ```
 
+### Parse supplied timezone alias text through Rust
+
+Set `ZULIP_RUST_TIMEZONE_ALIASES=1` before starting Django to parse
+each already read alias line and look up an alias in the cached map.
+Python still opens the timezone data, preserves stream and cache
+behavior, and controls all timezone settings and conversions.
+
+The switch defaults to off. Missing extension methods or unsupported
+input keep Python's original parsing or lookup. Exercise both modes
+with supplied synthetic lines, without changing timezone data:
+
+```bash
+for enabled in 0 1; do
+    ZULIP_RUST_TIMEZONE_ALIASES=$enabled ./tools/test-backend zerver.tests.test_timezone_aliases_rust
+done
+```
+
 ### Format prepared mobile push text through Rust
 
 Set `ZULIP_RUST_PUSH_TEXT=1` on a Django worker to prefix extracted

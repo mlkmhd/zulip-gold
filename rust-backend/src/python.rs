@@ -429,6 +429,9 @@ mod _zulip_backend {
     };
 
     #[pymodule_export]
+    use crate::python_timezone_aliases::{lookup_timezone_alias, parse_timezone_alias_lines};
+
+    #[pymodule_export]
     use crate::python_push_text::{quote_mobile_push_text, truncate_mobile_push_text};
 
     #[pymodule_export]

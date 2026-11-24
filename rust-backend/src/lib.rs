@@ -235,6 +235,9 @@ mod python_analytics_client_series;
 mod python_analytics_chart_order;
 
 #[cfg(feature = "python")]
+mod python_timezone_aliases;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]
