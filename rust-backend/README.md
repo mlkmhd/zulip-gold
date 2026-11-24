@@ -6771,3 +6771,11 @@ original Python-prepared newline and spaces in a return-value description.
 Python retains indentation choice, field selection, Markdown and markup. The
 original replacement remains the default and handles unavailable or declined
 native inputs.
+
+### Opt-in API documentation enum examples
+
+`ZULIP_RUST_API_ENUM_DISPLAY=1` optionally comma-joins already-formatted enum
+examples in the API documentation argument and object tables. Enum selection,
+JSON serialization, templates, and Markdown remain in Python. The original
+Python join remains the default and the fallback for missing or declined
+native input.

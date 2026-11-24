@@ -277,6 +277,9 @@ mod python_commit_display;
 mod python_api_return_indent;
 
 #[cfg(feature = "python")]
+mod python_api_enum_display;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]

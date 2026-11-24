@@ -36,6 +36,28 @@ _rust_wrap_prepared_doc_array_label = getattr(
 )
 _rust_append_doc_nullable_label = getattr(_rust_api_type_display, "append_doc_nullable_label", None)
 
+try:
+    _rust_api_enum_display = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_API_ENUM_DISPLAY") == "1"
+        else None
+    )
+except ImportError:
+    _rust_api_enum_display = None
+
+_rust_join_prepared_api_enum_examples = getattr(
+    _rust_api_enum_display, "join_prepared_api_enum_examples", None
+)
+
+
+def _join_api_enum_examples(formatted_enums: list[str]) -> str:
+    if _rust_join_prepared_api_enum_examples is not None:
+        native = _rust_join_prepared_api_enum_examples(formatted_enums)
+        if native is not None:
+            return native
+    return ", ".join(formatted_enums)
+
+
 REGEXP = re.compile(r"\{generate_api_arguments_table\|\s*(.+?)\s*\|\s*(.+)\s*\}")
 
 API_PARAMETER_TEMPLATE = """
@@ -169,7 +191,7 @@ class APIArgumentsTablePreprocessor(Preprocessor):
                 formatted_enums = [
                     OBJECT_CODE_TEMPLATE.format(value=json.dumps(enum)) for enum in enums
                 ]
-                description += "\nMust be one of: {}. ".format(", ".join(formatted_enums))
+                description += f"\nMust be one of: {_join_api_enum_examples(formatted_enums)}. "
 
             default = parameter.value_schema.get("default")
             if default is not None:
@@ -262,7 +284,7 @@ class APIArgumentsTablePreprocessor(Preprocessor):
                 formatted_enums = [
                     OBJECT_CODE_TEMPLATE.format(value=json.dumps(enum)) for enum in enums
                 ]
-                additions += "Must be one of: {}. ".format(", ".join(formatted_enums))
+                additions += f"Must be one of: {_join_api_enum_examples(formatted_enums)}. "
 
             if "example" in object_values[value]:
                 example = json.dumps(object_values[value]["example"])
