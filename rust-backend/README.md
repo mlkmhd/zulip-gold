@@ -5531,6 +5531,23 @@ nginx include restores that same history to the API without restarting
 Rust. This does not change route configuration, defaults, or independent
 HTTP coverage.
 
+### Format prepared mobile push text through Rust
+
+Set `ZULIP_RUST_PUSH_TEXT=1` on a Django worker to prefix extracted
+quote lines and apply the existing 200-code-point plaintext cutoff in
+Rust. Django still extracts HTML text, selects language and recipients,
+and owns the APNs/GCM payloads, encryption, and delivery. Either step
+falls back individually to Python if the extension declines or does
+not support it.
+
+The flag defaults to off. Unset it and restart the worker to restore
+the Python text helpers. To check both flags without sending pushes:
+
+```bash
+ZULIP_RUST_PUSH_TEXT=0 ./tools/test-backend zerver.tests.test_push_text_rust
+ZULIP_RUST_PUSH_TEXT=1 ./tools/test-backend zerver.tests.test_push_text_rust
+```
+
 ### Rehearse authenticated user status reads and rollback
 
 `ZULIP_RUST_USER_STATUS_READ_PILOT=1` adds loopback-only GET and HEAD

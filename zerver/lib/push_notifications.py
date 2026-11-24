@@ -38,6 +38,7 @@ from zerver.actions.realm_settings import (
     do_set_push_notifications_enabled_end_timestamp,
     do_set_realm_property,
 )
+from zerver.lib import native_push_text
 from zerver.lib.avatar import absolute_avatar_url, get_avatar_for_inaccessible_user
 from zerver.lib.devices import b64decode_token_id_base64, b64encode_token_id_int
 from zerver.lib.display_recipient import get_display_recipient
@@ -902,6 +903,9 @@ def get_mobile_push_content(rendered_content: str) -> str:
         return elem.text or ""
 
     def format_as_quote(quote_text: str) -> str:
+        native = native_push_text.quote(quote_text)
+        if native is not None:
+            return native
         return "".join(
             f"> {line}\n"
             for line in quote_text.splitlines()
@@ -1003,6 +1007,9 @@ def get_mobile_push_content(rendered_content: str) -> str:
 
 
 def truncate_content(content: str) -> tuple[str, bool]:
+    native = native_push_text.truncate(content)
+    if native is not None:
+        return native
     # We use Unicode character 'HORIZONTAL ELLIPSIS' (U+2026) instead
     # of three dots as this saves two extra characters for textual
     # content. This function will need to be updated to handle Unicode
