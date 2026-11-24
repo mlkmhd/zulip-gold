@@ -219,6 +219,15 @@ _rust_message_body = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_MESSAGE_BODY") == "1" else None
 )
 
+try:
+    _rust_import_body = (
+        import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_IMPORT_BODY") == "1" else None
+    )
+except ModuleNotFoundError as error:
+    if error.name != "_zulip_backend":
+        raise
+    _rust_import_body = None
+
 
 def truncate_content(content: str, max_length: int, truncation_message: str) -> str:
     if len(content) > max_length:
@@ -251,6 +260,13 @@ def normalize_body(body: str) -> str:
 
 
 def normalize_body_for_import(body: str) -> str:
+    if _rust_import_body is not None:
+        normalize_native = getattr(_rust_import_body, "normalize_imported_message_body", None)
+        if callable(normalize_native):
+            result = cast("str | None", normalize_native(body, settings.MAX_MESSAGE_LENGTH))
+            if result is not None:
+                return result
+
     if "\x00" in body:
         body = re.sub(r"\x00", "", body)
     return truncate_content(body, settings.MAX_MESSAGE_LENGTH, "\n[message truncated]")

@@ -202,6 +202,9 @@ mod python_message_window;
 mod python_emoji_codepoints;
 
 #[cfg(feature = "python")]
+mod python_import_body;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]

@@ -5548,6 +5548,25 @@ ZULIP_RUST_EMOJI_CODEPOINTS=0 ./tools/test-backend zerver.tests.test_emoji_codep
 ZULIP_RUST_EMOJI_CODEPOINTS=1 ./tools/test-backend zerver.tests.test_emoji_codepoints_rust
 ```
 
+### Normalize decoded import message bodies through Rust
+
+Set `ZULIP_RUST_IMPORT_BODY=1` before starting a Django import to remove
+NUL characters from already decoded message text and apply the existing
+Unicode code point cutoff. The helper preserves whitespace and Python
+slice behavior when the limit is shorter than the truncation suffix.
+Import parsing, topic names, rendered content, storage, and normal
+message sending are unchanged.
+
+The flag defaults to off. An absent or older extension and values the
+helper declines use the original Python implementation. With a locally
+built extension, test both modes without importing any real records:
+
+```bash
+for enabled in 0 1; do
+    ZULIP_RUST_IMPORT_BODY=$enabled ./tools/test-backend zerver.tests.test_import_body_rust
+done
+```
+
 ### Format prepared mobile push text through Rust
 
 Set `ZULIP_RUST_PUSH_TEXT=1` on a Django worker to prefix extracted
