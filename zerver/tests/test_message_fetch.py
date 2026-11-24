@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from unittest import mock
 
@@ -21,6 +22,7 @@ from zerver.actions.streams import do_deactivate_stream
 from zerver.actions.uploads import do_claim_attachments
 from zerver.actions.user_settings import do_change_avatar_fields, do_change_user_setting
 from zerver.actions.users import do_deactivate_user
+from zerver.lib import native_search_highlights
 from zerver.lib.avatar import avatar_url
 from zerver.lib.display_recipient import get_display_recipient
 from zerver.lib.exceptions import JsonableError
@@ -3314,6 +3316,57 @@ class GetOldMessagesTest(ZulipTestCase):
             message["match_content"],
             '<p><span class="highlight">KEYWORDMATCH</span> and should <span class="highlight">work</span></p>',
         )
+
+    @override_settings(USING_PGROONGA=False)
+    def test_declined_search_highlights_preserve_django_results(self) -> None:
+        reader = self.example_user("cordelia")
+        channel = self.make_stream("Search highlighting fixture")
+        self.subscribe(reader, channel.name)
+        first = self.send_stream_message(
+            reader, channel.name, "A ripe nectarine.", topic_name="nectarine notes"
+        )
+        second = self.send_stream_message(
+            reader, channel.name, "One more nectarine.", topic_name="orchard"
+        )
+        self.send_stream_message(reader, channel.name, "A pear.", topic_name="orchard")
+        self._update_tsvector_index()
+
+        narrow = [
+            {"operator": "channel", "operand": channel.name},
+            {"operator": "search", "operand": "nectarine"},
+        ]
+        params = {
+            "anchor": first,
+            "num_before": 0,
+            "num_after": 5,
+            "narrow": orjson.dumps(narrow).decode(),
+        }
+        with mock.patch.object(native_search_highlights, "_backend", None):
+            expected = self.api_get(reader, "/api/v1/messages", params)
+        original = self.assert_json_success(expected)["messages"]
+        self.assertEqual([message["id"] for message in original], [first, second])
+        highlight = '<span class="highlight">nectarine</span>'
+        self.assertEqual(
+            [message["match_content"] for message in original],
+            [f"<p>A ripe {highlight}.</p>", f"<p>One more {highlight}.</p>"],
+        )
+        self.assertEqual(
+            [message[MATCH_TOPIC] for message in original], [f"{highlight} notes", "orchard"]
+        )
+
+        # Only the optional boundary is simulated. The database selects the
+        # messages and Django must still render the whole search response.
+        decline = mock.Mock(return_value=None)
+        for backend in (
+            SimpleNamespace(),
+            SimpleNamespace(assemble_search_highlights=decline),
+        ):
+            with mock.patch.object(native_search_highlights, "_backend", backend):
+                response = self.api_get(reader, "/api/v1/messages", params)
+            self.assert_json_success(response)
+            self.assertEqual(response.content, expected.content)
+        self.assertEqual(decline.call_count, 1)
+        self.assertCountEqual([row[0] for row in decline.call_args.args[0]], [first, second])
 
     @override_settings(USING_PGROONGA=False)
     def test_get_messages_with_search(self) -> None:
