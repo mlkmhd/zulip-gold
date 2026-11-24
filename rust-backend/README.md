@@ -5728,6 +5728,23 @@ for enabled in 0 1; do
 done
 ```
 
+### Format prepared analytics client chart series through Rust
+
+Set `ZULIP_RUST_ANALYTICS_CLIENT_SERIES=1` before starting Django to
+rename and sum already computed client chart arrays. The helper keeps
+first-seen order and copies arrays before returning them. Python still
+selects the statistic, queries values, and controls visibility.
+
+The switch defaults to off. An absent or older extension, unsupported
+input, or a sum outside Rust's integer range uses the original Python
+implementation. Test both modes with synthetic chart arrays:
+
+```bash
+for enabled in 0 1; do
+    ZULIP_RUST_ANALYTICS_CLIENT_SERIES=$enabled ./tools/test-backend analytics.tests.test_client_series_rust
+done
+```
+
 ### Format prepared mobile push text through Rust
 
 Set `ZULIP_RUST_PUSH_TEXT=1` on a Django worker to prefix extracted

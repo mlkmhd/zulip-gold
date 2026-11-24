@@ -1,6 +1,8 @@
 import logging
+import os
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from importlib import import_module
 from typing import Annotated, Any, Optional, TypeAlias, TypeVar
 
 from django.conf import settings
@@ -42,6 +44,20 @@ if settings.ZILENCER_ENABLED:
     from zilencer.models import RemoteInstallationCount, RemoteRealmCount, RemoteZulipServer
 
 MAX_TIME_FOR_FULL_ANALYTICS_GENERATION = timedelta(days=1, minutes=30)
+
+
+try:
+    _rust_client_series = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_ANALYTICS_CLIENT_SERIES") == "1"
+        else None
+    )
+except ImportError:
+    _rust_client_series = None
+
+_rewrite_analytics_client_series = getattr(
+    _rust_client_series, "rewrite_analytics_client_series", None
+)
 
 
 def is_analytics_ready(realm: Realm) -> bool:
@@ -608,7 +624,35 @@ def client_label_map(name: str) -> str:
     return name
 
 
+def _client_series_stable_labels() -> dict[str, str]:
+    # Pass Python's existing fixed label objects, including the empty webhook
+    # prefix case, so Rust can keep the identity of the first key in a collision.
+    clients = (
+        "website",
+        "desktop app",
+        "ZulipElectron",
+        "ZulipTerminal",
+        "ZulipAndroid",
+        "ZulipiOS",
+        "ZulipMobile",
+        "ZulipFlutter",
+        "ZulipPython",
+        "ZulipWebhook",
+    )
+    return {label: label for label in map(client_label_map, clients)}
+
+
+_rust_client_series_stable_labels = (
+    _client_series_stable_labels() if _rewrite_analytics_client_series is not None else {}
+)
+
+
 def rewrite_client_arrays(value_arrays: dict[str, list[int]]) -> dict[str, list[int]]:
+    if _rewrite_analytics_client_series is not None:
+        native = _rewrite_analytics_client_series(value_arrays, _rust_client_series_stable_labels)
+        if native is not None:
+            return native
+
     mapped_arrays: dict[str, list[int]] = {}
     for label, array in value_arrays.items():
         mapped_label = client_label_map(label)
