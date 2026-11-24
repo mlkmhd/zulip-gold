@@ -105,7 +105,11 @@ class PushTextPayloadRustTest(ZulipTestCase):
         actor.default_language = "fa"
         stream = get_stream("Verona", actor.realm)
         assert stream.recipient_id is not None
-        message = Message.objects.filter(recipient_id=stream.recipient_id).order_by("id").first()
+        message = (
+            Message.objects.filter(realm_id=actor.realm_id, recipient_id=stream.recipient_id)
+            .order_by("id")
+            .first()
+        )
         assert message is not None
         body = "🙂" * 197 + "e\u0301x"
         message.rendered_content = f"<blockquote><p>{body}</p></blockquote>"
