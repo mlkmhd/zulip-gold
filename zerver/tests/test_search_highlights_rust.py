@@ -1,6 +1,7 @@
 from importlib import import_module
+from os import environ
 from random import Random
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest import SkipTest
 from unittest.mock import Mock, patch
 
@@ -13,12 +14,12 @@ from psycopg2.sql import SQL, Identifier
 from zerver.lib import native_search_highlights
 from zerver.lib.native_search_highlights import SearchHighlightRow
 from zerver.lib.test_classes import ZulipTestCase
-from zerver.lib.topic import DB_TOPIC_NAME
+from zerver.lib.topic import DB_TOPIC_NAME, MATCH_TOPIC
 from zerver.views.message_fetch import get_search_fields_batch
 from zerver.views.message_fetch import highlight_string as python_highlight
 
 
-def extension() -> object:
+def extension() -> ModuleType:
     try:
         backend = import_module("_zulip_backend")
     except ModuleNotFoundError:
@@ -59,6 +60,22 @@ class SearchHighlightProjectionTest(SimpleTestCase):
         self.assertEqual(witness.call_count, 1)
         self.assertEqual(witness.call_args.args[0], rows)
 
+    def test_empty_ranges_reuse_validated_unicode_and_keep_batch_fallback(self) -> None:
+        native = extension().assemble_search_highlights
+        content = "<p>سلام 🙂</p>"
+        topic = "日本語 and café"
+        rows: list[SearchHighlightRow] = [
+            (7, content, topic, [], ()),
+            (8, '<a title="x">🙂</a>', "فارسی", [(3, 11), (14, 0)], ()),
+        ]
+        with patch.object(native_search_highlights, "_backend", None):
+            expected = get_search_fields_batch(rows)
+        actual = native(rows)
+        self.assertEqual(actual, expected)
+        self.assertIs(actual[7]["match_content"], content)
+        self.assertIs(actual[7][MATCH_TOPIC], topic)
+        self.assertIsNone(native([*rows, (9, "\ud800", topic, (), [])]))
+
     def test_declines_keep_legacy_slices_and_old_wheels(self) -> None:
         rows: list[SearchHighlightRow] = [
             (3, "café", "tea", [(1, 2)], ()),
@@ -86,6 +103,8 @@ class SearchHighlightEndpointTest(ZulipTestCase):
     def test_both_routes_send_only_selected_rows_in_one_native_batch(self) -> None:
         backend = extension()
         native = backend.assemble_search_highlights
+        enabled = environ.get("ZULIP_RUST_SEARCH_HIGHLIGHTS") == "1"
+        self.assertEqual(native_search_highlights.available(), enabled)
         reader = self.example_user("cordelia")
         self.login_user(reader)
         message_id = self.send_stream_message(
@@ -115,7 +134,7 @@ class SearchHighlightEndpointTest(ZulipTestCase):
                 )
 
         encoded_narrow = orjson.dumps([{"operator": "search", "operand": "lunch"}]).decode()
-        fetch_args = {
+        fetch_args: dict[str, str | int] = {
             "anchor": message_id,
             "num_before": 0,
             "num_after": 5,
@@ -147,15 +166,34 @@ class SearchHighlightEndpointTest(ZulipTestCase):
                         with self.subTest(pgroonga=use_pgroonga, path=full_url):
                             with patch.object(native_search_highlights, "_backend", None):
                                 expected = request(full_url, args)
+                            with (
+                                patch.object(
+                                    native_search_highlights,
+                                    "assemble",
+                                    wraps=native_search_highlights.assemble,
+                                ) as active,
+                                patch(
+                                    "zerver.views.message_fetch.highlight_string",
+                                    wraps=python_highlight,
+                                ) as old,
+                            ):
+                                self.assertEqual(request(full_url, args), expected)
+                            self.assertEqual(active.call_count, 1 if enabled else 0)
+                            self.assertEqual(old.call_count, 0 if enabled else 4)
+
                             messages = orjson.loads(expected[1])["messages"]
-                            if url == "/messages":
-                                match_content = next(
-                                    row["match_content"]
-                                    for row in messages
-                                    if row["id"] == second_id
-                                )
-                            else:
-                                match_content = messages[str(second_id)]["match_content"]
+                            matched = (
+                                {row["id"]: row for row in messages}
+                                if url == "/messages"
+                                else {int(key): row for key, row in messages.items()}
+                            )
+                            unicode_match = matched[message_id]["match_content"]
+                            self.assertIn('class="emoji emoji-1f642"', unicode_match)
+                            self.assertIn(
+                                ' فارسی local <span class="highlight">lunch</span>', unicode_match
+                            )
+                            self.assertIn("café", matched[message_id][MATCH_TOPIC])
+                            match_content = matched[second_id]["match_content"]
                             self.assertIn('<span class="highlight">lunch</span>', match_content)
                             if prefix == "/api/v1":
                                 self.assertNotIn('class="message-reply-link"', match_content)

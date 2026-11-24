@@ -32,12 +32,13 @@ fn highlight(
         }
         code_point = offset.checked_add(length)?;
         // The Python reference evaluates tag state after the whole range.
-        for value in text.as_bytes().get(prefix..byte)? {
-            match value {
-                b'<' => in_tag = true,
-                b'>' => in_tag = false,
-                _ => {}
-            }
+        if let Some(delimiter) = text
+            .as_bytes()
+            .get(prefix..byte)?
+            .iter()
+            .rfind(|&&value| matches!(value, b'<' | b'>'))
+        {
+            in_tag = *delimiter == b'<';
         }
         result.push_str(text.get(prefix..begin)?);
         if !in_tag {
@@ -71,14 +72,26 @@ fn span(value: Bound<'_, PyAny>) -> Option<(usize, usize)> {
     ))
 }
 
-fn projected(text: &Bound<'_, PyAny>, positions: &Bound<'_, PyAny>) -> Option<String> {
-    let text = text.cast_exact::<PyString>().ok()?.to_str().ok()?;
-    if let Ok(spans) = positions.cast_exact::<PyList>() {
-        highlight(text, spans.iter().map(span))
+fn projected<'py>(
+    text: Bound<'py, PyAny>,
+    positions: &Bound<'py, PyAny>,
+) -> Option<Bound<'py, PyString>> {
+    let text = text.cast_into_exact::<PyString>().ok()?;
+    // Keep the same whole-batch fallback for Python strings with surrogates.
+    let spelling = text.to_str().ok()?;
+    let rendered = if let Ok(spans) = positions.cast_exact::<PyList>() {
+        if spans.is_empty() {
+            return Some(text);
+        }
+        highlight(spelling, spans.iter().map(span))?
     } else {
         let spans = positions.cast_exact::<PyTuple>().ok()?;
-        highlight(text, spans.iter().map(span))
-    }
+        if spans.is_empty() {
+            return Some(text);
+        }
+        highlight(spelling, spans.iter().map(span))?
+    };
+    Some(PyString::new(text.py(), &rendered))
 }
 
 #[pyfunction]
@@ -87,6 +100,8 @@ pub(crate) fn assemble_search_highlights<'py>(
     rows: &Bound<'py, PyAny>,
 ) -> Option<Bound<'py, PyDict>> {
     let result = PyDict::new(py);
+    let content_key = pyo3::intern!(py, "match_content");
+    let subject_key = pyo3::intern!(py, "match_subject");
     for row in rows.cast_exact::<PyList>().ok()?.iter() {
         let row = row.cast_exact::<PyTuple>().ok()?;
         if row.len() != 5 {
@@ -99,14 +114,14 @@ pub(crate) fn assemble_search_highlights<'py>(
         let fields = PyDict::new(py);
         fields
             .set_item(
-                "match_content",
-                projected(&row.get_item(1).ok()?, &row.get_item(3).ok()?)?,
+                content_key,
+                projected(row.get_item(1).ok()?, &row.get_item(3).ok()?)?,
             )
             .ok()?;
         fields
             .set_item(
-                "match_subject",
-                projected(&row.get_item(2).ok()?, &row.get_item(4).ok()?)?,
+                subject_key,
+                projected(row.get_item(2).ok()?, &row.get_item(4).ok()?)?,
             )
             .ok()?;
         result.set_item(id, fields).ok()?;
