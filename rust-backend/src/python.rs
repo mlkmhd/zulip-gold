@@ -478,6 +478,11 @@ mod _zulip_backend {
     use crate::python_api_enum_display::join_prepared_api_enum_examples;
 
     #[pymodule_export]
+    use crate::python_slack_field_display::{
+        assemble_prepared_slack_section_table, join_prepared_slack_attachment_fields,
+    };
+
+    #[pymodule_export]
     use crate::python_push_text::{quote_mobile_push_text, truncate_mobile_push_text};
 
     #[pymodule_export]

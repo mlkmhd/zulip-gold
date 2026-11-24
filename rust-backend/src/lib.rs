@@ -280,6 +280,9 @@ mod python_api_return_indent;
 mod python_api_enum_display;
 
 #[cfg(feature = "python")]
+mod python_slack_field_display;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]

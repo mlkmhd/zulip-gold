@@ -43,6 +43,43 @@ _rust_join_slack_import_pieces = getattr(
 )
 
 
+try:
+    _rust_slack_field_display = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_SLACK_FIELD_DISPLAY") == "1"
+        else None
+    )
+except ImportError:
+    _rust_slack_field_display = None
+
+_rust_assemble_prepared_slack_section_table = getattr(
+    _rust_slack_field_display, "assemble_prepared_slack_section_table", None
+)
+_rust_join_prepared_slack_attachment_fields = getattr(
+    _rust_slack_field_display, "join_prepared_slack_attachment_fields", None
+)
+
+
+def _assemble_section_table(field_text: list[str]) -> str:
+    if _rust_assemble_prepared_slack_section_table is not None:
+        native = _rust_assemble_prepared_slack_section_table(field_text)
+        if native is not None:
+            return native
+    table = "| | |\n|-|-|\n"
+    iters = [iter(field_text)] * 2
+    for left, right in zip_longest(*iters, fillvalue=""):
+        table += f"| {left} | {right} |\n"
+    return table
+
+
+def _join_attachment_fields(fields: list[str]) -> str:
+    if _rust_join_prepared_slack_attachment_fields is not None:
+        native = _rust_join_prepared_slack_attachment_fields(fields)
+        if native is not None:
+            return native
+    return "\n".join(fields)
+
+
 def _join_prepared_pieces(pieces: list[str], separator: str) -> str:
     if _rust_join_slack_import_pieces is not None:
         native = _rust_join_slack_import_pieces(pieces, separator)
@@ -376,12 +413,8 @@ def render_block(block: WildValue) -> str:
                 # Because Slack formats this as two columns, but not
                 # necessarily a table with a bold header, we emit a
                 # blank header row first.
-                table = "| | |\n|-|-|\n"
-                # Then take the fields two-at-a-time to make the table
-                iters = [iter(field_text)] * 2
-                for left, right in zip_longest(*iters, fillvalue=""):
-                    table += f"| {left} | {right} |\n"
-                pieces.append(table)
+                # Then take the fields two-at-a-time to make the table.
+                pieces.append(_assemble_section_table(field_text))
 
         return _join_prepared_pieces(pieces, "\n\n")
 
@@ -463,7 +496,7 @@ def render_attachment(attachment: WildValue) -> str:
             elif field.get("value"):
                 value = field["value"].tame(check_string)
                 fields.append(f"{value}")
-        pieces.append("\n".join(fields))
+        pieces.append(_join_attachment_fields(fields))
     if attachment.get("blocks"):
         for block in attachment["blocks"]:
             # rich_text blocks in "attachments" elements don't have a

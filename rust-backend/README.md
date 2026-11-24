@@ -6779,3 +6779,11 @@ examples in the API documentation argument and object tables. Enum selection,
 JSON serialization, templates, and Markdown remain in Python. The original
 Python join remains the default and the fallback for missing or declined
 native input.
+
+### Opt-in Slack import field display
+
+`ZULIP_RUST_SLACK_FIELD_DISPLAY=1` optionally assembles a two-column section
+table after the existing Python cleanup, and LF-joins prepared attachment field
+rows with no trimming. Python retains field selection, cleanup, markup
+decisions, and import behavior. The original assembly is the default and the
+fallback for unavailable or declined native helpers.
