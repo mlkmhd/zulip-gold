@@ -152,3 +152,86 @@ pub(crate) fn fill_legacy_register_topics(
     }
     Ok(true)
 }
+
+/// Prune only the in-memory profile data of cards already selected by Django.
+#[pyfunction]
+pub(crate) fn prune_register_custom_profile_fields(
+    py: Python<'_>,
+    raw: &Bound<'_, PyAny>,
+    fields: &Bound<'_, PyAny>,
+) -> PyResult<bool> {
+    let (Ok(raw), Ok(fields)) = (raw.cast_exact::<PyDict>(), fields.cast_exact::<PyList>()) else {
+        return Ok(false);
+    };
+    let mut ids = HashSet::with_capacity(fields.len());
+    let id_key = pyo3::intern!(py, "id");
+    for field in fields.iter() {
+        let Some(field) = plain_row(&field) else {
+            return Ok(false);
+        };
+        let Some(id) = field
+            .get_item(id_key)?
+            .and_then(|id| id.cast_exact::<PyInt>().ok()?.extract::<i64>().ok())
+        else {
+            return Ok(false);
+        };
+        ids.insert(id);
+    }
+
+    let profile_key = pyo3::intern!(py, "profile_data");
+    let mut cards = HashSet::with_capacity(raw.len());
+    let mut affected = HashSet::new();
+    let mut edits = Vec::new();
+    for (_, card) in raw.iter() {
+        let Some(card) = plain_row(&card) else {
+            return Ok(false);
+        };
+        cards.insert(card.as_ptr());
+        let Some(profile) = card.get_item(profile_key)? else {
+            continue;
+        };
+        let Ok(profile) = profile.cast_into_exact::<PyDict>() else {
+            return Ok(false);
+        };
+        let mut obsolete = Vec::new();
+        for (key, value) in profile.iter() {
+            let Some(id) = key
+                .cast_exact::<PyString>()
+                .ok()
+                .and_then(|key| key.to_str().ok()?.parse::<i64>().ok())
+            else {
+                // Python also accepts unusual numeric spellings and larger IDs.
+                return Ok(false);
+            };
+            if !ids.contains(&id) {
+                let Some(value) = plain_row(&value) else {
+                    return Ok(false);
+                };
+                if !value
+                    .iter()
+                    .all(|(_, value)| value.is_none() || value.is_exact_instance_of::<PyString>())
+                {
+                    return Ok(false);
+                }
+                obsolete.push(key);
+            }
+        }
+        if !obsolete.is_empty() {
+            if !affected.insert(profile.as_ptr()) {
+                return Ok(false);
+            }
+            edits.push((profile, obsolete));
+        }
+    }
+    if affected.contains(&raw.as_ptr()) || !affected.is_disjoint(&cards) {
+        return Ok(false);
+    }
+
+    // Finish validating every card before deleting anything.
+    for (profile, obsolete) in edits {
+        for key in obsolete {
+            profile.del_item(key)?;
+        }
+    }
+    Ok(true)
+}

@@ -1206,6 +1206,11 @@ def apply_event(
         state["onboarding_steps"] = event["onboarding_steps"]
     elif event["type"] == "custom_profile_fields":
         state["custom_profile_fields"] = event["fields"]
+        if "raw_users" in state and native_register_state.prune_profile_fields(
+            state["raw_users"], state["custom_profile_fields"]
+        ):
+            return
+
         custom_profile_field_ids = {field["id"] for field in state["custom_profile_fields"]}
 
         if "raw_users" in state:

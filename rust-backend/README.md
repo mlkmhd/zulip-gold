@@ -6143,6 +6143,24 @@ done
 
 This does not change the independent HTTP inventory.
 
+### Prune stale custom profile fields during registration
+
+Set `ZULIP_RUST_REGISTER_PROFILE_PRUNE=1` on a Django worker to prune
+obsolete custom profile field values from the already-selected user cards
+when a profile-fields event is replayed during registration. Django retains
+the event, profile visibility, field metadata, queries, and writes. The
+native reducer preserves card identity and the order of remaining fields.
+An older extension or a declined snapshot uses the original Python replay.
+
+The flag defaults to off and is independent of the other register flags.
+Unset it and restart the worker to restore Python replay. Test both flag
+states with the locally built extension and an isolated test database:
+
+```bash
+ZULIP_RUST_REGISTER_PROFILE_PRUNE=0 ./tools/test-backend zerver.tests.test_register_rust_replay
+ZULIP_RUST_REGISTER_PROFILE_PRUNE=1 ./tools/test-backend zerver.tests.test_register_rust_replay
+```
+
 ### Verify combined register replay and its rollback
 
 Run this in an isolated Zulip test environment with the current Python

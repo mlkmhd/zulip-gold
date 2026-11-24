@@ -333,6 +333,7 @@ mod _zulip_backend {
     #[pymodule_export]
     use crate::python_register_state::{
         fill_legacy_register_notifications, fill_legacy_register_topics, partition_register_users,
+        prune_register_custom_profile_fields,
     };
 
     #[pymodule_export]

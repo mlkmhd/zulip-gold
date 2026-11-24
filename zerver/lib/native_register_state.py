@@ -15,6 +15,24 @@ except ModuleNotFoundError as error:
         raise
     _backend = None
 
+try:
+    _profile_prune_backend = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_REGISTER_PROFILE_PRUNE") == "1"
+        else None
+    )
+except ModuleNotFoundError as error:
+    if error.name != "_zulip_backend":
+        raise
+    _profile_prune_backend = None
+
+
+def prune_profile_fields(raw: object, fields: object) -> bool:
+    if _profile_prune_backend is None:
+        return False
+    native = getattr(_profile_prune_backend, "prune_register_custom_profile_fields", None)
+    return callable(native) and cast(bool, native(raw, fields))
+
 
 def partition_users(
     raw: object,
