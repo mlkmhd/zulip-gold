@@ -38,7 +38,7 @@ def get_navigation_views(
     """
     Fetch navigation views for the specified user.
     """
-    navigation_views = get_navigation_views_for_user(user_profile)
+    navigation_views = get_navigation_views_for_user(user_profile, rust_display_for_get=True)
     return json_success(request, data={"navigation_views": navigation_views})
 
 

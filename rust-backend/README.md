@@ -6812,3 +6812,11 @@ Python still prepares the original values, including the integer timestamp, and
 handles the response. Events, bootstrap and writes keep their original Python
 formatting. The switch defaults off; absent, older, or declining native
 implementations use Python.
+
+### Opt-in navigation view display rows
+
+`ZULIP_RUST_NAVIGATION_VIEW_DISPLAY=1` optionally assembles the existing navigation
+view dictionaries for the legacy Django GET after the same query. Fragment,
+pin and name values are untouched. The switch defaults off; an absent, older
+or declining extension falls back to Python. Bootstrap, events and writes
+retain their existing Python formatting.

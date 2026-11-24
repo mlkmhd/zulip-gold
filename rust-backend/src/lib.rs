@@ -292,6 +292,9 @@ mod python_chart_timestamp_display;
 mod python_saved_snippet_display;
 
 #[cfg(feature = "python")]
+mod python_navigation_view_display;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]

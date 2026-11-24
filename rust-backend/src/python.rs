@@ -494,6 +494,9 @@ mod _zulip_backend {
     use crate::python_saved_snippet_display::render_saved_snippet_display_rows;
 
     #[pymodule_export]
+    use crate::python_navigation_view_display::render_navigation_view_display_rows;
+
+    #[pymodule_export]
     use crate::python_push_text::{quote_mobile_push_text, truncate_mobile_push_text};
 
     #[pymodule_export]
