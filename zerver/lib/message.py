@@ -17,7 +17,12 @@ from django_cte import CTE, with_cte
 
 from analytics.lib.counts import COUNT_STATS
 from analytics.models import RealmCount
-from zerver.lib import native_onboarding_text, native_recent_conversations, native_topic_text
+from zerver.lib import (
+    native_onboarding_text,
+    native_recent_conversations,
+    native_topic_text,
+    native_unread_replay,
+)
 from zerver.lib.cache import generic_bulk_cached_fetch, to_dict_cache_key_id
 from zerver.lib.display_recipient import get_display_recipient_by_id
 from zerver.lib.event_types import MessageDetails
@@ -1309,14 +1314,30 @@ def apply_unread_message_event(
     flags: list[str],
 ) -> None:
     message_id = message["id"]
+    private_plan = None
     if message["type"] == "stream":
         recipient_type = "stream"
     elif message["type"] == "private":
-        others = [recip for recip in message["display_recipient"] if recip["id"] != user_profile.id]
-        if len(others) <= 1:
-            recipient_type = "private"
+        if (
+            native_unread_replay.has_private_arrival_planner()
+            and type(user_profile) is UserProfile
+            and type(message) is dict
+            and all(type(key) is str for key in message)
+            and type(message["type"]) is str
+        ):
+            private_plan = native_unread_replay.plan_private_arrival(
+                user_profile.id, message.get("display_recipient")
+            )
+        if private_plan is not None:
+            recipient_type = "private" if private_plan[0] is not None else "huddle"
         else:
-            recipient_type = "huddle"
+            others = [
+                recip for recip in message["display_recipient"] if recip["id"] != user_profile.id
+            ]
+            if len(others) <= 1:
+                recipient_type = "private"
+            else:
+                recipient_type = "huddle"
     else:
         raise AssertionError("Invalid message type {}".format(message["type"]))
 
@@ -1343,7 +1364,10 @@ def apply_unread_message_event(
             state["unmuted_stream_msgs"].add(message_id)
 
     elif recipient_type == "private":
-        if len(others) == 1:
+        if private_plan is not None:
+            other_user_id = private_plan[0]
+            assert other_user_id is not None
+        elif len(others) == 1:
             other_user_id = others[0]["id"]
         else:
             other_user_id = user_profile.id
@@ -1353,10 +1377,14 @@ def apply_unread_message_event(
         )
 
     else:
-        display_recipient = message["display_recipient"]
-        user_ids = [obj["id"] for obj in display_recipient]
-        user_ids = sorted(user_ids)
-        user_ids_string = ",".join(str(uid) for uid in user_ids)
+        if private_plan is not None:
+            user_ids_string = private_plan[1]
+            assert user_ids_string is not None
+        else:
+            display_recipient = message["display_recipient"]
+            user_ids = [obj["id"] for obj in display_recipient]
+            user_ids = sorted(user_ids)
+            user_ids_string = ",".join(str(uid) for uid in user_ids)
 
         state["huddle_dict"][message_id] = RawUnreadDirectMessageGroupDict(
             user_ids_string=user_ids_string,

@@ -5659,6 +5659,24 @@ for enabled in 0 1; do
 done
 ```
 
+### Project a prepared private unread arrival through Rust
+
+Set `ZULIP_RUST_PRIVATE_UNREAD_ARRIVAL=1` before starting Django to project
+the display roster of an already selected private message to a direct
+or group unread record. Rust receives only the account ID and roster IDs.
+Group records keep sorted IDs and duplicates. Django still writes the
+unread records and handles mentions, channels, visibility and muting.
+
+This switch is off by default and independent of unread replay and
+payload formatting. An absent or older extension or unsupported roster
+keeps the Python projection. In isolated Django, test both modes:
+
+```bash
+for enabled in 0 1; do
+    ZULIP_RUST_PRIVATE_UNREAD_ARRIVAL=$enabled ./tools/test-backend zerver.tests.test_unread_replay_rust
+done
+```
+
 ### Format prepared mobile push text through Rust
 
 Set `ZULIP_RUST_PUSH_TEXT=1` on a Django worker to prefix extracted

@@ -307,7 +307,8 @@ mod _zulip_backend {
 
     #[pymodule_export]
     use crate::python_unread_replay::{
-        move_unread_messages, remove_unread_messages, restore_unread_messages,
+        move_unread_messages, plan_private_unread_arrival, remove_unread_messages,
+        restore_unread_messages,
     };
 
     #[pymodule_export]

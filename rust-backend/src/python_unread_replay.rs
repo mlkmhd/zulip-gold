@@ -221,3 +221,33 @@ pub(crate) fn move_unread_messages<'py>(
     }
     Ok(true)
 }
+
+/// Plan only the register card for an already selected private arrival.
+/// Django still owns delivery, flags, and state membership.
+#[pyfunction]
+pub(crate) fn plan_private_unread_arrival(
+    myself: &Bound<'_, PyAny>,
+    roster: &Bound<'_, PyAny>,
+) -> Option<(Option<i64>, Option<String>)> {
+    use std::fmt::Write as _;
+
+    let myself = myself.cast_exact::<PyInt>().ok()?.extract::<i64>().ok()?;
+    let mut roster = id_list(roster)?;
+    let mut others = roster.iter().copied().filter(|id| *id != myself);
+    let first = others.next();
+    if others.next().is_none() {
+        return Some((Some(first.unwrap_or(myself)), None));
+    }
+
+    // Unlike set-based paths, new private arrivals preserve duplicate
+    // display-recipient IDs when encoding the full group.
+    roster.sort_unstable();
+    let mut encoded = String::new();
+    for (index, id) in roster.into_iter().enumerate() {
+        if index != 0 {
+            encoded.push(',');
+        }
+        write!(&mut encoded, "{id}").ok()?;
+    }
+    Some((None, Some(encoded)))
+}
