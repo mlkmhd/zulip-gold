@@ -494,6 +494,9 @@ mod _zulip_backend {
     use crate::python_updown_duration_display::format_updown_duration_display;
 
     #[pymodule_export]
+    use crate::python_display_recipient_order::plan_display_recipient_order;
+
+    #[pymodule_export]
     use crate::python_sonarqube_display::{
         format_sonarqube_metric_label, join_sonarqube_condition_lines,
     };

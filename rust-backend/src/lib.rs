@@ -295,6 +295,9 @@ mod python_sonarqube_display;
 mod python_updown_duration_display;
 
 #[cfg(feature = "python")]
+mod python_display_recipient_order;
+
+#[cfg(feature = "python")]
 mod python_chart_timestamp_display;
 
 #[cfg(feature = "python")]

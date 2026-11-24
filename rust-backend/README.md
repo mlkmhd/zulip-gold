@@ -6790,6 +6790,14 @@ fallback for unavailable or declined native helpers.
 
 ### Opt-in Git people display text
 
+`ZULIP_RUST_DISPLAY_RECIPIENT_ORDER=1` optionally plans ascending
+display order on the already selected IDs of each direct-message group.
+Django keeps all grouping, queries, cache lookups and record projection.
+Rust sees only supplied IDs and returns indices scoped to each group;
+Django validates the permutation and uses Python for missing, unsupported
+or stale plans. This is off by default and does not change independent
+Rust API coverage.
+
 `ZULIP_RUST_UPDOWN_DURATION_DISPLAY=1` optionally formats the existing
 duration wording for already supplied integer seconds. Django still
 controls event selection, timestamp processing, routes and delivery.

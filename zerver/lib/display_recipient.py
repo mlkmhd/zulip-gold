@@ -1,4 +1,6 @@
+import os
 from collections.abc import Mapping
+from importlib import import_module
 from typing import TYPE_CHECKING, Optional, TypedDict
 
 from django.db.models import QuerySet
@@ -15,6 +17,19 @@ from zerver.lib.types import DisplayRecipientT, UserDisplayRecipient
 
 if TYPE_CHECKING:
     from zerver.models import Recipient
+
+try:
+    _rust_display_recipient_order = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_DISPLAY_RECIPIENT_ORDER") == "1"
+        else None
+    )
+except ImportError:
+    _rust_display_recipient_order = None
+
+_rust_plan_display_recipient_order = getattr(
+    _rust_display_recipient_order, "plan_display_recipient_order", None
+)
 
 display_recipient_fields = [
     "id",
@@ -131,6 +146,41 @@ def bulk_fetch_stream_names(
     return stream_display_recipients
 
 
+def _plan_display_recipient_order(
+    groups: list[set[int]],
+) -> list[tuple[frozenset[int], list[int]]] | None:
+    planner = _rust_plan_display_recipient_order
+    if not callable(planner):
+        return None
+    snapshots: list[tuple[int, ...]] = []
+    for group in groups:
+        if type(group) is not set:
+            return None
+        members = tuple(group)
+        if any(type(member) is not int for member in members):
+            return None
+        snapshots.append(members)
+    native = planner(snapshots)
+    if type(native) is not list or len(native) != len(snapshots):
+        return None
+
+    result: list[tuple[frozenset[int], list[int]]] = []
+    for members, indices in zip(snapshots, native, strict=True):
+        if type(indices) is not list or len(indices) != len(members):
+            return None
+        # An index result can only refer to its own, already selected group.
+        ordered: list[int] = []
+        for index in indices:
+            if type(index) is not int or not 0 <= index < len(members):
+                return None
+            value = members[index]
+            if ordered and value <= ordered[-1]:
+                return None
+            ordered.append(value)
+        result.append((frozenset(map(id, members)), ordered))
+    return result
+
+
 def bulk_fetch_user_display_recipients(
     recipient_tuples: set[tuple[int, int, int]],
     recipient_dm_user_ids: Mapping[int, set[int]] = {},
@@ -165,18 +215,40 @@ def bulk_fetch_user_display_recipients(
 
     # Find all user ids whose UserProfiles we will need to fetch:
     user_ids_to_fetch: set[int] = set()
+    groups_for_display_order: list[set[int]] | None = (
+        [] if callable(_rust_plan_display_recipient_order) else None
+    )
 
     for recipient_id in direct_message_group_recipient_ids:
         direct_message_group_user_ids = user_ids_in_direct_message_groups[recipient_id]
         user_ids_to_fetch |= direct_message_group_user_ids
+        if groups_for_display_order is not None:
+            groups_for_display_order.append(direct_message_group_user_ids)
 
     # Fetch the needed user dictionaries.
     user_display_recipients = bulk_fetch_single_user_display_recipients(list(user_ids_to_fetch))
 
+    planned_order = (
+        _plan_display_recipient_order(groups_for_display_order)
+        if groups_for_display_order is not None
+        else None
+    )
     result = {}
 
-    for recipient_id in direct_message_group_recipient_ids:
-        user_ids = sorted(user_ids_in_direct_message_groups[recipient_id])
+    for position, recipient_id in enumerate(direct_message_group_recipient_ids):
+        current_group = user_ids_in_direct_message_groups[recipient_id]
+        if planned_order is None or type(current_group) is not set:
+            user_ids = sorted(current_group)
+        else:
+            current_members = tuple(current_group)
+            member_identities, ordered = planned_order[position]
+            # Keep aliases and fall back if the original group changed between reads.
+            if len(current_members) == len(member_identities) and all(
+                id(member) in member_identities for member in current_members
+            ):
+                user_ids = ordered
+            else:
+                user_ids = sorted(current_group)
         display_recipients = [user_display_recipients[user_id] for user_id in user_ids]
         result[recipient_id] = display_recipients
 
