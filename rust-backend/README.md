@@ -6902,3 +6902,11 @@ literal title after Python has chosen its article, integration, or category
 parts. Index and catalog-root titles are unchanged. Extraction, routing,
 metadata, escaping and rendering stay in Python. The switch defaults off;
 absent, older, declining or unsupported native helpers use Python.
+
+### Opt-in New Relic display list joins
+
+`ZULIP_RUST_NEWRELIC_DISPLAY_LIST=1` optionally joins already
+formatted condition, policy and custom-detail values with comma and space.
+Python still validates, chooses and formats the individual values and
+retains message and webhook behavior. The switch defaults off, with Python
+fallback for absent, older, declining or unsupported extensions.

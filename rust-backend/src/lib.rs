@@ -325,6 +325,9 @@ mod python_redmine_display;
 mod python_documentation_display_title;
 
 #[cfg(feature = "python")]
+mod python_newrelic_display_list;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]

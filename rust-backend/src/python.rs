@@ -534,6 +534,9 @@ mod _zulip_backend {
     };
 
     #[pymodule_export]
+    use crate::python_newrelic_display_list::join_newrelic_display_list;
+
+    #[pymodule_export]
     use crate::python_documentation_display_title::{
         format_documentation_display_title, format_integration_documentation_title,
     };

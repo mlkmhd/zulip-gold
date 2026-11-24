@@ -1,5 +1,8 @@
 # Webhooks for external integrations.
 
+import os
+from importlib import import_module
+
 from django.core.exceptions import ValidationError
 from django.http import HttpRequest, HttpResponse
 
@@ -75,6 +78,28 @@ EXPECTED_FIELDS = [
 ]
 
 
+try:
+    _rust_newrelic_display_list = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_NEWRELIC_DISPLAY_LIST") == "1"
+        else None
+    )
+except ImportError:
+    _rust_newrelic_display_list = None
+
+_rust_join_newrelic_display_list = getattr(
+    _rust_newrelic_display_list, "join_newrelic_display_list", None
+)
+
+
+def _join_newrelic_display_list(values: list[str]) -> str:
+    if type(values) is list and callable(_rust_join_newrelic_display_list):
+        rendered = _rust_join_newrelic_display_list(values)
+        if type(rendered) is str:
+            return rendered
+    return ", ".join(values)
+
+
 def get_timestamp_string(payload: WildValue, field: str) -> str:
     unix_time = payload[field].tame(check_int)
     return datetime_to_global_time(timestamp_to_datetime(unix_time / 1000))
@@ -86,9 +111,9 @@ def parse_payload(payload: WildValue) -> dict[str, str]:
     conditions_list = payload.get("alertConditionNames", ["Unknown condition"]).tame(
         check_list(check_string)
     )
-    conditions = ", ".join([f"`{c}`" for c in conditions_list])
+    conditions = _join_newrelic_display_list([f"`{c}`" for c in conditions_list])
     policy_list = payload.get("alertPolicyNames", ["Unknown policy"]).tame(check_list(check_string))
-    alert_policy = ", ".join([f"`{p}`" for p in policy_list])
+    alert_policy = _join_newrelic_display_list([f"`{p}`" for p in policy_list])
 
     owner = payload.get("owner").tame(check_none_or(check_string))
     acknowledged = ""
@@ -134,7 +159,9 @@ def format_zulip_custom_fields(payload: WildValue) -> str:
                 )
             )
             if isinstance(details, list):
-                custom_field_detail = ", ".join([f"{detail}" for detail in details])
+                custom_field_detail = _join_newrelic_display_list(
+                    [f"{detail}" for detail in details]
+                )
             else:
                 custom_field_detail = f"{details}"
 
