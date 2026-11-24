@@ -25,6 +25,31 @@ except ModuleNotFoundError as error:
         raise
     _backend = None
 
+try:
+    _roster_replay_backend = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_GROUP_ROSTER_REPLAY") == "1"
+        else None
+    )
+except ModuleNotFoundError as error:
+    if error.name != "_zulip_backend":
+        raise
+    _roster_replay_backend = None
+
+
+def append_roster_ids(selected: object, incoming: object) -> bool:
+    if _roster_replay_backend is None:
+        return False
+    native = getattr(_roster_replay_backend, "append_and_sort_register_group_ids", None)
+    return callable(native) and cast(bool, native(selected, incoming))
+
+
+def subtract_roster_ids(selected: object, incoming: object) -> list[int] | None:
+    if _roster_replay_backend is None:
+        return None
+    native = getattr(_roster_replay_backend, "subtract_register_group_ids", None)
+    return cast("list[int] | None", native(selected, incoming)) if callable(native) else None
+
 
 def membership_available() -> bool:
     return getattr(_backend, "assemble_group_membership", None) is not None

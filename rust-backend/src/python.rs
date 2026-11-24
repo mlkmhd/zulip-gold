@@ -311,7 +311,10 @@ mod _zulip_backend {
     };
 
     #[pymodule_export]
-    use crate::python_group_payload::{assemble_group_membership, assemble_realm_group_payload};
+    use crate::python_group_payload::{
+        append_and_sort_register_group_ids, assemble_group_membership,
+        assemble_realm_group_payload, subtract_register_group_ids,
+    };
 
     #[pymodule_export]
     use crate::python_event_queue::{

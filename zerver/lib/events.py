@@ -23,6 +23,7 @@ from zerver.actions.users import get_owned_bot_dicts
 from zerver.lib import (
     emoji,
     native_channel_folder_replay,
+    native_group_payload,
     native_personal_replay,
     native_recent_conversation_replay,
     native_recent_conversations,
@@ -1978,26 +1979,46 @@ def apply_event(
                     user_group.update(event["data"])
         elif event["op"] == "add_members":
             for user_group in state["realm_user_groups"]:
-                if user_group["id"] == event["group_id"]:
+                if user_group["id"] == event[
+                    "group_id"
+                ] and not native_group_payload.append_roster_ids(
+                    user_group["members"], event["user_ids"]
+                ):
                     user_group["members"].extend(event["user_ids"])
                     user_group["members"].sort()
         elif event["op"] == "remove_members":
             for user_group in state["realm_user_groups"]:
                 if user_group["id"] == event["group_id"]:
-                    members = set(user_group["members"])
-                    user_group["members"] = sorted(members - set(event["user_ids"]))
+                    replayed = native_group_payload.subtract_roster_ids(
+                        user_group["members"], event["user_ids"]
+                    )
+                    if replayed is not None:
+                        user_group["members"] = replayed
+                    else:
+                        members = set(user_group["members"])
+                        user_group["members"] = sorted(members - set(event["user_ids"]))
         elif event["op"] == "add_subgroups":
             for user_group in state["realm_user_groups"]:
-                if user_group["id"] == event["group_id"]:
+                if user_group["id"] == event[
+                    "group_id"
+                ] and not native_group_payload.append_roster_ids(
+                    user_group["direct_subgroup_ids"], event["direct_subgroup_ids"]
+                ):
                     user_group["direct_subgroup_ids"].extend(event["direct_subgroup_ids"])
                     user_group["direct_subgroup_ids"].sort()
         elif event["op"] == "remove_subgroups":
             for user_group in state["realm_user_groups"]:
                 if user_group["id"] == event["group_id"]:
-                    subgroups = set(user_group["direct_subgroup_ids"])
-                    user_group["direct_subgroup_ids"] = sorted(
-                        subgroups - set(event["direct_subgroup_ids"])
+                    replayed = native_group_payload.subtract_roster_ids(
+                        user_group["direct_subgroup_ids"], event["direct_subgroup_ids"]
                     )
+                    if replayed is not None:
+                        user_group["direct_subgroup_ids"] = replayed
+                    else:
+                        subgroups = set(user_group["direct_subgroup_ids"])
+                        user_group["direct_subgroup_ids"] = sorted(
+                            subgroups - set(event["direct_subgroup_ids"])
+                        )
         elif event["op"] == "remove":
             state["realm_user_groups"] = [
                 ug for ug in state["realm_user_groups"] if ug["id"] != event["group_id"]

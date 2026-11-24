@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyInt, PyList, PySet, PyString, PyTuple};
@@ -173,4 +173,64 @@ pub(crate) fn assemble_realm_group_payload<'py>(
         system,
         anonymous,
     )))
+}
+
+/// Replay an already-selected register card's member/subgroup ID append.
+#[pyfunction]
+pub(crate) fn append_and_sort_register_group_ids<'py>(
+    py: Python<'py>,
+    selected: &Bound<'py, PyAny>,
+    incoming: &Bound<'py, PyAny>,
+) -> PyResult<bool> {
+    let (Ok(selected), Ok(incoming)) = (
+        selected.cast_exact::<PyList>(),
+        incoming.cast_exact::<PyList>(),
+    ) else {
+        return Ok(false);
+    };
+    let Some(mut merged) = selected
+        .iter()
+        .chain(incoming.iter())
+        .map(|value| Some((id(&value)?, value)))
+        .collect::<Option<Vec<_>>>()
+    else {
+        return Ok(false);
+    };
+    // Python extend + sort preserves the list and keeps equal items stable.
+    merged.sort_by_key(|(id, _)| *id);
+    let replacement = PyList::new(py, merged.into_iter().map(|(_, value)| value))?;
+    selected.set_slice(0, selected.len(), replacement.as_any())?;
+    Ok(true)
+}
+
+/// Produce the sorted set difference without changing the old roster alias.
+#[pyfunction]
+pub(crate) fn subtract_register_group_ids<'py>(
+    py: Python<'py>,
+    selected: &Bound<'py, PyAny>,
+    incoming: &Bound<'py, PyAny>,
+) -> PyResult<Option<Bound<'py, PyList>>> {
+    let (Ok(selected), Ok(incoming)) = (
+        selected.cast_exact::<PyList>(),
+        incoming.cast_exact::<PyList>(),
+    ) else {
+        return Ok(None);
+    };
+    let Some(removed) = incoming
+        .iter()
+        .map(|value| id(&value))
+        .collect::<Option<HashSet<_>>>()
+    else {
+        return Ok(None);
+    };
+    let mut remaining = BTreeMap::new();
+    for value in selected.iter() {
+        let Some(id) = id(&value) else {
+            return Ok(None);
+        };
+        if !removed.contains(&id) {
+            remaining.entry(id).or_insert(value);
+        }
+    }
+    Ok(Some(PyList::new(py, remaining.into_values())?))
 }

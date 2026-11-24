@@ -6178,6 +6178,25 @@ ZULIP_RUST_REGISTER_PROFILE_PRUNE=0 ./tools/test-backend zerver.tests.test_regis
 ZULIP_RUST_REGISTER_PROFILE_PRUNE=1 ./tools/test-backend zerver.tests.test_register_rust_replay
 ```
 
+### Replay selected user-group rosters through Rust
+
+Set `ZULIP_RUST_GROUP_ROSTER_REPLAY=1` to apply queued member and subgroup
+ID list edits to user-group cards already selected by Django during
+registration. Appends preserve the existing list and its stable ordering;
+removals replace it with the same sorted set difference as Python. An
+unsupported list or older extension returns just that card to Python.
+Visibility, permissions, group membership writes and event order stay in
+Django.
+
+The flag defaults to off. Unset it and restart the worker to restore
+the Python roster replay. Test both flags with the local extension and
+an isolated test database:
+
+```bash
+ZULIP_RUST_GROUP_ROSTER_REPLAY=0 ./tools/test-backend zerver.tests.test_user_group_roster_replay_rust
+ZULIP_RUST_GROUP_ROSTER_REPLAY=1 ./tools/test-backend zerver.tests.test_user_group_roster_replay_rust
+```
+
 ### Verify combined register replay and its rollback
 
 Run this in an isolated Zulip test environment with the current Python
