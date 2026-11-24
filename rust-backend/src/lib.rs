@@ -322,6 +322,9 @@ mod python_mattermost_display_name;
 mod python_redmine_display;
 
 #[cfg(feature = "python")]
+mod python_documentation_display_title;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]

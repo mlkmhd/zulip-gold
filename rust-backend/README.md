@@ -6894,3 +6894,11 @@ already selected issue number and title or joins prepared name parts.
 Python still validates and chooses these values, and handles links and
 delivery. The switch defaults off; absent, older, declining or unsupported
 native implementations use the same Python formatting.
+
+### Opt-in documentation display titles
+
+`ZULIP_RUST_DOCUMENTATION_DISPLAY_TITLE=1` optionally spells the
+literal title after Python has chosen its article, integration, or category
+parts. Index and catalog-root titles are unchanged. Extraction, routing,
+metadata, escaping and rendering stay in Python. The switch defaults off;
+absent, older, declining or unsupported native helpers use Python.

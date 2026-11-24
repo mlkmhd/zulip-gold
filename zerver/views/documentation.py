@@ -37,6 +37,48 @@ from zerver.lib.typed_endpoint import PathOnly, typed_endpoint
 from zerver.models import Realm
 from zerver.openapi.openapi import get_endpoint_from_operationid, get_openapi_summary
 
+try:
+    _rust_documentation_display_title = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_DOCUMENTATION_DISPLAY_TITLE") == "1"
+        else None
+    )
+except ImportError:
+    _rust_documentation_display_title = None
+
+_rust_format_documentation_display_title = getattr(
+    _rust_documentation_display_title, "format_documentation_display_title", None
+)
+_rust_format_integration_documentation_title = getattr(
+    _rust_documentation_display_title, "format_integration_documentation_title", None
+)
+
+
+def _format_documentation_display_title(
+    article_title: str, title_base: str, include_article_title: bool
+) -> str:
+    if not include_article_title:
+        return title_base
+    if (
+        type(article_title) is str
+        and type(title_base) is str
+        and callable(_rust_format_documentation_display_title)
+    ):
+        rendered = _rust_format_documentation_display_title(
+            article_title, title_base, include_article_title
+        )
+        if type(rendered) is str:
+            return rendered
+    return f"{article_title} | {title_base}"
+
+
+def _format_integration_documentation_title(label: str) -> str:
+    if type(label) is str and callable(_rust_format_integration_documentation_title):
+        rendered = _rust_format_integration_documentation_title(label)
+        if type(rendered) is str:
+            return rendered
+    return f"{label} | Zulip integrations"
+
 
 @dataclass
 class DocumentationArticle:
@@ -250,7 +292,9 @@ class MarkdownDirectoryView(ApiURLView):
                 article_title = first_line.lstrip("#").strip()
                 endpoint_name = endpoint_method = None
             if not_index_page:
-                context["PAGE_TITLE"] = f"{article_title} | {title_base}"
+                context["PAGE_TITLE"] = _format_documentation_display_title(
+                    article_title, title_base, not_index_page
+                )
             else:
                 context["PAGE_TITLE"] = title_base
             placeholder_open_graph_description = (
@@ -342,12 +386,12 @@ def add_integrations_open_graph_context(context: dict[str, Any], request: HttpRe
 
     if path_name in INTEGRATIONS:
         integration = INTEGRATIONS[path_name]
-        context["PAGE_TITLE"] = f"{integration.display_name} | Zulip integrations"
+        context["PAGE_TITLE"] = _format_integration_documentation_title(integration.display_name)
         context["PAGE_DESCRIPTION"] = description
 
     elif path_name in CATEGORIES:
         category = CATEGORIES[path_name]
-        context["PAGE_TITLE"] = f"{category} | Zulip integrations"
+        context["PAGE_TITLE"] = _format_integration_documentation_title(category)
         context["PAGE_DESCRIPTION"] = description
 
     elif path_name == "integrations":
