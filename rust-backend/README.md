@@ -6795,3 +6795,11 @@ labels and formats already-ranked committer labels and counts. The single-name
 path, selection, ranking, surrounding templates, URLs, and notification
 behavior stay in Python. The original display formatting is the default and
 handles unavailable or declined native inputs.
+
+### Opt-in chart timestamp display integers
+
+`ZULIP_RUST_CHART_TIMESTAMP_DISPLAY=1` optionally truncates already calculated
+Python chart timestamp floats toward zero for display. Python retains timestamp
+calculation, timezone and bucket handling, and response serialization. The
+original Python conversion is the default and handles unavailable or declined
+native values.

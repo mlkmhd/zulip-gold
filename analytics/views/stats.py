@@ -102,6 +102,20 @@ _project_analytics_subgroup_series = getattr(
 )
 
 
+try:
+    _rust_chart_timestamp_display = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_CHART_TIMESTAMP_DISPLAY") == "1"
+        else None
+    )
+except ImportError:
+    _rust_chart_timestamp_display = None
+
+_rust_truncate_chart_timestamp_display = getattr(
+    _rust_chart_timestamp_display, "truncate_chart_timestamp_display", None
+)
+
+
 def is_analytics_ready(realm: Realm) -> bool:
     return (timezone_now() - realm.date_created) > MAX_TIME_FOR_FULL_ANALYTICS_GENERATION
 
@@ -376,6 +390,18 @@ def get_chart_data(
     )
 
 
+def _chart_display_epoch_seconds(end_times: list[datetime]) -> list[int]:
+    if (
+        _rust_truncate_chart_timestamp_display is not None
+        and type(end_times) is list
+        and all(type(value) is datetime and value.tzinfo is timezone.utc for value in end_times)
+    ):
+        prepared = [value.timestamp() for value in end_times]
+        native = _rust_truncate_chart_timestamp_display(prepared)
+        return [int(value) for value in prepared] if native is None else native
+    return [int(end_time.timestamp()) for end_time in end_times]
+
+
 def _chart_time_in_microseconds(value: datetime) -> int:
     elapsed = value - _CHART_EPOCH
     return (elapsed.days * 86400 + elapsed.seconds) * 1_000_000 + elapsed.microseconds
@@ -585,7 +611,7 @@ def do_get_chart_data(
     assert len({stat.frequency for stat in stats}) == 1
     end_times = _chart_time_range(start, end, stats[0].frequency, min_length)
     data: dict[str, Any] = {
-        "end_times": [int(end_time.timestamp()) for end_time in end_times],
+        "end_times": _chart_display_epoch_seconds(end_times),
         "frequency": stats[0].frequency,
     }
 
