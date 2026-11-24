@@ -1,3 +1,6 @@
+import os
+from importlib import import_module
+
 from django.http import HttpRequest, HttpResponse
 from pydantic import Json
 
@@ -26,6 +29,21 @@ PARTICIPANTS_LIMIT = 5
 COMMENTS_LIMIT = 3
 
 
+try:
+    _rust_gong_display = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_GONG_DISPLAY") == "1"
+        else None
+    )
+except ImportError:
+    _rust_gong_display = None
+
+_rust_format_gong_duration_display = getattr(
+    _rust_gong_display, "format_gong_duration_display", None
+)
+_rust_join_gong_topic_display = getattr(_rust_gong_display, "join_gong_topic_display", None)
+
+
 class Helper:
     def __init__(
         self,
@@ -46,6 +64,10 @@ class Helper:
 
 def format_duration_to_string(duration: int) -> str:
     # The duration value is in seconds.
+    if callable(_rust_format_gong_duration_display):
+        rendered = _rust_format_gong_duration_display(duration)
+        if type(rendered) is str:
+            return rendered
     if duration < 60:
         return f"{duration} {'second' if duration == 1 else 'seconds'}"
     total_minutes = (duration + 30) // 60
@@ -140,6 +162,10 @@ def get_topics(topics_payload: WildValue) -> str:
         else:
             lines.append(f"{name}")
 
+    if callable(_rust_join_gong_topic_display):
+        rendered = _rust_join_gong_topic_display(lines, len(topics) - TOP_CONTENT_LIMIT)
+        if type(rendered) is str:
+            return rendered
     topics_line = ", ".join(lines) if lines else ""
     if (extra_topics := len(topics) - TOP_CONTENT_LIMIT) > 0:
         topics_line += f" and {extra_topics} more {'topic' if extra_topics == 1 else 'topics'}"

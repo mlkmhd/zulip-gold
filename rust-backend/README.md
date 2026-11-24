@@ -6820,3 +6820,11 @@ view dictionaries for the legacy Django GET after the same query. Fragment,
 pin and name values are untouched. The switch defaults off; an absent, older
 or declining extension falls back to Python. Bootstrap, events and writes
 retain their existing Python formatting.
+
+### Opt-in Gong duration and topic display text
+
+`ZULIP_RUST_GONG_DISPLAY=1` optionally formats supplied duration seconds
+and joins the already selected topic display labels. Python still checks
+inputs, chooses and sorts topics, and owns time, URL, message and webhook
+handling. The switch defaults off; absent, older, or declining native
+implementations use the original Python formatting.
