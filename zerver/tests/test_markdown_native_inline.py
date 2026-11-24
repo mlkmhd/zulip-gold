@@ -3,7 +3,7 @@ import random
 import re
 import sys
 from collections.abc import Callable
-from types import FrameType, FunctionType
+from types import FrameType, FunctionType, ModuleType
 from typing import cast
 from unittest import TestCase, mock
 from urllib import parse as urlparse
@@ -96,6 +96,12 @@ class MarkdownNativeInlineTest(TestCase):
             processor.md.htmlStash.rawHtmlBlocks[:],
         )
 
+    def require_native_inline(self) -> ModuleType:
+        native = inline_stash._rust_native_inline
+        if native is None:
+            self.skipTest("Native inline engine is disabled")
+        return native
+
     def compare(
         self,
         build: Callable[[], Element],
@@ -103,9 +109,7 @@ class MarkdownNativeInlineTest(TestCase):
         accepted: bool | None = True,
         configure: Callable[[ZulipMarkdown], None] | None = None,
     ) -> None:
-        native = inline_stash._rust_native_inline
-        if native is None:
-            self.skipTest("Native inline engine is disabled")
+        native = self.require_native_inline()
         reference_md = self.markdown()
         if configure is not None:
             configure(reference_md)
@@ -815,6 +819,8 @@ class MarkdownNativeInlineTest(TestCase):
         self.assertEqual(root[1][0].attrib, {"datetime": "2021-01-02T20:30:00Z"})
 
     def test_native_formatting_and_complete_state(self) -> None:
+        self.require_native_inline()
+
         samples = [
             "plain فارسی 123",
             "**bold *nested* tail** and `*atomic*`",
@@ -856,6 +862,8 @@ class MarkdownNativeInlineTest(TestCase):
         self.compare(build)
 
     def test_named_emoji_catalog_and_inline_state(self) -> None:
+        self.require_native_inline()
+
         from zerver.lib.markdown import name_to_codepoint
 
         samples = [
@@ -912,6 +920,8 @@ class MarkdownNativeInlineTest(TestCase):
         self.assertFalse(hasattr(processor, "stashed_nodes"))
 
     def test_named_emoji_ascii_boundaries(self) -> None:
+        self.require_native_inline()
+
         def configure(md: ZulipMarkdown) -> None:
             registry = cast(native_inline.RegistryInternals, md.inlinePatterns)
             for name in list(registry._data):
@@ -986,6 +996,8 @@ class MarkdownNativeInlineTest(TestCase):
         return data
 
     def test_native_channel_links_and_complete_state(self) -> None:
+        self.require_native_inline()
+
         def configure(md: ZulipMarkdown) -> None:
             md.zulip_db_data = self.channel_data()
             md.zulip_realm = Realm(topics_policy=StreamTopicsPolicyEnum.allow_empty_topic.value)
@@ -1229,6 +1241,8 @@ class MarkdownNativeInlineTest(TestCase):
         self.assertEqual([node.get("class") for node in root[0]], ["stream-topic", "message-link"])
 
     def test_realm_emoji_overrides_and_attributes(self) -> None:
+        self.require_native_inline()
+
         def configure(md: ZulipMarkdown) -> None:
             md.zulip_db_data = self.emoji_data(["smile", "zulip", "custom_name"])
 
@@ -1277,6 +1291,8 @@ class MarkdownNativeInlineTest(TestCase):
         self.assertEqual(root[0][0].tag, "span")
 
     def test_emoticons_enabled_disabled_and_boundaries(self) -> None:
+        self.require_native_inline()
+
         from zerver.lib.emoji import EMOTICON_CONVERSIONS
 
         def configure(md: ZulipMarkdown) -> None:
@@ -1300,6 +1316,8 @@ class MarkdownNativeInlineTest(TestCase):
                             self.compare(build, configure=configure)
 
     def test_emoticons_inline_state_and_live_setting(self) -> None:
+        self.require_native_inline()
+
         def configure(md: ZulipMarkdown) -> None:
             md.zulip_db_data = self.emoji_data(["slight_smile"])
             md.zulip_db_data.translate_emoticons = enabled
