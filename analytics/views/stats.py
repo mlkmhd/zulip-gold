@@ -60,6 +60,19 @@ _rewrite_analytics_client_series = getattr(
 )
 
 
+try:
+    _rust_chart_order = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_ANALYTICS_CHART_ORDER") == "1"
+        else None
+    )
+except ImportError:
+    _rust_chart_order = None
+
+_order_analytics_chart_totals = getattr(_rust_chart_order, "order_analytics_chart_totals", None)
+_order_analytics_chart_clients = getattr(_rust_chart_order, "order_analytics_chart_clients", None)
+
+
 def is_analytics_ready(realm: Realm) -> bool:
     return (timezone_now() - realm.date_created) > MAX_TIME_FOR_FULL_ANALYTICS_GENERATION
 
@@ -561,6 +574,11 @@ def do_get_chart_data(
 
 
 def sort_by_totals(value_arrays: dict[str, list[int]]) -> list[str]:
+    if _order_analytics_chart_totals is not None:
+        native = _order_analytics_chart_totals(value_arrays)
+        if native is not None:
+            return native
+
     totals = sorted(((sum(values), label) for label, values in value_arrays.items()), reverse=True)
     return [label for total, label in totals]
 
@@ -572,6 +590,17 @@ def sort_by_totals(value_arrays: dict[str, list[int]]) -> list[str]:
 # tries to rank the clients so that taking the first N elements of the
 # sorted list has a reasonable chance of doing so.
 def sort_client_labels(data: dict[str, dict[str, list[int]]]) -> list[str]:
+    if (
+        _order_analytics_chart_clients is not None
+        and type(data) is dict
+        and all(type(key) is str for key in data)
+        and "everyone" in data
+        and "user" in data
+    ):
+        native = _order_analytics_chart_clients(data["everyone"], data["user"])
+        if native is not None:
+            return native
+
     realm_order = sort_by_totals(data["everyone"])
     user_order = sort_by_totals(data["user"])
     label_sort_values: dict[str, float] = {label: i for i, label in enumerate(realm_order)}

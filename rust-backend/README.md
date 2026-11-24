@@ -5745,6 +5745,24 @@ for enabled in 0 1; do
 done
 ```
 
+### Order prepared analytics chart labels through Rust
+
+Set `ZULIP_RUST_ANALYTICS_CHART_ORDER=1` before starting Django to
+order labels by totals or combine realm and user label rankings.
+Rust receives only already computed series and returns their existing
+label objects. Queries, chart selection and client aliases stay
+unchanged. This switch is independent of the client series switch.
+
+The switch defaults to off. Missing extension methods or unsupported
+inputs keep Python's original ordering and error behavior. Test both
+modes with synthetic arrays:
+
+```bash
+for enabled in 0 1; do
+    ZULIP_RUST_ANALYTICS_CHART_ORDER=$enabled ./tools/test-backend analytics.tests.test_chart_order_rust
+done
+```
+
 ### Format prepared mobile push text through Rust
 
 Set `ZULIP_RUST_PUSH_TEXT=1` on a Django worker to prefix extracted

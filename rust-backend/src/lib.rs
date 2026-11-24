@@ -232,6 +232,9 @@ mod python_locale_catalog;
 mod python_analytics_client_series;
 
 #[cfg(feature = "python")]
+mod python_analytics_chart_order;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]

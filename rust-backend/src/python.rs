@@ -424,6 +424,11 @@ mod _zulip_backend {
     use crate::python_analytics_client_series::rewrite_analytics_client_series;
 
     #[pymodule_export]
+    use crate::python_analytics_chart_order::{
+        order_analytics_chart_clients, order_analytics_chart_totals,
+    };
+
+    #[pymodule_export]
     use crate::python_push_text::{quote_mobile_push_text, truncate_mobile_push_text};
 
     #[pymodule_export]
