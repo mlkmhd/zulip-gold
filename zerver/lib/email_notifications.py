@@ -11,7 +11,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from email.headerregistry import Address
 from email.utils import format_datetime as email_format_datetime
-from typing import Any
+from importlib import import_module
+from typing import Any, cast
 
 import lxml.html
 from bs4 import BeautifulSoup
@@ -68,6 +69,17 @@ class MessageListPayload:
 
 
 logger = logging.getLogger(__name__)
+
+try:
+    _rust_email_plain_prefix = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_EMAIL_PLAIN_PREFIX") == "1"
+        else None
+    )
+except ModuleNotFoundError as error:
+    if error.name != "_zulip_backend":
+        raise
+    _rust_email_plain_prefix = None
 
 
 def relative_to_full_url(fragment: lxml.html.HtmlElement, base_url: str) -> None:
@@ -246,6 +258,13 @@ def add_quote_prefix_in_text(content: str) -> str:
     We add quote prefix ">" to each line of the message in plain text
     format, such that email clients render the message as quote.
     """
+    if _rust_email_plain_prefix is not None:
+        quote_native = getattr(_rust_email_plain_prefix, "quote_prepared_email_plaintext", None)
+        if callable(quote_native):
+            result = cast("str | None", quote_native(content))
+            if result is not None:
+                return result
+
     lines = content.split("\n")
     output = []
     for line in lines:
@@ -294,7 +313,16 @@ def build_message_list(
     def prepend_sender_to_message(
         message_plain: str, message_html: Markup, sender: str
     ) -> tuple[str, Markup]:
-        message_plain = f"{sender}:\n{message_plain}"
+        decorated_plain = None
+        if _rust_email_plain_prefix is not None:
+            prepend_native = getattr(
+                _rust_email_plain_prefix, "prepend_prepared_email_plaintext_sender", None
+            )
+            if callable(prepend_native):
+                decorated_plain = cast("str | None", prepend_native(message_plain, sender))
+        message_plain = (
+            f"{sender}:\n{message_plain}" if decorated_plain is None else decorated_plain
+        )
         message_soup = BeautifulSoup(message_html, "html.parser")
         sender_name_soup = BeautifulSoup(
             Markup("<b>{sender}</b>: ").format(sender=sender), "html.parser"

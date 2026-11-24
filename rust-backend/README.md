@@ -5625,6 +5625,23 @@ for enabled in 0 1; do
 done
 ```
 
+### Decorate prepared email plaintext through Rust
+
+Set `ZULIP_RUST_EMAIL_PLAIN_PREFIX=1` before starting Django to add quote
+prefixes and a sender header to already processed notification plaintext.
+Only LF splits quoted lines. Empty and trailing lines keep their prefix,
+and CR characters are left in place. Python still controls spoiler
+concealment, links, HTML, sender and recipient selection, and delivery.
+
+The switch defaults to off. Missing extension methods and unsupported
+strings fall back independently. Test both modes without sending mail:
+
+```bash
+for enabled in 0 1; do
+    ZULIP_RUST_EMAIL_PLAIN_PREFIX=$enabled ./tools/test-backend zerver.tests.test_email_plain_prefix_rust
+done
+```
+
 ### Format prepared mobile push text through Rust
 
 Set `ZULIP_RUST_PUSH_TEXT=1` on a Django worker to prefix extracted
