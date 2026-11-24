@@ -5711,6 +5711,23 @@ for enabled in 0 1; do
 done
 ```
 
+### Read prepared language catalog metadata through Rust
+
+Set `ZULIP_RUST_LOCALE_CATALOG=1` before starting Django to look up a
+display name or collect available language codes from an already loaded
+catalog. Python still loads the catalog, applies the availability
+threshold, logs missing names, and owns request language selection.
+
+The switch defaults to off. A missing extension or symbol, or an
+unsupported input, keeps the original Python lookup or projection.
+Test both modes in an isolated environment:
+
+```bash
+for enabled in 0 1; do
+    ZULIP_RUST_LOCALE_CATALOG=$enabled ./tools/test-backend zerver.tests.test_locale_catalog_rust
+done
+```
+
 ### Format prepared mobile push text through Rust
 
 Set `ZULIP_RUST_PUSH_TEXT=1` on a Django worker to prefix extracted

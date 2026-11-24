@@ -3,6 +3,7 @@
 import logging
 import os
 from functools import lru_cache
+from importlib import import_module
 from typing import Any
 
 import orjson
@@ -14,6 +15,20 @@ from django.utils.translation.trans_real import parse_accept_lang_header
 from zerver.lib.request import RequestNotes
 from zerver.models import Realm
 
+try:
+    _rust_locale_catalog = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_LOCALE_CATALOG") == "1"
+        else None
+    )
+except ImportError:
+    _rust_locale_catalog = None
+
+_lookup_catalog_display_name = getattr(_rust_locale_catalog, "lookup_catalog_display_name", None)
+_project_catalog_language_codes = getattr(
+    _rust_locale_catalog, "project_catalog_language_codes", None
+)
+
 
 @lru_cache(None)
 def get_language_list() -> list[dict[str, Any]]:
@@ -24,9 +39,20 @@ def get_language_list() -> list[dict[str, Any]]:
 
 
 def get_language_name(code: str) -> str:
-    for lang in get_language_list():
-        if code in (lang["code"], lang["locale"]):
-            return lang["name"]
+    language_list = get_language_list()
+    native = (
+        _lookup_catalog_display_name(language_list, code)
+        if _lookup_catalog_display_name is not None
+        else None
+    )
+    if native is None:
+        for lang in language_list:
+            if code in (lang["code"], lang["locale"]):
+                return lang["name"]
+    else:
+        (name,) = native
+        if name is not None:
+            return name
     # Log problem, but still return a name
     logging.error("Unknown language code '%s'", code)
     return "Unknown"
@@ -34,10 +60,17 @@ def get_language_name(code: str) -> str:
 
 def get_available_language_codes() -> list[str]:
     language_list = get_language_list()
+    always_visible = "en"
+    min_percent = 5
+    if _project_catalog_language_codes is not None:
+        native = _project_catalog_language_codes(language_list, always_visible, min_percent)
+        if native is not None:
+            return native
+
     codes = [
         language["code"]
         for language in language_list
-        if language["code"] == "en" or language["percent_translated"] >= 5
+        if language["code"] == always_visible or language["percent_translated"] >= min_percent
     ]
     return codes
 

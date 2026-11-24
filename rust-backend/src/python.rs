@@ -416,6 +416,11 @@ mod _zulip_backend {
     use crate::python_widget_text::{extract_poll_widget_text, extract_todo_widget_text};
 
     #[pymodule_export]
+    use crate::python_locale_catalog::{
+        lookup_catalog_display_name, project_catalog_language_codes,
+    };
+
+    #[pymodule_export]
     use crate::python_push_text::{quote_mobile_push_text, truncate_mobile_push_text};
 
     #[pymodule_export]

@@ -226,6 +226,9 @@ mod python_display_mentions;
 mod python_widget_text;
 
 #[cfg(feature = "python")]
+mod python_locale_catalog;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]
