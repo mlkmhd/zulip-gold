@@ -234,6 +234,18 @@ except ModuleNotFoundError as error:
     _rust_import_body = None
 
 
+try:
+    _rust_display_mentions = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_DISPLAY_MENTIONS") == "1"
+        else None
+    )
+except ModuleNotFoundError as error:
+    if error.name != "_zulip_backend":
+        raise
+    _rust_display_mentions = None
+
+
 def truncate_content(content: str, max_length: int, truncation_message: str) -> str:
     if len(content) > max_length:
         content = content[: max_length - len(truncation_message)] + truncation_message
@@ -1923,12 +1935,29 @@ def is_message_to_self(message: Message) -> bool:
 
 
 def get_user_mentions_for_display(user_list: list[UserProfile | UserDisplayRecipient]) -> str:
-    return format_sorted_user_mentions(
-        sorted(silent_mention_syntax_for_user(user) for user in user_list)
-    )
+    plan_native = getattr(_rust_display_mentions, "plan_display_mentions", None)
+    if not callable(plan_native):
+        return format_sorted_user_mentions(
+            sorted(silent_mention_syntax_for_user(user) for user in user_list)
+        )
+
+    mentions = [silent_mention_syntax_for_user(user) for user in user_list]
+    plan = cast("tuple[str | None, str] | None", plan_native(mentions, True))
+    if plan is not None:
+        return _render_display_mention_parts(*plan)
+    return _format_sorted_user_mentions_python(sorted(mentions))
 
 
 def format_sorted_user_mentions(recipient_list: list[str]) -> str:
+    plan_native = getattr(_rust_display_mentions, "plan_display_mentions", None)
+    if callable(plan_native):
+        plan = cast("tuple[str | None, str] | None", plan_native(recipient_list, False))
+        if plan is not None:
+            return _render_display_mention_parts(*plan)
+    return _format_sorted_user_mentions_python(recipient_list)
+
+
+def _format_sorted_user_mentions_python(recipient_list: list[str]) -> str:
     if len(recipient_list) == 1:
         return recipient_list[0]
 
@@ -1936,4 +1965,10 @@ def format_sorted_user_mentions(recipient_list: list[str]) -> str:
     other_users = ", ".join(recipient_list[:-1])
     if len(recipient_list) > 2:
         other_users += ","
+    return _render_display_mention_parts(other_users, last_user)
+
+
+def _render_display_mention_parts(other_users: str | None, last_user: str) -> str:
+    if other_users is None:
+        return last_user
     return _("{other_users} and {last_user}").format(other_users=other_users, last_user=last_user)

@@ -5677,6 +5677,23 @@ for enabled in 0 1; do
 done
 ```
 
+### Plan display text for prepared silent mentions through Rust
+
+Set `ZULIP_RUST_DISPLAY_MENTIONS=1` before starting Django to plan the
+order and comma joining of already constructed silent mention strings.
+The presorted caller keeps its supplied order. Python still selects
+users, builds mention syntax, and renders the locale's joining template.
+
+The switch defaults to off. An absent or older extension, an empty list,
+or unsupported text retains the Python path. Test both modes without
+sending messages:
+
+```bash
+for enabled in 0 1; do
+    ZULIP_RUST_DISPLAY_MENTIONS=$enabled ./tools/test-backend zerver.tests.test_display_mentions_rust
+done
+```
+
 ### Format prepared mobile push text through Rust
 
 Set `ZULIP_RUST_PUSH_TEXT=1` on a Django worker to prefix extracted

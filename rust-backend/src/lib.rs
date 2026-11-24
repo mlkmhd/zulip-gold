@@ -220,6 +220,9 @@ mod python_email_plain_prefix;
 mod python_onboarding_text;
 
 #[cfg(feature = "python")]
+mod python_display_mentions;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]

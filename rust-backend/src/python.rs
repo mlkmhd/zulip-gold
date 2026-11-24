@@ -410,6 +410,9 @@ mod _zulip_backend {
     };
 
     #[pymodule_export]
+    use crate::python_display_mentions::plan_display_mentions;
+
+    #[pymodule_export]
     use crate::python_push_text::{quote_mobile_push_text, truncate_mobile_push_text};
 
     #[pymodule_export]
