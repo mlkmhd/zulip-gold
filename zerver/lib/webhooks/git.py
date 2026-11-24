@@ -35,6 +35,19 @@ _rust_format_git_display_committers = getattr(
     _rust_git_display_people, "format_git_display_committers", None
 )
 
+try:
+    _rust_git_commit_summary = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_GIT_COMMIT_SUMMARY_TEXT") == "1"
+        else None
+    )
+except ImportError:
+    _rust_git_commit_summary = None
+
+_rust_finish_git_commit_summary_text = getattr(
+    _rust_git_commit_summary, "finish_git_commit_summary_text", None
+)
+
 TOPIC_WITH_BRANCH_TEMPLATE = "{repo} / {branch}"
 TOPIC_WITH_PR_OR_ISSUE_INFO_TEMPLATE = "{repo} / {type} #{id} {title}"
 TOPIC_WITH_RELEASE_TEMPLATE = "{repo} / {tag} {title}"
@@ -44,6 +57,7 @@ EMPTY_SHA = "0000000000000000000000000000000000000000"
 COMMITS_LIMIT = 20
 COMMIT_ROW_TEMPLATE = "* {commit_msg} ([{commit_short_sha}]({commit_url}))\n"
 COMMITS_MORE_THAN_LIMIT_TEMPLATE = "[and {commits_number} more commit(s)]"
+_python_commits_more_than_limit_template = COMMITS_MORE_THAN_LIMIT_TEMPLATE
 COMMIT_OR_COMMITS = "commit{}"
 
 PUSH_PUSHED_TEXT_WITH_URL = "[{push_type}]({compare_url}) {number_of_commits} {commit_or_commits}"
@@ -460,6 +474,18 @@ def get_commits_comment_action_message(
     return content
 
 
+def _try_finish_git_commit_summary_text(rows: str, omission: int | None) -> str | None:
+    finish = _rust_finish_git_commit_summary_text
+    if not callable(finish) or (
+        COMMITS_MORE_THAN_LIMIT_TEMPLATE is not _python_commits_more_than_limit_template
+    ):
+        return None
+    result = finish(rows, omission)
+    if type(result) is str:
+        return result
+    return None
+
+
 def get_commits_content(commits_data: list[dict[str, Any]], is_truncated: bool = False) -> str:
     commits_content = ""
     for commit in commits_data[:COMMITS_LIMIT]:
@@ -470,13 +496,29 @@ def get_commits_content(commits_data: list[dict[str, Any]], is_truncated: bool =
         )
 
     if len(commits_data) > COMMITS_LIMIT:
-        commits_content += COMMITS_MORE_THAN_LIMIT_TEMPLATE.format(
-            commits_number=len(commits_data) - COMMITS_LIMIT,
-        )
+        suffix_template = COMMITS_MORE_THAN_LIMIT_TEMPLATE
+        format_suffix = suffix_template.format
+        omitted = len(commits_data) - COMMITS_LIMIT
+        if (
+            suffix_template is _python_commits_more_than_limit_template
+            and type(omitted) is int
+            and omitted > 0
+        ):
+            native = _try_finish_git_commit_summary_text(commits_content, omitted)
+            if native is not None:
+                return native
+        commits_content += format_suffix(commits_number=omitted)
     elif is_truncated:
+        native = _try_finish_git_commit_summary_text(commits_content, 0)
+        if native is not None:
+            return native
         commits_content += COMMITS_MORE_THAN_LIMIT_TEMPLATE.format(
             commits_number="",
         ).replace("  ", " ")
+    else:
+        native = _try_finish_git_commit_summary_text(commits_content, None)
+        if native is not None:
+            return native
     return commits_content.rstrip()
 
 

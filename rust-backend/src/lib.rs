@@ -286,6 +286,9 @@ mod python_slack_field_display;
 mod python_git_display_people;
 
 #[cfg(feature = "python")]
+mod python_git_commit_summary_text;
+
+#[cfg(feature = "python")]
 mod python_chart_timestamp_display;
 
 #[cfg(feature = "python")]

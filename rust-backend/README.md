@@ -6790,6 +6790,14 @@ fallback for unavailable or declined native helpers.
 
 ### Opt-in Git people display text
 
+`ZULIP_RUST_GIT_COMMIT_SUMMARY_TEXT=1` optionally finishes already-rendered
+Git commit display rows with the literal omission suffix selected by Django
+and trims trailing Python whitespace. Django retains the existing commit
+limit, row rendering, links and Markdown. The helper is off by default;
+unsupported values, absent or older extensions, and native declines use the
+original Python implementation. This does not change independent Rust API
+coverage.
+
 `ZULIP_RUST_GIT_DISPLAY_PEOPLE=1` optionally joins already-extracted assignee
 labels and formats already-ranked committer labels and counts. The single-name
 path, selection, ranking, surrounding templates, URLs, and notification
