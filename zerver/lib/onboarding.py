@@ -15,6 +15,7 @@ from zerver.actions.message_send import (
     internal_send_private_message,
 )
 from zerver.actions.reactions import do_add_reaction
+from zerver.lib import native_onboarding_text
 from zerver.lib.demo_organizations import get_scheduled_deletion_global_time
 from zerver.lib.emoji import get_emoji_data
 from zerver.lib.markdown.fenced_code import get_unused_fence
@@ -61,6 +62,14 @@ def get_custom_welcome_message_string(realm: Realm, welcome_message_custom_text:
     welcome_bot_custom_message_intro_string = _("A note from {admin_group_syntax}:").format(
         admin_group_syntax=mention_syntax
     )
+
+    wrap_native = native_onboarding_text.wrap_prepared_welcome_quote
+    if wrap_native is not None:
+        result = wrap_native(
+            welcome_bot_custom_message_intro_string, fence, welcome_message_custom_text
+        )
+        if result is not None:
+            return result
 
     welcome_bot_custom_message_string = f"""
 {welcome_bot_custom_message_intro_string}

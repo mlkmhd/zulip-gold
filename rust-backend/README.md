@@ -5642,6 +5642,23 @@ for enabled in 0 1; do
 done
 ```
 
+### Format prepared onboarding text through Rust
+
+Set `ZULIP_RUST_ONBOARDING_TEXT=1` before starting Django to apply the
+existing single-newline cleanup and format a custom welcome quote from
+its translated introduction, chosen fence, and body. Blank lines and
+list boundaries are preserved. Django still selects mentions, the
+translation and fence, and handles all onboarding actions and delivery.
+
+The switch defaults to off. Missing extension methods or unsupported
+strings fall back independently. Test both modes without sending messages:
+
+```bash
+for enabled in 0 1; do
+    ZULIP_RUST_ONBOARDING_TEXT=$enabled ./tools/test-backend zerver.tests.test_onboarding_text_rust
+done
+```
+
 ### Format prepared mobile push text through Rust
 
 Set `ZULIP_RUST_PUSH_TEXT=1` on a Django worker to prefix extracted

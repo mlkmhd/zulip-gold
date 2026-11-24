@@ -17,7 +17,7 @@ from django_cte import CTE, with_cte
 
 from analytics.lib.counts import COUNT_STATS
 from analytics.models import RealmCount
-from zerver.lib import native_recent_conversations, native_topic_text
+from zerver.lib import native_onboarding_text, native_recent_conversations, native_topic_text
 from zerver.lib.cache import generic_bulk_cached_fetch, to_dict_cache_key_id
 from zerver.lib.display_recipient import get_display_recipient_by_id
 from zerver.lib.event_types import MessageDetails
@@ -1867,6 +1867,12 @@ def set_visibility_policy_possible(user_profile: UserProfile, message: Message) 
 
 
 def remove_single_newlines(content: str) -> str:
+    flatten_native = native_onboarding_text.flatten_prepared_onboarding_newlines
+    if flatten_native is not None:
+        result = flatten_native(content)
+        if result is not None:
+            return result
+
     content = content.strip("\n")
     return re.sub(r"(?<!\n)\n(?!\n|[-*] |[0-9]+\. ) *", " ", content)
 

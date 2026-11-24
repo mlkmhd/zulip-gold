@@ -404,6 +404,11 @@ mod _zulip_backend {
     };
 
     #[pymodule_export]
+    use crate::python_onboarding_text::{
+        flatten_prepared_onboarding_newlines, wrap_prepared_welcome_quote,
+    };
+
+    #[pymodule_export]
     use crate::python_push_text::{quote_mobile_push_text, truncate_mobile_push_text};
 
     #[pymodule_export]

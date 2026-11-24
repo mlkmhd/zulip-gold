@@ -217,6 +217,9 @@ mod python_compose_quote;
 mod python_email_plain_prefix;
 
 #[cfg(feature = "python")]
+mod python_onboarding_text;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]
