@@ -6853,3 +6853,11 @@ team prefix after Python chooses the existing team branch. Python retains
 selection, legacy formatting dispatch, and the original fallback for absent,
 older or declining extensions. The switch defaults off and does not change
 data import, routing or storage.
+
+### Opt-in OpenProject duration wording
+
+`ZULIP_RUST_OPENPROJECT_DURATION_DISPLAY=1` optionally formats
+prepared duration counts and joins the display parts. Python retains the
+existing parser, field order, integer conversions, and singular/plural unit
+selection. The switch defaults off; absent, older or declining extensions
+use the original formatting. Webhook inputs and delivery are unchanged.

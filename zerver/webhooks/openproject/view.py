@@ -1,3 +1,6 @@
+import os
+from importlib import import_module
+
 import regex as re
 from django.http import HttpRequest, HttpResponse
 
@@ -29,6 +32,31 @@ ATTACHMENT_MESSAGE_TEMPLATE = "**{author}** uploaded **{filename}** in **{contai
 TIME_ENTRY_MESSAGE_TEMPLATE = "**{user}** logged {duration_message}{parent_message}."
 
 
+try:
+    _rust_openproject_duration_display = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_OPENPROJECT_DURATION_DISPLAY") == "1"
+        else None
+    )
+except ImportError:
+    _rust_openproject_duration_display = None
+
+_rust_format_openproject_duration_part = getattr(
+    _rust_openproject_duration_display, "format_openproject_duration_part", None
+)
+_rust_join_openproject_duration_parts = getattr(
+    _rust_openproject_duration_display, "join_openproject_duration_parts", None
+)
+
+
+def _format_openproject_duration_part(amount: int, label: str) -> str:
+    if callable(_rust_format_openproject_duration_part):
+        rendered = _rust_format_openproject_duration_part(amount, label)
+        if type(rendered) is str:
+            return rendered
+    return f"{amount} {label}"
+
+
 def format_duration(iso_duration: str) -> str:
     duration = re.fullmatch(
         r"P(?:(?P<days>\d+)D)?(?:T(?:(?P<hours>\d+)H)?(?:(?P<minutes>\d+)M)?(?:(?P<seconds>\d+)S)?)?",
@@ -39,12 +67,18 @@ def format_duration(iso_duration: str) -> str:
 
     time_units = ["days", "hours", "minutes", "seconds"]
     formatted_duration = [
-        f"{int(duration.group(unit))} {unit[:-1] if int(duration.group(unit)) == 1 else unit}"
+        _format_openproject_duration_part(
+            int(duration.group(unit)), unit[:-1] if int(duration.group(unit)) == 1 else unit
+        )
         for unit in time_units
         if duration.group(unit)
     ]
 
     if len(formatted_duration) > 1:
+        if callable(_rust_join_openproject_duration_parts):
+            rendered = _rust_join_openproject_duration_parts(formatted_duration)
+            if type(rendered) is str:
+                return rendered
         return ", ".join(formatted_duration[:-1]) + " and " + formatted_duration[-1]
     return formatted_duration[0]
 
