@@ -1,8 +1,11 @@
+import os
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import date as calendar_date
 from datetime import datetime
 from decimal import Decimal
+from importlib import import_module
 from typing import Any
 
 from django.conf import settings
@@ -95,9 +98,33 @@ def dictfetchall(cursor: CursorWrapper) -> list[dict[str, Any]]:
     return [dict(zip((col[0] for col in desc), row, strict=False)) for row in cursor.fetchall()]
 
 
+try:
+    _rust_activity_date_display = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_ACTIVITY_DATE_DISPLAY") == "1"
+        else None
+    )
+except ImportError:
+    _rust_activity_date_display = None
+
+_rust_format_activity_display_day = getattr(
+    _rust_activity_date_display, "format_activity_display_day", None
+)
+_rust_format_activity_display_minute = getattr(
+    _rust_activity_date_display, "format_activity_display_minute", None
+)
+
+
 def format_optional_datetime(date: datetime | None, display_none: bool = False) -> str:
     if date:
-        return date.replace(tzinfo=None).isoformat(" ", "minutes")
+        prepared = date.replace(tzinfo=None)
+        if type(prepared) is datetime and callable(_rust_format_activity_display_minute):
+            rendered = _rust_format_activity_display_minute(
+                prepared.year, prepared.month, prepared.day, prepared.hour, prepared.minute
+            )
+            if type(rendered) is str:
+                return rendered
+        return prepared.isoformat(" ", "minutes")
     elif display_none:
         return "None"
     else:
@@ -105,7 +132,12 @@ def format_optional_datetime(date: datetime | None, display_none: bool = False) 
 
 
 def format_datetime_as_date(date: datetime) -> str:
-    return date.date().isoformat()
+    prepared = date.date()
+    if type(prepared) is calendar_date and callable(_rust_format_activity_display_day):
+        rendered = _rust_format_activity_display_day(prepared.year, prepared.month, prepared.day)
+        if type(rendered) is str:
+            return rendered
+    return prepared.isoformat()
 
 
 def format_none_as_zero(value: int | None) -> int:

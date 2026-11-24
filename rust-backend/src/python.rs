@@ -521,6 +521,11 @@ mod _zulip_backend {
     };
 
     #[pymodule_export]
+    use crate::python_activity_date_display::{
+        format_activity_display_day, format_activity_display_minute,
+    };
+
+    #[pymodule_export]
     use crate::python_push_text::{quote_mobile_push_text, truncate_mobile_push_text};
 
     #[pymodule_export]

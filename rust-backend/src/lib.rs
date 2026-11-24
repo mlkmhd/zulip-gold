@@ -313,6 +313,9 @@ mod python_openproject_duration_display;
 mod python_integration_catalog_display;
 
 #[cfg(feature = "python")]
+mod python_activity_date_display;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]

@@ -6869,3 +6869,11 @@ already aggregated integration count and assembles selected category tuples
 for documentation display. Return-category routing, catalog eligibility,
 templates and URL handling retain their existing Python paths. Default is
 off; an absent, older, declining or incompatible extension uses Python.
+
+### Opt-in activity date cell display
+
+`ZULIP_RUST_ACTIVITY_DATE_DISPLAY=1` optionally spells the fixed
+calendar day or calendar minute after Python performs its original date
+operations. It does not choose a timezone, convert time, or change how
+missing values display. It defaults off, with Python fallback for older,
+absent or declining extensions and custom date types.
