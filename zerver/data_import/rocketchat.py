@@ -4,6 +4,7 @@ import struct
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Iterator
+from importlib import import_module
 from typing import IO, Any
 
 import bson
@@ -256,16 +257,46 @@ def process_users(
             bot_user["bot_owner"] = realm_owners[0]
 
 
+try:
+    _rust_rocketchat_display_name = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_ROCKETCHAT_DISPLAY_NAME") == "1"
+        else None
+    )
+except ImportError:
+    _rust_rocketchat_display_name = None
+
+_rust_truncate_rocketchat_display_name = getattr(
+    _rust_rocketchat_display_name, "truncate_rocketchat_display_name", None
+)
+_rust_prefix_rocketchat_team_display_name = getattr(
+    _rust_rocketchat_display_name, "prefix_rocketchat_team_display_name", None
+)
+
+
 def truncate_name(name: str, name_id: int, max_length: int = 60) -> str:
     if len(name) > max_length:
         name_id_suffix = f" [{name_id}]"
+        if (
+            type(name) is str
+            and type(max_length) is int
+            and callable(_rust_truncate_rocketchat_display_name)
+        ):
+            rendered = _rust_truncate_rocketchat_display_name(name, max_length, name_id_suffix)
+            if type(rendered) is str:
+                return rendered
         name = name[0 : max_length - len(name_id_suffix)] + name_id_suffix
     return name
 
 
 def get_stream_name(rc_channel: dict[str, Any]) -> str:
     if rc_channel.get("teamMain"):
-        stream_name = f"[TEAM] {rc_channel['name']}"
+        channel_name = rc_channel["name"]
+        if type(channel_name) is str and callable(_rust_prefix_rocketchat_team_display_name):
+            rendered = _rust_prefix_rocketchat_team_display_name(channel_name)
+        else:
+            rendered = None
+        stream_name = rendered if type(rendered) is str else f"[TEAM] {channel_name}"
     else:
         stream_name = rc_channel["name"]
 

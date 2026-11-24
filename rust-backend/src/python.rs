@@ -506,6 +506,11 @@ mod _zulip_backend {
     use crate::python_jotform_value_display::join_jotform_display_values;
 
     #[pymodule_export]
+    use crate::python_rocketchat_display_name::{
+        prefix_rocketchat_team_display_name, truncate_rocketchat_display_name,
+    };
+
+    #[pymodule_export]
     use crate::python_push_text::{quote_mobile_push_text, truncate_mobile_push_text};
 
     #[pymodule_export]

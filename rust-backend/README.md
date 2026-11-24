@@ -6844,3 +6844,12 @@ and ordered dictionary values with a space. Python still handles scalar
 strings, selects fields, parses input, and handles files and delivery.
 The switch defaults off; an absent, older, or declining extension uses the
 original Python joins.
+
+### Opt-in Rocket.Chat display name text
+
+`ZULIP_RUST_ROCKETCHAT_DISPLAY_NAME=1` optionally clips a name
+after Python chooses it and formats its existing suffix, or adds the literal
+team prefix after Python chooses the existing team branch. Python retains
+selection, legacy formatting dispatch, and the original fallback for absent,
+older or declining extensions. The switch defaults off and does not change
+data import, routing or storage.

@@ -304,6 +304,9 @@ mod python_channel_folder_display;
 mod python_jotform_value_display;
 
 #[cfg(feature = "python")]
+mod python_rocketchat_display_name;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]
