@@ -5780,6 +5780,23 @@ for enabled in 0 1; do
 done
 ```
 
+### Normalize whitespace in extracted description text through Rust
+
+Set `ZULIP_RUST_DESCRIPTION_TEXT=1` before starting Django to collapse
+whitespace in text Python has already extracted for a description.
+Python still parses HTML, selects and separates elements, enforces the
+existing length cutoff, and escapes the result.
+
+The switch defaults to off. A missing extension or symbol, or an
+unsupported string, keeps Python's original split and join. Test both
+modes using synthetic descriptions:
+
+```bash
+for enabled in 0 1; do
+    ZULIP_RUST_DESCRIPTION_TEXT=$enabled ./tools/test-backend zerver.tests.test_description_text_rust
+done
+```
+
 ### Format prepared mobile push text through Rust
 
 Set `ZULIP_RUST_PUSH_TEXT=1` on a Django worker to prefix extracted

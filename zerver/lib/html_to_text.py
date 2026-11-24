@@ -1,9 +1,32 @@
+import os
 from collections.abc import Mapping
+from importlib import import_module
 
 from bs4 import BeautifulSoup
 from django.utils.html import escape
 
 from zerver.lib.cache import cache_with_key, open_graph_description_cache_key
+
+try:
+    _rust_description_text = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_DESCRIPTION_TEXT") == "1"
+        else None
+    )
+except ImportError:
+    _rust_description_text = None
+
+_rust_normalize_description_text = getattr(
+    _rust_description_text, "normalize_description_text", None
+)
+
+
+def _normalize_description_text(text: str) -> str:
+    if _rust_normalize_description_text is not None:
+        native = _rust_normalize_description_text(text)
+        if native is not None:
+            return native
+    return " ".join(text.split())
 
 
 def html_to_text(content: str | bytes, tags: Mapping[str, str] = {"p": " | "}) -> str:
@@ -30,7 +53,7 @@ def html_to_text(content: str | bytes, tags: Mapping[str, str] = {"p": " | "}) -
         text += element.text
         if len(text) > 500:
             break
-    return escape(" ".join(text.split()))
+    return escape(_normalize_description_text(text))
 
 
 @cache_with_key(open_graph_description_cache_key, timeout=3600 * 24)

@@ -238,6 +238,9 @@ mod python_analytics_chart_order;
 mod python_timezone_aliases;
 
 #[cfg(feature = "python")]
+mod python_description_text;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]
