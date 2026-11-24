@@ -17,7 +17,7 @@ from django_cte import CTE, with_cte
 
 from analytics.lib.counts import COUNT_STATS
 from analytics.models import RealmCount
-from zerver.lib import native_recent_conversations
+from zerver.lib import native_recent_conversations, native_topic_text
 from zerver.lib.cache import generic_bulk_cached_fetch, to_dict_cache_key_id
 from zerver.lib.display_recipient import get_display_recipient_by_id
 from zerver.lib.event_types import MessageDetails
@@ -276,6 +276,16 @@ TOPIC_TRUNCATION_MESSAGE = "..."
 
 
 def truncate_topic(topic_name: str) -> str:
+    truncate_native = native_topic_text.truncate_topic_title
+    if (
+        truncate_native is not None
+        and type(MAX_TOPIC_NAME_LENGTH) is int
+        and type(TOPIC_TRUNCATION_MESSAGE) is str
+        and TOPIC_TRUNCATION_MESSAGE == "..."
+    ):
+        result = truncate_native(topic_name, MAX_TOPIC_NAME_LENGTH)
+        if result is not None:
+            return result
     return truncate_content(topic_name, MAX_TOPIC_NAME_LENGTH, TOPIC_TRUNCATION_MESSAGE)
 
 

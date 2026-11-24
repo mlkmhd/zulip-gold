@@ -208,6 +208,9 @@ mod python_import_body;
 mod python_digest_rank;
 
 #[cfg(feature = "python")]
+mod python_topic_text;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]

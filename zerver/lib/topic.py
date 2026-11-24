@@ -21,6 +21,7 @@ from django.db.models.functions import Cast
 from django.utils.translation import gettext as _
 from django.utils.translation import override as override_language
 
+from zerver.lib import native_topic_text
 from zerver.lib.native_topic_history import TopicHistoryEntry, format_visible_rows
 from zerver.lib.types import EditHistoryEvent, StreamMessageEditRequest
 from zerver.lib.utils import assert_is_not_none
@@ -374,6 +375,15 @@ def get_topic_resolution_and_bare_name(stored_name: str) -> tuple[bool, str]:
     - Whether the topic has been resolved
     - The topic name with the resolution prefix, if present in stored_name, removed
     """
+    split_native = native_topic_text.split_resolved_topic_title
+    if (
+        split_native is not None
+        and type(RESOLVED_TOPIC_PREFIX) is str
+        and RESOLVED_TOPIC_PREFIX == "✔ "
+    ):
+        result = split_native(stored_name)
+        if result is not None:
+            return result
     if stored_name.startswith(RESOLVED_TOPIC_PREFIX):
         return (True, stored_name.removeprefix(RESOLVED_TOPIC_PREFIX))
 

@@ -391,6 +391,9 @@ mod _zulip_backend {
     use crate::python_digest_rank::rank_eligible_digest_topic_indices;
 
     #[pymodule_export]
+    use crate::python_topic_text::{split_resolved_topic_title, truncate_topic_title};
+
+    #[pymodule_export]
     use crate::python_push_text::{quote_mobile_push_text, truncate_mobile_push_text};
 
     #[pymodule_export]
