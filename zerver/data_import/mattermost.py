@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 from dataclasses import dataclass
+from importlib import import_module
 from typing import Any, TypeAlias
 
 import orjson
@@ -78,6 +79,48 @@ def make_realm(realm_id: int, team: dict[str, Any]) -> ZerverFieldsT:
     return realm
 
 
+try:
+    _rust_mattermost_display_name = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_MATTERMOST_DISPLAY_NAME") == "1"
+        else None
+    )
+except ImportError:
+    _rust_mattermost_display_name = None
+
+_rust_plan_mattermost_display_name = getattr(
+    _rust_mattermost_display_name, "plan_mattermost_display_name", None
+)
+
+
+def _get_mattermost_display_name(user_dict: dict[str, Any]) -> str:
+    first_name = user_dict["first_name"]
+    last_name = user_dict["last_name"]
+    planned = None
+    if (
+        type(first_name) is str
+        and type(last_name) is str
+        and callable(_rust_plan_mattermost_display_name)
+    ):
+        planned = _rust_plan_mattermost_display_name(first_name, last_name)
+    if (
+        type(planned) is tuple
+        and len(planned) == 2
+        and type(planned[0]) is str
+        and type(planned[1]) is bool
+    ):
+        full_name, has_text = planned
+    else:
+        # Keep Python formatting for unsupported values.
+        full_name_pattern = "{} {}"
+        full_name = full_name_pattern.format(first_name, last_name)
+        has_text = bool(full_name.strip())
+    if has_text:
+        return full_name
+    # Bots only have display_name.
+    return user_dict.get("display_name") or user_dict["username"]
+
+
 def process_user(
     user_dict: dict[str, Any], realm_id: int, team_name: str, user_id_mapper: IdMapper[str]
 ) -> ZerverFieldsT:
@@ -97,15 +140,8 @@ def process_user(
                 return True
         return False
 
-    def get_full_name(user_dict: dict[str, Any]) -> str:
-        full_name = "{} {}".format(user_dict["first_name"], user_dict["last_name"])
-        if full_name.strip():
-            return full_name
-        # Bots only have display_name.
-        return user_dict.get("display_name") or user_dict["username"]
-
     avatar_source = UserProfile.DEFAULT_AVATAR_SOURCE
-    full_name = get_full_name(user_dict)
+    full_name = _get_mattermost_display_name(user_dict)
     id = user_id_mapper.get(user_dict["username"])
     delivery_email = user_dict["email"]
     email = user_dict["email"]

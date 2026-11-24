@@ -6877,3 +6877,12 @@ calendar day or calendar minute after Python performs its original date
 operations. It does not choose a timezone, convert time, or change how
 missing values display. It defaults off, with Python fallback for older,
 absent or declining extensions and custom date types.
+
+### Opt-in Mattermost display name preparation
+
+`ZULIP_RUST_MATTERMOST_DISPLAY_NAME=1` optionally assembles the
+already supplied first and last name strings and checks for text using the
+same whitespace as Python. The returned name is not trimmed. Python still
+chooses the original display name or username fallback. The switch defaults
+off, with Python fallback for absent, older or declining native helpers
+and unusual inputs.

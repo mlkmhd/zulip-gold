@@ -316,6 +316,9 @@ mod python_integration_catalog_display;
 mod python_activity_date_display;
 
 #[cfg(feature = "python")]
+mod python_mattermost_display_name;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]
