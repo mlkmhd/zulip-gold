@@ -1,6 +1,8 @@
 import re
 from dataclasses import asdict
+from importlib import import_module
 from io import BytesIO, StringIO
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import orjson
@@ -9,6 +11,7 @@ from django.conf import settings
 from django.http import HttpRequest
 from django.test import override_settings
 
+from zerver.lib import native_thumbnail_status
 from zerver.lib.test_classes import ZulipTestCase
 from zerver.lib.test_helpers import (
     consume_response,
@@ -17,12 +20,14 @@ from zerver.lib.test_helpers import (
     read_test_image_file,
 )
 from zerver.lib.thumbnail import (
+    AttachmentData,
     BadImageError,
     BaseThumbnailFormat,
     StoredThumbnailFormat,
     ThumbnailFormat,
     get_image_thumbnail_path,
     get_transcoded_format,
+    manifest_and_get_user_upload_previews,
     missing_thumbnails,
     resize_emoji,
     split_thumbnail_path,
@@ -740,6 +745,90 @@ class TestStoreThumbnail(ZulipTestCase):
             self.assertEqual(get_transcoded_format(image_attachment), None)
             image_attachment.content_type = ""
             self.assertEqual(get_transcoded_format(image_attachment), None)
+
+    def test_transcoded_manifest_parity(self) -> None:
+        realm = self.example_user("hamlet").realm
+        small = asdict(StoredThumbnailFormat("webp", 840, 560, False, "image/webp", 5, 5, 20))
+        first = asdict(StoredThumbnailFormat("webp", 4032, 3024, False, "image/webp", 60, 40, 100))
+        last = asdict(StoredThumbnailFormat("webp", 3024, 4032, False, "image/webp", 40, 60, 200))
+
+        def image(name: str, content_type: str, metadata: object) -> ImageAttachment:
+            return ImageAttachment.objects.create(
+                realm=realm,
+                path_id=f"1/native-transcode/{name}",
+                content_type=content_type,
+                original_width_px=60,
+                original_height_px=40,
+                frames=1,
+                thumbnail_metadata=metadata,
+            )
+
+        tie = image("tie", "image/tiff", [small, first, last])
+        largest_first = image("largest-first", "image/tiff", [first, small])
+        inline = image("inline", "image/png", [last])
+        pending = image("pending", "image/tiff", [])
+        paths = [pending.path_id, tie.path_id, inline.path_id, largest_first.path_id]
+
+        def manifest() -> AttachmentData:
+            with patch("zerver.lib.thumbnail.queue_event_on_commit") as queued:
+                data = manifest_and_get_user_upload_previews(realm.id, "", path_ids=paths)
+            queued.assert_called_once_with(
+                "thumbnail", {"id": pending.id, "path_id": pending.path_id}
+            )
+            return data
+
+        with patch.object(native_thumbnail_status, "_selection_backend", None):
+            expected = manifest()
+        self.assertEqual(
+            list(expected.image_metadata),
+            [tie.path_id, largest_first.path_id, inline.path_id, pending.path_id],
+        )
+        self.assertEqual(asdict(expected.image_metadata[tie.path_id])["transcoded_image"], last)
+        self.assertEqual(
+            asdict(expected.image_metadata[largest_first.path_id])["transcoded_image"], first
+        )
+        self.assertIsNone(expected.image_metadata[inline.path_id].transcoded_image)
+        self.assertIsNone(expected.image_metadata[pending.path_id].url)
+        with patch.object(native_thumbnail_status, "_selection_backend", SimpleNamespace()):
+            self.assertEqual(asdict(manifest()), asdict(expected))
+
+        try:
+            backend = import_module("_zulip_backend")
+        except ModuleNotFoundError as error:
+            if error.name != "_zulip_backend":
+                raise
+            return
+        native = getattr(backend, "thumbnail_transcode_indexes", None)
+        if not callable(native):
+            return
+        accepted: list[list[int] | None] = []
+
+        def witness(rows: list[object]) -> list[int] | None:
+            self.assert_length(rows, 2)
+            result: list[int] | None = native(rows)
+            accepted.append(result)
+            return result
+
+        with patch.object(
+            native_thumbnail_status,
+            "_selection_backend",
+            SimpleNamespace(thumbnail_transcode_indexes=witness),
+        ):
+            self.assertEqual(asdict(manifest()), asdict(expected))
+            # Python handles old non-integer dimensions. A decline in a
+            # second image must leave the first selection equally unchanged.
+            largest_first.thumbnail_metadata = [{**first, "width": 60.5}, small]
+            largest_first.save(update_fields=["thumbnail_metadata"])
+            with patch.object(native_thumbnail_status, "_selection_backend", None):
+                fallback = manifest()
+            self.assertEqual(asdict(manifest()), asdict(fallback))
+            # A legacy empty object is different from a pending empty list.
+            largest_first.thumbnail_metadata = {}
+            largest_first.save(update_fields=["thumbnail_metadata"])
+            with patch.object(native_thumbnail_status, "_selection_backend", None):
+                fallback = manifest()
+            self.assertEqual(asdict(manifest()), asdict(fallback))
+        self.assertEqual(accepted, [[2, 0], None, None])
 
     def test_missing_thumbnails_missing_content_type(self) -> None:
         # A null or empty content-type (some old uploads) must not

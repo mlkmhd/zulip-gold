@@ -7,6 +7,7 @@ from typing_extensions import override
 from zerver.actions.message_delete import do_delete_messages
 from zerver.actions.message_edit import re_thumbnail
 from zerver.actions.message_send import check_message, do_send_messages
+from zerver.lib import native_thumbnail_status
 from zerver.lib.addressee import Addressee
 from zerver.lib.camo import get_camo_url
 from zerver.lib.markdown import render_message_markdown
@@ -524,6 +525,37 @@ class MarkdownThumbnailTest(ZulipTestCase):
             f' src="/user_uploads/thumbnail/{path_id}/840x560.webp"></a></div>'
         )
         self.assert_message_content_is(message_id, expected)
+
+    def test_batched_transcoded_preview_rendering(self) -> None:
+        path_ids = [self.upload_and_thumbnail_image("img.tif") for _ in range(4)]
+        self.assert_length(set(path_ids), 4)
+        content = "\n\n".join(f"[image](/user_uploads/{path_id})" for path_id in path_ids)
+        sender = self.example_user("othello")
+
+        def convert(text: str) -> str:
+            message = Message(sender=sender, sending_client=get_client("test"), realm=sender.realm)
+            return render_message_markdown(message, text).rendered_content
+
+        with patch.object(native_thumbnail_status, "_selection_backend", None):
+            baseline = convert(content)
+
+        self.assertEqual(baseline.count('data-transcoded-image="4032x3024.webp"'), 4)
+        with patch.object(
+            native_thumbnail_status,
+            "transcode_indexes",
+            wraps=native_thumbnail_status.transcode_indexes,
+        ) as select:
+            self.assertEqual(convert(content), baseline)
+            if native_thumbnail_status.selection_available():
+                select.assert_called_once()
+                self.assert_length(select.call_args.args[0], 4)
+            else:
+                select.assert_not_called()
+            select.reset_mock()
+            self.assertIn(
+                'data-transcoded-image="4032x3024.webp"', convert(content.split("\n\n")[0])
+            )
+            select.assert_not_called()
 
     def test_re_thumbnail_stuck(self) -> None:
         # For the case when we generated a thumbnail, but there was a

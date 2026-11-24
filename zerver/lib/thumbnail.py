@@ -1,7 +1,7 @@
 import logging
 import os
 import re
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 
@@ -21,6 +21,7 @@ from zerver.models import Attachment, ImageAttachment
 DEFAULT_AVATAR_SIZE = 100
 MEDIUM_AVATAR_SIZE = 500
 DEFAULT_EMOJI_SIZE = 64
+MIN_TRANSCODE_BATCH_SIZE = 4
 
 # Organization logos are scaled down to fit inside these bounds, which
 # are unrelated to the avatar sizes above.  Their 10:1 shape matches
@@ -458,6 +459,25 @@ class AttachmentData:
     image_metadata: dict[str, MarkdownImageMetadata]
 
 
+def select_transcoded_formats(
+    image_attachments: Iterable[ImageAttachment],
+) -> dict[str, StoredThumbnailFormat] | None:
+    candidates = [
+        (image_attachment.path_id, image_attachment.thumbnail_metadata)
+        for image_attachment in image_attachments
+        if image_attachment.thumbnail_metadata != [] and needs_transcoded_format(image_attachment)
+    ]
+    if not candidates:
+        return {}
+    indexes = native_thumbnail_status.transcode_indexes([metadata for _, metadata in candidates])
+    if indexes is None:
+        return None
+    return {
+        path_id: StoredThumbnailFormat(**metadata[index])
+        for (path_id, metadata), index in zip(candidates, indexes, strict=True)
+    }
+
+
 def manifest_and_get_user_upload_previews(
     realm_id: int,
     content: str,
@@ -480,6 +500,13 @@ def manifest_and_get_user_upload_previews(
     ).order_by("id")
     if lock:
         image_attachments = image_attachments.select_for_update(of=("self",), no_key=True)
+    transcoded = (
+        select_transcoded_formats(image_attachments)
+        if len(path_ids) >= MIN_TRANSCODE_BATCH_SIZE
+        and native_thumbnail_status.selection_available()
+        and len(image_attachments) >= MIN_TRANSCODE_BATCH_SIZE
+        else None
+    )
     for image_attachment in image_attachments:
         if image_attachment.thumbnail_metadata == []:
             # Image exists, and header of it parsed as a valid image,
@@ -511,7 +538,11 @@ def manifest_and_get_user_upload_previews(
                 original_width_px=image_attachment.original_width_px,
                 original_height_px=image_attachment.original_height_px,
                 original_content_type=image_attachment.content_type,
-                transcoded_image=get_transcoded_format(image_attachment),
+                transcoded_image=(
+                    get_transcoded_format(image_attachment)
+                    if transcoded is None
+                    else transcoded.get(image_attachment.path_id)
+                ),
             )
 
     non_image_path_ids = [path_id for path_id in path_ids if image_metadata.get(path_id) is None]

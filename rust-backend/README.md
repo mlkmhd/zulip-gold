@@ -4973,6 +4973,32 @@ ZULIP_RUST_THUMBNAIL_STATUS=1 PYTHONPATH="$NATIVE_EXTENSION_DIR:$PWD" \
 
 This is a default-off in-process bridge, not an independent HTTP route.
 
+### Batch transcoded preview selection through Rust
+
+Set `ZULIP_RUST_TRANSCODE_SELECTION=1` to select transcoded thumbnail
+metadata in one optional batch for manifests with at least four image rows.
+Rust receives only existing eligible metadata and selects the largest actual
+pixel area in one pass. Equal areas choose the last stored variant, as in
+Python's stable sort. Django still owns queries and locking, MIME policy,
+thumbnail paths, and enqueuing pending images. No image decoding moves.
+
+An older extension or an unsupported row makes Django use the original
+selection for the entire batch. Smaller manifests and the default flag-off
+path use Python. The focused backend tests compare the manifest, fallback,
+and rendered HTML (including a four-image TIFF message):
+
+```sh
+for flag in 0 1; do
+    ZULIP_RUST_TRANSCODE_SELECTION=$flag ./tools/test-backend \
+        zerver.tests.test_thumbnail.TestStoreThumbnail.test_transcoded_manifest_parity \
+        zerver.tests.test_markdown_thumbnail.MarkdownThumbnailTest.test_batched_transcoded_preview_rendering
+done
+```
+
+The local benchmark showed a speedup for metadata selection in larger
+batches. Selected-row manifest timing excluded SQL and does not estimate
+request or production latency.
+
 ## Assemble user settings and preference catalogs through Rust
 
 Set `ZULIP_RUST_SETTINGS_PAYLOAD=1` to build the personal and realm

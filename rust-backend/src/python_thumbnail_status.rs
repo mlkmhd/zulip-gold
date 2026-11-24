@@ -1,4 +1,4 @@
-//! Completeness only: no storage, decoding, upload policy, or authorization.
+//! Thumbnail metadata only: no storage, decoding, upload policy, or authorization.
 
 use std::collections::HashSet;
 
@@ -129,6 +129,52 @@ pub(crate) fn thumbnail_status_complete(
     ))
 }
 
+// The dataclass constructor expects exactly these eight field names. Only
+// dimensions affect the selection; Python still constructs the selected row.
+fn stored_area(value: &Bound<'_, PyAny>) -> Option<i128> {
+    let row = value.cast_exact::<PyDict>().ok()?;
+    if row.len() != 8 {
+        return None;
+    }
+    let (mut width, mut height) = (None, None);
+    for (key, value) in row.iter() {
+        match key.cast_exact::<PyString>().ok()?.to_str().ok()? {
+            "width" => width = integer(&value),
+            "height" => height = integer(&value),
+            "extension" | "max_width" | "max_height" | "animated" | "content_type"
+            | "byte_size" => (),
+            _ => return None,
+        }
+    }
+    Some(i128::from(width?) * i128::from(height?))
+}
+
+fn largest_index(areas: impl Iterator<Item = Option<i128>>) -> Option<usize> {
+    let mut best = None;
+    for (index, area) in areas.enumerate() {
+        let area = area?;
+        // The reference stable sort takes the last row on equal area.
+        if best.is_none_or(|(_, maximum)| area >= maximum) {
+            best = Some((index, area));
+        }
+    }
+    best.map(|(index, _)| index)
+}
+
+/// Plan selections for already selected rows. A decline leaves all rows intact.
+#[pyfunction]
+pub(crate) fn thumbnail_transcode_indexes(candidates: &Bound<'_, PyAny>) -> Option<Vec<usize>> {
+    candidates
+        .cast_exact::<PyList>()
+        .ok()?
+        .iter()
+        .map(|metadata| {
+            let metadata = metadata.cast_exact::<PyList>().ok()?;
+            largest_index(metadata.iter().map(|row| stored_area(&row)))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,6 +186,17 @@ mod tests {
             height,
             animated,
         }
+    }
+
+    #[test]
+    fn selects_last_maximum_and_declines_any_unsupported_row() {
+        assert_eq!(
+            largest_index([Some(6), Some(8), Some(8), Some(2)].into_iter()),
+            Some(2)
+        );
+        assert_eq!(largest_index([Some(-6), Some(-8)].into_iter()), Some(0));
+        assert_eq!(largest_index([Some(6), None, Some(8)].into_iter()), None);
+        assert_eq!(largest_index(std::iter::empty()), None);
     }
 
     #[test]
