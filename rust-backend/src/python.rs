@@ -340,7 +340,8 @@ mod _zulip_backend {
 
     #[pymodule_export]
     use crate::python_thumbnail_status::{
-        thumbnail_missing_indexes, thumbnail_status_complete, thumbnail_transcode_indexes,
+        thumbnail_has_stored_variant, thumbnail_missing_indexes, thumbnail_status_complete,
+        thumbnail_transcode_indexes,
     };
 
     #[pymodule_export]

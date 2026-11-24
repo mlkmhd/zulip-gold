@@ -193,6 +193,23 @@ pub(crate) fn thumbnail_missing_indexes(
     )
 }
 
+/// Check a resolved variant against the existing manifest, without I/O.
+#[pyfunction]
+pub(crate) fn thumbnail_has_stored_variant(
+    metadata: &Bound<'_, PyAny>,
+    requested: &Bound<'_, PyAny>,
+) -> Option<bool> {
+    let metadata = metadata.cast_exact::<PyList>().ok()?;
+    let requested = [supplied_key(requested)?];
+    let mut found = [false];
+    for row in metadata.iter() {
+        // Still validate later rows so an apparently exact match cannot
+        // bypass Python's handling of unsupported legacy metadata.
+        mark_stored(&row, &requested, &mut found)?;
+    }
+    Some(found[0])
+}
+
 // The dataclass constructor expects exactly these eight field names. Only
 // dimensions affect the selection; Python still constructs the selected row.
 fn stored_area(value: &Bound<'_, PyAny>) -> Option<i128> {

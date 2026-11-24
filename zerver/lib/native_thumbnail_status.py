@@ -5,7 +5,10 @@ from __future__ import annotations
 import os
 from importlib import import_module
 from types import ModuleType
-from typing import TypeAlias, cast
+from typing import TYPE_CHECKING, TypeAlias, cast
+
+if TYPE_CHECKING:
+    from zerver.lib.thumbnail import BaseThumbnailFormat
 
 ThumbnailKey: TypeAlias = tuple[str, int, int, bool]
 
@@ -24,6 +27,7 @@ def load_backend(flag: str) -> ModuleType | None:
 _backend = load_backend("ZULIP_RUST_THUMBNAIL_STATUS")
 _selection_backend = load_backend("ZULIP_RUST_TRANSCODE_SELECTION")
 _plan_backend = load_backend("ZULIP_RUST_THUMBNAIL_PLAN")
+_stored_variant_backend = load_backend("ZULIP_RUST_THUMBNAIL_STORED_VARIANT")
 
 
 def available() -> bool:
@@ -68,3 +72,20 @@ def missing_indexes(
     if not callable(native):
         return None
     return cast("list[int] | None", native(metadata, formats, frames))
+
+
+def stored_variant_available() -> bool:
+    return callable(getattr(_stored_variant_backend, "thumbnail_has_stored_variant", None))
+
+
+def has_stored_variant(metadata: object, requested: BaseThumbnailFormat) -> bool | None:
+    native = getattr(_stored_variant_backend, "thumbnail_has_stored_variant", None)
+    if not callable(native):
+        return None
+    return cast(
+        "bool | None",
+        native(
+            metadata,
+            (requested.extension, requested.max_width, requested.max_height, requested.animated),
+        ),
+    )

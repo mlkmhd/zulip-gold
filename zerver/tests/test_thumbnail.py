@@ -3,12 +3,13 @@ from dataclasses import asdict
 from importlib import import_module
 from io import BytesIO, StringIO
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import patch
 
 import orjson
 import pyvips
 from django.conf import settings
-from django.http import HttpRequest
+from django.http import HttpRequest, StreamingHttpResponse
 from django.test import override_settings
 
 from zerver.lib import native_thumbnail_status
@@ -42,7 +43,7 @@ from zerver.lib.upload import (
     store_message_attachment,
 )
 from zerver.models import Attachment, ImageAttachment
-from zerver.views.upload import closest_thumbnail_format
+from zerver.views.upload import closest_thumbnail_format, stored_thumbnail_variant
 from zerver.worker.thumbnail import ensure_thumbnails
 
 
@@ -1115,6 +1116,104 @@ class TestThumbnailRetrieval(ZulipTestCase):
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.headers["Content-Type"], "image/jpeg")
             consume_response(response)
+
+    def test_native_stored_variant_probe(self) -> None:
+        requested = BaseThumbnailFormat("webp", 100, 75, False)
+        matching = asdict(StoredThumbnailFormat("webp", 100, 75, False, "image/webp", 65, 75, 7))
+        other = asdict(StoredThumbnailFormat("webp", 100, 75, True, "image/webp", 65, 75, 9))
+        rows = [matching, other]
+        with (
+            patch.object(native_thumbnail_status, "_stored_variant_backend", None),
+        ):
+            self.assertIsNone(stored_thumbnail_variant(rows, requested))
+        with patch.object(native_thumbnail_status, "_stored_variant_backend", SimpleNamespace()):
+            self.assertIsNone(stored_thumbnail_variant(rows, requested))
+
+        try:
+            backend = import_module("_zulip_backend")
+        except ModuleNotFoundError as error:
+            if error.name != "_zulip_backend":
+                raise
+            return
+        native = getattr(backend, "thumbnail_has_stored_variant", None)
+        if not callable(native):
+            return
+        with patch.object(native_thumbnail_status, "_stored_variant_backend", backend):
+            self.assertIsNone(stored_thumbnail_variant([matching], requested))
+            for desired in (
+                requested,
+                BaseThumbnailFormat("webp", 100, 75, True),
+                BaseThumbnailFormat("webp", 100, 76, False),
+            ):
+                self.assertEqual(
+                    stored_thumbnail_variant(rows, desired),
+                    desired in [StoredThumbnailFormat(**row) for row in rows],
+                )
+            # A match cannot short-circuit validation of a later row.
+            self.assertIsNone(
+                stored_thumbnail_variant([matching, {**other, "height": 75.5}], requested)
+            )
+
+    def test_native_stored_variant_retrieval(self) -> None:
+        self.login("hamlet")
+        small = ThumbnailFormat("webp", 40, 40, False)
+        large = ThumbnailFormat("webp", 100, 100, False)
+        with self.thumbnail_formats(small, large):
+            path_id = self.upload_and_thumbnail_image("img.png")
+        url = f"/user_uploads/thumbnail/{path_id}/{large!s}"
+
+        def fetch(path: str) -> tuple[bytes, str]:
+            reply = self.client_get(path)
+            self.assertEqual(reply.status_code, 200)
+            assert reply.streaming
+            return b"".join(cast(StreamingHttpResponse, reply)), reply["Content-Type"]
+
+        with patch.object(native_thumbnail_status, "_stored_variant_backend", None):
+            baseline = fetch(url)
+
+        results: list[bool | None] = []
+        native_probe = native_thumbnail_status.has_stored_variant
+
+        def observe(metadata: object, requested: BaseThumbnailFormat) -> bool | None:
+            result = native_probe(metadata, requested)
+            results.append(result)
+            return result
+
+        with (
+            self.thumbnail_formats(small),
+            patch.object(native_thumbnail_status, "has_stored_variant", side_effect=observe),
+            patch("zerver.views.upload.ensure_thumbnails") as generate,
+            patch(
+                "zerver.views.upload.closest_thumbnail_format",
+                wraps=closest_thumbnail_format,
+            ) as closest,
+        ):
+            # This variant is no longer configured, but the stored file
+            # must still be served byte-for-byte without a new generation.
+            self.assertEqual(fetch(url), baseline)
+            closest.assert_not_called()
+
+            # Django's usual closest-selection path still handles an old
+            # nonconfigured size that was never generated.
+            self.assertEqual(fetch(f"/user_uploads/thumbnail/{path_id}/99x99.webp"), baseline)
+            closest.assert_called_once()
+            generate.assert_not_called()
+
+            # Unsupported legacy metadata still takes the complete Python
+            # path, which accepts non-integer physical height.
+            image = ImageAttachment.objects.get(path_id=path_id)
+            image.thumbnail_metadata[0]["height"] = 30.5
+            image.save(update_fields=["thumbnail_metadata"])
+            self.assertEqual(fetch(url), baseline)
+            closest.assert_called_once()
+            generate.assert_not_called()
+
+        expected = (
+            [True, False, None]
+            if native_thumbnail_status.stored_variant_available()
+            else [None, None, None]
+        )
+        self.assertEqual(results, expected)
 
     def test_closest_format(self) -> None:
         self.login_user(self.example_user("hamlet"))

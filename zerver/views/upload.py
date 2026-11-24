@@ -25,6 +25,7 @@ from django.utils.translation import gettext as _
 
 from zerver.context_processors import get_valid_realm_from_request
 from zerver.decorator import zulip_redirect_to_login
+from zerver.lib import native_thumbnail_status
 from zerver.lib.attachments import validate_attachment_request
 from zerver.lib.exceptions import JsonableError
 from zerver.lib.mime_types import INLINE_MIME_TYPES, bare_content_type, guess_type
@@ -249,6 +250,14 @@ def closest_thumbnail_format(
     return min(rendered_formats, key=grade_format)
 
 
+def stored_thumbnail_variant(
+    metadata: object, requested_format: BaseThumbnailFormat
+) -> bool | None:
+    if type(metadata) is not list or len(metadata) < 2:
+        return None
+    return native_thumbnail_status.has_stored_variant(metadata, requested_format)
+
+
 def serve_file(
     request: HttpRequest,
     maybe_user_profile: UserProfile | AnonymousUser,
@@ -302,7 +311,11 @@ def serve_file(
         if requested_format is None:
             return serve_image_error(404, "images/errors/image-not-exist.png")
 
-        rendered_formats = [StoredThumbnailFormat(**f) for f in image_attachment.thumbnail_metadata]
+        metadata = image_attachment.thumbnail_metadata
+        stored = stored_thumbnail_variant(metadata, requested_format)
+        rendered_formats = (
+            [StoredThumbnailFormat(**fields) for fields in metadata] if stored is None else None
+        )
 
         # We never generate animated versions if the input was still,
         # so filter those out
@@ -314,29 +327,19 @@ def serve_file(
             ]
         else:
             potential_output_formats = list(THUMBNAIL_OUTPUT_FORMATS)
-        if requested_format not in potential_output_formats:
-            if rendered_formats == []:
-                # We haven't rendered anything, and they requested
-                # something we don't support.
-                return serve_image_error(404, "images/errors/image-not-exist.png")
-            elif requested_format in rendered_formats:
-                # Not a _current_ format, but we did render it at the
-                # time, so fine to serve.  We also end up here for
-                # TRANSCODED_IMAGE_FORMAT requests, which are not in
-                # the default THUMBNAIL_OUTPUT_FORMATS, but may exist
-                # for some images types not in INLINE_MIME_TYPES.
-                pass
-            else:
-                # Find something "close enough".  This will not be a
-                # common occurrence -- the client has out of date
-                # information about which formats are supported, and
-                # the thumbnails were generated with an even earlier
-                # set, or the client is just guessing a format and
-                # hoping.
-                requested_format = closest_thumbnail_format(
-                    requested_format, request, rendered_formats
-                )
-        elif requested_format not in rendered_formats:
+        configured = requested_format in potential_output_formats
+        if not configured and rendered_formats == []:
+            # There are no stored variants and they requested a format we don't support.
+            return serve_image_error(404, "images/errors/image-not-exist.png")
+        if rendered_formats is not None:
+            stored = requested_format in rendered_formats
+        if not configured and not stored:
+            # The client may have outdated information. Only materialize
+            # the whole list when Django has to choose the closest format.
+            if rendered_formats is None:
+                rendered_formats = [StoredThumbnailFormat(**fields) for fields in metadata]
+            requested_format = closest_thumbnail_format(requested_format, request, rendered_formats)
+        elif configured and not stored:
             # They requested a valid format, but one we've not
             # rendered yet.  Take a lock on the row, then render every
             # missing format, synchronously.  The lock prevents us

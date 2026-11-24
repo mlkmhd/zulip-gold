@@ -5024,6 +5024,32 @@ then verifies that Django writes only the missing variant and that a second
 retry writes none. Local timings compare metadata planning only, not
 storage, encoding, or worker throughput.
 
+### Match stored thumbnail variants through Rust
+
+Set `ZULIP_RUST_THUMBNAIL_STORED_VARIANT=1` to compare a Django-parsed
+request format with already-selected stored metadata. For two or more
+metadata rows, Rust reports whether the exact width, height, extension,
+and animation variant is present. It validates the whole list before
+returning, so a match cannot hide unsupported later metadata.
+
+Django retains attachment access, current and legacy format policy,
+Accept negotiation, on-demand generation, paths, and responses. Small
+lists, older extensions, and unsupported metadata use the Python path.
+The flag defaults off and is independent of the worker and preview flags.
+
+```sh
+for flag in 0 1; do
+    ZULIP_RUST_THUMBNAIL_STORED_VARIANT=$flag ./tools/test-backend \
+        zerver.tests.test_thumbnail.TestThumbnailRetrieval.test_native_stored_variant_probe \
+        zerver.tests.test_thumbnail.TestThumbnailRetrieval.test_native_stored_variant_retrieval \
+        zerver.tests.test_thumbnail.TestThumbnailRetrieval.test_get_thumbnail
+done
+```
+
+The private tests compare the returned file and MIME type and keep
+Django's closest-format and generation paths. Local microbenchmarks
+measure metadata matching, not request or storage latency.
+
 ## Assemble user settings and preference catalogs through Rust
 
 Set `ZULIP_RUST_SETTINGS_PAYLOAD=1` to build the personal and realm
