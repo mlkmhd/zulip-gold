@@ -205,6 +205,9 @@ mod python_emoji_codepoints;
 mod python_import_body;
 
 #[cfg(feature = "python")]
+mod python_digest_rank;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]

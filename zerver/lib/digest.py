@@ -5,7 +5,9 @@ from collections import defaultdict
 from collections.abc import Collection, Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, TypeAlias
+from importlib import import_module
+from os import environ
+from typing import Any, TypeAlias, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -47,6 +49,15 @@ log_to_file(logger, settings.DIGEST_LOG_PATH)
 
 DIGEST_CUTOFF = 5
 MAX_HOT_TOPICS_TO_BE_INCLUDED_IN_DIGEST = 4
+
+try:
+    _rust_digest_rank = (
+        import_module("_zulip_backend") if environ.get("ZULIP_RUST_DIGEST_RANK") == "1" else None
+    )
+except ModuleNotFoundError as error:
+    if error.name != "_zulip_backend":
+        raise
+    _rust_digest_rank = None
 
 TopicKey: TypeAlias = tuple[int, str]
 
@@ -98,6 +109,10 @@ class DigestTopic:
             count=teaser_count,
             first_few_messages=first_few_messages,
         )
+
+
+_digest_topic_diversity = DigestTopic.diversity
+_digest_topic_length = DigestTopic.length
 
 
 # Digests accumulate 2 types of interesting traffic for a user:
@@ -246,6 +261,31 @@ def get_hot_topics(
     stream_ids: set[int],
 ) -> list[DigestTopic]:
     topics = [topic for topic in all_topics if topic.stream_id() in stream_ids]
+
+    if _rust_digest_rank is not None:
+        rank_native = getattr(_rust_digest_rank, "rank_eligible_digest_topic_indices", None)
+        if (
+            callable(rank_native)
+            and type(MAX_HOT_TOPICS_TO_BE_INCLUDED_IN_DIGEST) is int
+            and MAX_HOT_TOPICS_TO_BE_INCLUDED_IN_DIGEST == 4
+            and DigestTopic.__eq__ is object.__eq__
+            and DigestTopic.diversity is _digest_topic_diversity
+            and DigestTopic.length is _digest_topic_length
+            and all(
+                type(topic) is DigestTopic
+                and type(getattr(topic, "human_senders", None)) is set
+                and type(getattr(topic, "num_human_messages", None)) is int
+                for topic in topics
+            )
+        ):
+            # The Python passes use unbound score methods and object identity.
+            rows = [
+                (id(topic), _digest_topic_diversity(topic), _digest_topic_length(topic))
+                for topic in topics
+            ]
+            indices = cast("list[int] | None", rank_native(rows))
+            if indices is not None:
+                return [topics[index] for index in indices]
 
     hot_topics = heapq.nlargest(2, topics, key=DigestTopic.diversity)
 
