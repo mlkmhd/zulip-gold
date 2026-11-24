@@ -4,6 +4,8 @@
 
 A fork of [Zulip](https://github.com/zulip/zulip) with a redesigned web interface, more control over regional display settings, and new options for channel pictures and reaction notifications.
 
+**Rust backend migration is in progress.** Standalone Rust HTTP is verified for **24.6% of the OpenAPI inventory** and **21.6% of the explicit web operation inventory**. Django remains the default. [See how we measure progress](https://github.com/mlkmhd/zulip-gold/blob/main/README.md#backend-migration-python-and-rust).
+
 [![The modern Zulip web interface in dark mode, with a custom channel picture, incoming and outgoing message bubbles, and emoji reactions](https://raw.githubusercontent.com/mlkmhd/zulip-gold/main/docs/_static/zulip-fork-dark.png)](https://github.com/mlkmhd/zulip-gold/blob/main/docs/_static/zulip-fork-dark.png)
 
 _The Modern interface in dark mode, showing a sample launch-planning conversation._
@@ -22,6 +24,8 @@ _The Modern interface in dark mode, showing a sample launch-planning conversatio
 ## Backend migration: Python and Rust
 
 Zulip Gold is migrating its backend from Python/Django to Rust in stages. Django remains the default and the reference for compatibility. Django can call Rust through a Python extension for selected tasks while still handling those requests. An opt-in Rust HTTP service can handle some operations directly.
+
+These figures are the verified snapshot for [Zulip Gold 13.2.2](https://github.com/mlkmhd/zulip-gold/releases/tag/13.2.2).
 
 | Verified standalone Rust HTTP coverage |        Operations |
 | -------------------------------------- | ----------------: |
