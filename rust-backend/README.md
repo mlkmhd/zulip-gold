@@ -5437,6 +5437,23 @@ stage including FFI was about 1.5–1.6 times faster. SQL, authentication,
 and end-to-end HTTP were not benchmarked. Independent coverage is
 unchanged.
 
+### Rehearse topic renames with the topic-history pilot
+
+Use the [same private topic fixture](#rehearse-authenticated-api-topic-history-and-rollback),
+adding `--workflow` to the call to `check_channel_topics.py`. The harness
+creates a fresh synthetic channel and posts three messages through Django.
+
+A Django session renames a two-message topic while Rust serves the opt-in
+Basic API history. Both list surfaces must show the committed name, message
+anchor, and order, while a separate topic remains unchanged. HEAD stays
+empty. The browser's history and write requests stay on Django.
+
+While Rust is stopped, the opted-in API reads return 502, but the session
+can still rename the topic and read the new state. Removing the private
+nginx include restores that same history to the API without restarting
+Rust. This does not change route configuration, defaults, or independent
+HTTP coverage.
+
 ### Rehearse authenticated user status reads and rollback
 
 `ZULIP_RUST_USER_STATUS_READ_PILOT=1` adds loopback-only GET and HEAD
