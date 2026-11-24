@@ -65,7 +65,10 @@ def pilot(args: argparse.Namespace, directory: Path, cleanup: ExitStack) -> None
     from zerver.models.clients import get_client
 
     member = UserProfile.objects.get(realm__string_id="zulip", delivery_email="hamlet@zulip.com")
-    maps, route_groups, paths, group_pilot = MAPS, ROUTE_GROUPS, PATHS, {}
+    maps: tuple[str, ...] = MAPS
+    route_groups: tuple[tuple[int, tuple[str, ...]], ...] = ROUTE_GROUPS
+    paths: tuple[tuple[str, str], ...] = PATHS
+    group_pilot: dict[str, str] = {}
     if args.reminders:
         maps = ("reminders-map.conf",)
         route_groups = ((2, ("reminders-routes.conf",)),)
