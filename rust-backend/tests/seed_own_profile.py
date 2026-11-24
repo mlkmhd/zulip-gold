@@ -208,6 +208,123 @@ def emit_presentation_reference(root: Path) -> None:
     print("Django presentation references: complete tzdata aliases and 12 avatar/system-bot cases.")
 
 
+def emit_avatar_handoff_reference(root: Path) -> None:
+    """Produce resolved URLs without an HTTP request or a storage backend."""
+    from django.test import override_settings
+
+    from zerver.lib.avatar import get_avatar_field
+    from zerver.lib.timezone import canonicalize_timezone
+    from zerver.models import Realm, UserProfile
+
+    realm = Realm.objects.get(string_id="zulip")
+    other_realm = Realm.objects.get(string_id="zephyr")
+    bot_email = "handoff-bot@example.invalid"
+    fixtures = (
+        ("stored_user", realm.id, UserProfile.AVATAR_FROM_USER, False),
+        ("stored_jdenticon", other_realm.id, UserProfile.AVATAR_FROM_JDENTICON, False),
+        ("realm_default", other_realm.id, UserProfile.AVATAR_FROM_GRAVATAR, False),
+        ("system_bot", realm.id, UserProfile.AVATAR_FROM_USER, True),
+    )
+
+    users = []
+    for label, realm_id, source, is_bot in fixtures:
+        address = bot_email if is_bot else f"{label}@example.invalid"
+        user = UserProfile(
+            realm_id=realm_id,
+            full_name=f"Avatar handoff fixture {label}",
+            email=address,
+            delivery_email=address,
+            is_bot=is_bot,
+            bot_type=UserProfile.DEFAULT_BOT if is_bot else None,
+            avatar_source=source,
+            avatar_version=17,
+            timezone="US/Eastern",
+        )
+        user.set_unusable_password()
+        users.append(user)
+    UserProfile.objects.bulk_create(users)
+
+    cases = []
+    for generation in (1, 2):
+        upload_base = f"https://upload-{generation}.example.invalid"
+        static_base = f"https://static-{generation}.example.invalid"
+        default_uri = "https://default.example.invalid/avatar.png"
+        gravatar_overrides = {other_realm.id: True} if generation == 2 else {}
+        with (
+            override_settings(
+                CROSS_REALM_BOT_EMAILS={bot_email},
+                WELCOME_BOT=bot_email,
+                DEBUG=False,
+                STATIC_ROOT="",
+                ENABLE_GRAVATAR=False,
+                DEFAULT_AVATAR_URI=default_uri,
+                GRAVATAR_REALM_OVERRIDE=gravatar_overrides,
+            ),
+            patch("zerver.lib.avatar.staticfiles_storage") as static,
+            patch(
+                "zerver.lib.avatar.user_avatar_base_path_from_ids",
+                side_effect=lambda user_id, version, realm_id: f"{realm_id}/{user_id}/{version}",
+            ) as stored_path,
+            patch(
+                "zerver.lib.avatar.get_avatar_url",
+                side_effect=lambda path, medium, base=upload_base: f"{base}/{path}.png",
+            ) as upload,
+            patch("zerver.lib.avatar.gravatar_hash", return_value="synthetic-gravatar") as gravatar,
+        ):
+            static.url.side_effect = lambda path, base=static_base: f"{base}/{path}"
+            for (label, _, _, is_bot), user in zip(fixtures, users, strict=True):
+                avatar = get_avatar_field(
+                    user.id,
+                    user.realm_id,
+                    user.delivery_email,
+                    user.avatar_source,
+                    user.avatar_version,
+                    medium=False,
+                    client_gravatar=False,
+                )
+                if label.startswith("stored_"):
+                    kind = "stored"
+                    expected = f"{upload_base}/{user.realm_id}/{user.id}/17.png"
+                    stored_path.assert_called_with(user.id, 17, user.realm_id)
+                    upload.assert_called_with(f"{user.realm_id}/{user.id}/17", medium=False)
+                elif is_bot:
+                    kind = "system_bot"
+                    expected = f"{static_base}/images/static_avatars/welcome-bot.png"
+                    static.url.assert_called_once_with("images/static_avatars/welcome-bot.png")
+                elif generation == 1:
+                    kind = "default"
+                    expected = "https://default.example.invalid/avatar.png?version=17"
+                    gravatar.assert_not_called()
+                else:
+                    kind = "default"
+                    expected = "https://secure.gravatar.com/avatar/synthetic-gravatar?d=identicon&version=17"
+                    gravatar.assert_called_once_with(user.delivery_email)
+
+                assert avatar == expected, (label, generation)
+                timezone_name = canonicalize_timezone(user.timezone)
+                assert timezone_name == "America/New_York"
+                cases.append(
+                    {
+                        "label": label,
+                        "generation": generation,
+                        "user": user.id,
+                        "realm": user.realm_id,
+                        "avatar_version": user.avatar_version,
+                        "avatar_source": user.avatar_source,
+                        "avatar_kind": kind,
+                        "avatar_url": avatar,
+                        "expected_url": expected,
+                        "timezone": timezone_name,
+                        "is_bot": is_bot,
+                    }
+                )
+            assert stored_path.call_count == upload.call_count == 2
+
+    with (root / "profile-avatar-handoff.json").open("x") as output:
+        json.dump({"system_bot_emails": [bot_email], "cases": cases}, output)
+    print("Django avatar handoff references: 8 exact URLs across 2 settings generations.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--fixture-root", type=Path, required=True)
@@ -221,6 +338,7 @@ def main() -> None:
     verify_private_database()
     emit_reference(root / "own-profile.json")
     emit_presentation_reference(root)
+    emit_avatar_handoff_reference(root)
 
 
 if __name__ == "__main__":

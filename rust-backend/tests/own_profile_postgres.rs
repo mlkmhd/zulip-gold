@@ -43,6 +43,27 @@ struct AvatarCase {
     is_system_bot: bool,
 }
 
+#[derive(Deserialize)]
+struct AvatarHandoffCases {
+    system_bot_emails: BTreeSet<String>,
+    cases: Vec<AvatarHandoffCase>,
+}
+
+#[derive(Deserialize)]
+struct AvatarHandoffCase {
+    label: String,
+    generation: u8,
+    user: i32,
+    realm: i32,
+    avatar_version: i16,
+    avatar_source: String,
+    avatar_kind: AvatarKind,
+    avatar_url: String,
+    expected_url: String,
+    timezone: String,
+    is_bot: bool,
+}
+
 #[tokio::test]
 #[ignore = "requires the owner-private synthetic Django self-profile fixture"]
 async fn own_profile_matches_django() {
@@ -192,6 +213,85 @@ async fn own_profile_matches_django() {
                 .is_none()
         );
     }
+    let handoff: AvatarHandoffCases = serde_json::from_reader(
+        fs::File::open(private_input("profile-avatar-handoff.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(handoff.cases.len(), 8);
+    let expected_labels = BTreeSet::from([
+        "stored_user",
+        "stored_jdenticon",
+        "realm_default",
+        "system_bot",
+    ]);
+    for generation in [1, 2] {
+        let case_labels: Vec<_> = handoff
+            .cases
+            .iter()
+            .filter(|case| case.generation == generation)
+            .map(|case| case.label.as_str())
+            .collect();
+        assert_eq!(case_labels.len(), 4);
+        assert_eq!(
+            case_labels.into_iter().collect::<BTreeSet<_>>(),
+            expected_labels
+        );
+    }
+    let mut first_generation = BTreeMap::new();
+    for case in &handoff.cases {
+        let profile = read_authenticated(
+            &tx,
+            case.user,
+            case.realm,
+            Presentation {
+                avatar: ResolvedAvatar {
+                    user_id: case.user,
+                    realm_id: case.realm,
+                    version: case.avatar_version,
+                    kind: case.avatar_kind,
+                    url: &case.avatar_url,
+                },
+                system_bot_emails: &handoff.system_bot_emails,
+                timezone_aliases: &timezone_aliases,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let mut payload = serde_json::to_value(profile).unwrap();
+        assert_eq!(payload["user_id"], case.user);
+        assert_eq!(payload["avatar_source"], case.avatar_source);
+        assert_eq!(payload["avatar_version"], case.avatar_version);
+        assert_eq!(payload["timezone"], case.timezone);
+        assert_eq!(payload["is_bot"], case.is_bot);
+        assert_eq!(
+            payload.get("is_system_bot"),
+            case.is_bot.then_some(&Value::Bool(true))
+        );
+        let url = payload
+            .as_object_mut()
+            .unwrap()
+            .remove("avatar_url")
+            .unwrap();
+        assert_eq!(url, case.expected_url);
+        let present_account = (case.user, case.realm, case.avatar_version);
+        if case.generation == 1 {
+            assert!(
+                first_generation
+                    .insert(&case.label, (present_account, url, payload))
+                    .is_none()
+            );
+        } else {
+            let (previous_account, previous_url, previous_payload) =
+                first_generation.remove(&case.label).unwrap();
+            assert_eq!(present_account, previous_account);
+            assert_ne!(url, previous_url);
+            assert_eq!(payload, previous_payload);
+        }
+    }
+    assert!(first_generation.is_empty());
+    eprintln!("8 pre-resolved avatar URLs match through 2 settings generations.");
+
     tx.rollback().await.unwrap();
     drop(client);
     connection.await.unwrap().unwrap();
