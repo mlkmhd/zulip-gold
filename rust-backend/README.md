@@ -6703,3 +6703,12 @@ done
 ```
 
 Independent HTTP ownership does not change.
+
+### Opt-in fixed time display text
+
+`ZULIP_RUST_TIME_DISPLAY=1` enables the two literal formatting steps in
+`zerver.lib.timestamp`. They take the original Python ISO string or the
+already-validated sign, hours, and minutes. Timezone selection, conversion,
+minute validation, and ICU locale formatting are unchanged. Python remains the
+default and retains its original formatting if the extension or either symbol is
+missing, or if a native helper declines its input.

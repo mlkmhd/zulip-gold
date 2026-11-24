@@ -1,8 +1,22 @@
+import os
 from datetime import datetime, timedelta, timezone
 from functools import cache
+from importlib import import_module
 
 import icu
 from django.utils.translation import get_language
+
+try:
+    _rust_time_display = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_TIME_DISPLAY") == "1"
+        else None
+    )
+except ImportError:
+    _rust_time_display = None
+
+_rust_wrap_global_time_display = getattr(_rust_time_display, "wrap_global_time_display", None)
+_rust_format_gmt_display_name = getattr(_rust_time_display, "format_gmt_display_name", None)
 
 
 class TimeZoneNotUTCError(Exception):
@@ -60,7 +74,12 @@ def datetime_to_timestamp(dt: datetime) -> int:
 def datetime_to_global_time(dt: datetime) -> str:
     if dt.tzinfo is None:
         raise TimeZoneMissingError(f"Datetime {dt} does not have a time zone.")
-    return f"<time:{dt.isoformat(timespec='seconds')}>"
+    iso_text = dt.isoformat(timespec="seconds")
+    if _rust_wrap_global_time_display is not None:
+        result = _rust_wrap_global_time_display(iso_text)
+        if result is not None:
+            return result
+    return f"<time:{iso_text}>"
 
 
 @cache
@@ -90,7 +109,10 @@ def format_datetime_to_string(dt: datetime, use_twenty_four_hour_time: bool) -> 
         hours, rest = divmod(abs(offset), timedelta(hours=1))
         minutes, rest = divmod(rest, timedelta(minutes=1))
         assert rest == timedelta(0)
-        time_zone = f"GMT{sign}{hours:02}:{minutes:02}"
+        if _rust_format_gmt_display_name is not None:
+            time_zone = _rust_format_gmt_display_name(sign, hours, minutes)
+        if time_zone is None:
+            time_zone = f"GMT{sign}{hours:02}:{minutes:02}"
     language = get_language()
     calendar = icu.Calendar.createInstance(get_icu_time_zone(time_zone), icu.Locale(language))
     calendar.setTime(dt)

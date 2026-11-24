@@ -253,6 +253,9 @@ mod python_plain_display_list;
 mod python_duration_text;
 
 #[cfg(feature = "python")]
+mod python_time_display;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]
