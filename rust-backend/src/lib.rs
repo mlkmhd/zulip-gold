@@ -274,6 +274,9 @@ mod python_tabbed_text;
 mod python_commit_display;
 
 #[cfg(feature = "python")]
+mod python_api_return_indent;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]

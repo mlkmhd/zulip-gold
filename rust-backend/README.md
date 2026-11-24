@@ -6763,3 +6763,11 @@ at the existing display row, and ranking of already-extracted display names.
 Python keeps the original field access order, URL lookup, row template,
 committer extraction, and all notification behavior. Original Python runs
 by default and when either native helper is unavailable or declines.
+
+### Opt-in API return documentation indentation
+
+`ZULIP_RUST_API_RETURN_INDENT=1` optionally replaces LF characters with the
+original Python-prepared newline and spaces in a return-value description.
+Python retains indentation choice, field selection, Markdown and markup. The
+original replacement remains the default and handles unavailable or declined
+native inputs.

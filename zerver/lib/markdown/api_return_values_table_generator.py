@@ -1,9 +1,11 @@
 import copy
 import json
+import os
 import re
 from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass
+from importlib import import_module
 from typing import Any
 
 import markdown
@@ -15,6 +17,19 @@ from zerver.lib.markdown.priorities import PREPROCESSOR_PRIORITIES
 from zerver.openapi.openapi import check_deprecated_consistency, get_openapi_return_values
 
 from .api_arguments_table_generator import generate_data_type
+
+try:
+    _rust_api_return_indent = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_API_RETURN_INDENT") == "1"
+        else None
+    )
+except ImportError:
+    _rust_api_return_indent = None
+
+_rust_indent_prepared_api_return_description = getattr(
+    _rust_api_return_indent, "indent_prepared_api_return_description", None
+)
 
 REGEXP = re.compile(r"\{generate_return_values_table\|\s*(.+?)\s*\|\s*(.+)\s*\}")
 
@@ -108,7 +123,12 @@ class APIReturnValuesTablePreprocessor(Preprocessor):
     def render_desc(
         self, description: str, spacing: int, data_type: str, return_value: str | None = None
     ) -> str:
-        description = description.replace("\n", "\n" + ((spacing + 4) * " "))
+        if _rust_indent_prepared_api_return_description is not None and type(description) is str:
+            replacement = "\n" + ((spacing + 4) * " ")
+            native = _rust_indent_prepared_api_return_description(description, replacement)
+            description = description.replace("\n", replacement) if native is None else native
+        else:
+            description = description.replace("\n", "\n" + ((spacing + 4) * " "))
         if return_value is None:
             # HACK: It's not clear how to use OpenAPI data to identify
             # the `key` fields for objects where e.g. the keys are

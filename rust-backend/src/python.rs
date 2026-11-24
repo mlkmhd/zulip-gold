@@ -472,6 +472,9 @@ mod _zulip_backend {
     use crate::python_commit_display::{project_commit_display_row, rank_commit_display_names};
 
     #[pymodule_export]
+    use crate::python_api_return_indent::indent_prepared_api_return_description;
+
+    #[pymodule_export]
     use crate::python_push_text::{quote_mobile_push_text, truncate_mobile_push_text};
 
     #[pymodule_export]
