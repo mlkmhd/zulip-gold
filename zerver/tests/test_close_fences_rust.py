@@ -45,6 +45,28 @@ class CloseFencesRustTest(SimpleTestCase):
             with patch.object(fenced_code, "_rust_markdown_blocks", self.extension):
                 self.assertEqual(fenced_code.close_unclosed_fences(content), content + "\n```")
 
+    def test_unicode_default_language_matches_python(self) -> None:
+        old_wheel = SimpleNamespace(plan_markdown_blocks=self.extension.plan_markdown_blocks)
+        for content, language, suffix in [
+            ("```", "فارسی", "\n```"),
+            ("````quote\n```", "İΣ", "\n```\n````"),
+        ]:
+            expected = content + suffix
+            with self.subTest(language=language, implementation="native result"):
+                self.assertEqual(
+                    self.extension.close_unclosed_markdown_fences(content, language), expected
+                )
+            for implementation, native in [
+                ("default Python", None),
+                ("old wheel", old_wheel),
+                ("native", self.extension),
+            ]:
+                with (
+                    self.subTest(language=language, implementation=implementation),
+                    patch.object(fenced_code, "_rust_markdown_blocks", native),
+                ):
+                    self.assertEqual(fenced_code.close_unclosed_fences(content, language), expected)
+
     def test_old_wheel_and_unsupported_inputs_delegate(self) -> None:
         class Content(str):
             __slots__ = ()
@@ -55,7 +77,6 @@ class CloseFencesRustTest(SimpleTestCase):
         ]:
             for content, language in [
                 ("\ud800\n```", None),
-                ("```", "فارسی"),
                 (Content("```"), None),
                 ("```", Content("quote")),
                 ("x" * (8 * 1024 * 1024) + "\n```", None),
@@ -65,7 +86,6 @@ class CloseFencesRustTest(SimpleTestCase):
                         fenced_code.close_unclosed_fences(content, language), content + "\n```"
                     )
         self.assertIsNone(self.extension.close_unclosed_markdown_fences("\ud800"))
-        self.assertIsNone(self.extension.close_unclosed_markdown_fences("```", "فارسی"))
         self.assertIsNone(
             self.extension.close_unclosed_markdown_fences("x" * (8 * 1024 * 1024 + 1))
         )
