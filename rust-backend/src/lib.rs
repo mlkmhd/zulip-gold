@@ -244,6 +244,9 @@ mod python_timezone_aliases;
 mod python_description_text;
 
 #[cfg(feature = "python")]
+mod python_slack_import_pieces;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]

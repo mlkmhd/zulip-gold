@@ -1,6 +1,8 @@
 import contextlib
+import os
 import re
 from datetime import datetime, timezone
+from importlib import import_module
 from itertools import zip_longest
 from typing import Any, Literal, TypeAlias, TypedDict, cast
 
@@ -25,6 +27,29 @@ ZerverFieldsT: TypeAlias = dict[str, Any]
 SlackToZulipUserIDT: TypeAlias = dict[str, int]
 AddedChannelsT: TypeAlias = dict[str, tuple[str, int]]
 SlackFieldsT: TypeAlias = dict[str, Any]
+
+
+try:
+    _rust_slack_import_pieces = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_SLACK_IMPORT_PIECES") == "1"
+        else None
+    )
+except ImportError:
+    _rust_slack_import_pieces = None
+
+_rust_join_slack_import_pieces = getattr(
+    _rust_slack_import_pieces, "join_slack_import_pieces", None
+)
+
+
+def _join_prepared_pieces(pieces: list[str], separator: str) -> str:
+    if _rust_join_slack_import_pieces is not None:
+        native = _rust_join_slack_import_pieces(pieces, separator)
+        if native is not None:
+            return native
+    return separator.join(piece.strip() for piece in pieces if piece.strip() != "")
+
 
 # Slack link can be in the format <http://www.foo.com|www.foo.com> and <http://foo.com/>
 LINK_REGEX = r"""
@@ -317,7 +342,7 @@ def render_block(block: WildValue) -> str:
                 pieces.append(render_block_element(element))
             else:
                 pieces.append(element.tame(check_text_block())["text"])
-        return "\n\n".join(piece.strip() for piece in pieces if piece.strip() != "")
+        return _join_prepared_pieces(pieces, "\n\n")
     elif block_type == "divider":
         return "----"
     elif block_type == "header":
@@ -358,7 +383,7 @@ def render_block(block: WildValue) -> str:
                     table += f"| {left} | {right} |\n"
                 pieces.append(table)
 
-        return "\n\n".join(piece.strip() for piece in pieces if piece.strip() != "")
+        return _join_prepared_pieces(pieces, "\n\n")
 
     return ""  # nocoverage
 
@@ -473,7 +498,7 @@ def render_attachment(attachment: WildValue) -> str:
             time = int(ts_float)
         pieces.append(datetime_to_global_time(datetime.fromtimestamp(time, timezone.utc)))
 
-    return "\n\n".join(piece.strip() for piece in pieces if piece.strip() != "")
+    return _join_prepared_pieces(pieces, "\n\n")
 
 
 def replace_links(text: str) -> str:
@@ -502,4 +527,4 @@ def process_slack_block_and_attachment(message: WildValue) -> str:
     # message["text"] and only add to it, so the output is appended unconditionally.
     if message.get("attachments"):
         pieces += map(render_attachment, message["attachments"])
-    return "\n".join(piece.strip() for piece in pieces if piece.strip() != "")
+    return _join_prepared_pieces(pieces, "\n")

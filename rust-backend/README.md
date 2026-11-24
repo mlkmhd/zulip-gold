@@ -5815,6 +5815,23 @@ for enabled in 0 1; do
 done
 ```
 
+### Join prepared Slack import text pieces through Rust
+
+Set `ZULIP_RUST_SLACK_IMPORT_PIECES=1` before starting Django to trim,
+drop empty pieces and join already formatted Slack import text. One or
+two newlines are preserved, as chosen by the Python caller. Parsing,
+block selection and markup formatting stay in Python.
+
+The switch defaults to off. A missing native method or unsupported
+input keeps the same Python strip and join. Test both modes without
+importing records:
+
+```bash
+for enabled in 0 1; do
+    ZULIP_RUST_SLACK_IMPORT_PIECES=$enabled ./tools/test-backend zerver.tests.test_slack_import_pieces_rust
+done
+```
+
 ### Format prepared mobile push text through Rust
 
 Set `ZULIP_RUST_PUSH_TEXT=1` on a Django worker to prefix extracted
