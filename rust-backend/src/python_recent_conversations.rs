@@ -1,5 +1,5 @@
 use std::cmp::Reverse;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFrozenSet, PyInt, PyList, PyString, PyTuple};
@@ -28,8 +28,12 @@ pub(crate) fn assemble_recent_conversations<'py>(
     ) else {
         return Ok(None);
     };
-    let mut others = HashMap::<i64, Vec<i64>>::new();
-    let mut pinned = HashSet::new();
+    #[derive(Default)]
+    struct Recipient<'py> {
+        participants: Vec<Bound<'py, PyAny>>,
+        pinned: bool,
+    }
+    let mut recipients = HashMap::<i64, Recipient<'py>>::with_capacity(recent.len());
     for row in subscriptions.iter() {
         let Ok(row) = row.cast_exact::<PyTuple>() else {
             return Ok(None);
@@ -37,32 +41,42 @@ pub(crate) fn assemble_recent_conversations<'py>(
         if row.len() != 3 {
             return Ok(None);
         }
-        let (Some(recipient), Some(subscriber), Some(pin)) = (
+        let subscriber = row.get_item(1)?;
+        let (Some(recipient), Some(subscriber_id), Some(pin)) = (
             integer(&row.get_item(0)?),
-            integer(&row.get_item(1)?),
+            integer(&subscriber),
             boolean(&row.get_item(2)?),
         ) else {
             return Ok(None);
         };
-        if subscriber != me {
-            others.entry(recipient).or_default().push(subscriber);
+        if subscriber_id != me {
+            recipients
+                .entry(recipient)
+                .or_default()
+                .participants
+                .push(subscriber);
         } else if pin {
-            pinned.insert(recipient);
+            recipients.entry(recipient).or_default().pinned = true;
         }
     }
     let result = PyDict::new(py);
+    let latest_key = pyo3::intern!(py, "max_message_id");
+    let pinned_key = pyo3::intern!(py, "pinned");
     for (recipient, latest) in recent.iter() {
-        let (Some(recipient), Some(latest)) = (integer(&recipient), integer(&latest)) else {
+        let Some(recipient) = integer(&recipient) else {
             return Ok(None);
         };
-        let participants = others
+        if integer(&latest).is_none() {
+            return Ok(None);
+        }
+        let (participants, pinned) = recipients
             .get(&recipient)
-            .map(Vec::as_slice)
+            .map(|recipient| (recipient.participants.as_slice(), recipient.pinned))
             .unwrap_or_default();
         let key = PyFrozenSet::new(py, participants)?;
         let row = PyDict::new(py);
-        row.set_item("max_message_id", latest)?;
-        row.set_item("pinned", pinned.contains(&recipient))?;
+        row.set_item(latest_key, latest)?;
+        row.set_item(pinned_key, pinned)?;
         result.set_item(key, row)?;
     }
     Ok(Some(result))
@@ -76,6 +90,9 @@ pub(crate) fn finalize_recent_conversations<'py>(
     let Ok(conversations) = conversations.cast_exact::<PyDict>() else {
         return Ok(None);
     };
+    let latest_key = pyo3::intern!(py, "max_message_id");
+    let pinned_key = pyo3::intern!(py, "pinned");
+    let ids_key = pyo3::intern!(py, "user_ids");
     let mut rows = Vec::with_capacity(conversations.len());
     for (participants, row) in conversations.iter() {
         let (Ok(participants), Ok(row)) = (
@@ -90,33 +107,32 @@ pub(crate) fn finalize_recent_conversations<'py>(
         {
             return Ok(None);
         }
-        let (Some(latest), Some(pinned)) =
-            (row.get_item("max_message_id")?, row.get_item("pinned")?)
+        let (Some(latest), Some(pinned)) = (row.get_item(latest_key)?, row.get_item(pinned_key)?)
         else {
             return Ok(None);
         };
-        let (Some(latest), Some(pinned), Some(mut ids)) = (
+        let (Some(message_id), Some(pinned), Some(mut ids)) = (
             integer(&latest),
             boolean(&pinned),
             participants
                 .iter()
-                .map(|id| integer(&id))
+                .map(|id| Some((integer(&id)?, id)))
                 .collect::<Option<Vec<_>>>(),
         ) else {
             return Ok(None);
         };
-        ids.sort_unstable();
-        rows.push((latest, pinned, ids));
+        ids.sort_unstable_by_key(|(id, _)| *id);
+        rows.push((message_id, latest, pinned, ids));
     }
     // Ties retain the dictionary order, including updates to existing
     // conversation keys. Reverse avoids negating the smallest signed ID.
-    rows.sort_by_key(|(latest, _, _)| Reverse(*latest));
+    rows.sort_by_key(|(message_id, _, _, _)| Reverse(*message_id));
     let result = PyList::empty(py);
-    for (latest, pinned, ids) in rows {
+    for (_, latest, pinned, ids) in rows {
         let row = PyDict::new(py);
-        row.set_item("user_ids", ids)?;
-        row.set_item("max_message_id", latest)?;
-        row.set_item("pinned", pinned)?;
+        row.set_item(ids_key, PyList::new(py, ids.into_iter().map(|(_, id)| id))?)?;
+        row.set_item(latest_key, latest)?;
+        row.set_item(pinned_key, pinned)?;
         result.append(row)?;
     }
     Ok(Some(result))

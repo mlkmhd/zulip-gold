@@ -1,13 +1,19 @@
 from importlib import import_module
+from os import environ
 from random import Random
 from types import ModuleType, SimpleNamespace
 from typing import Any
 from unittest import SkipTest
 from unittest.mock import Mock, patch
 
-from zerver.lib import native_recent_conversation_replay
+import orjson
+
+from zerver.lib import native_recent_conversation_replay, native_recent_conversations
 from zerver.lib.events import apply_events
+from zerver.lib.message import RecentPrivateConversationDict
 from zerver.lib.test_classes import ZulipTestCase
+from zerver.lib.test_helpers import stub_event_queue_user_events
+from zerver.tornado.django_api import EventQueueData
 
 METHODS = ("replay_recent_conversation_message", "replay_recent_conversation_pin")
 
@@ -50,6 +56,161 @@ class RecentConversationReplayRustTest(ZulipTestCase):
 
     def pin(self, participants: list[int], *, pinned: bool) -> dict[str, Any]:
         return {"type": "direct_message_conversation", "user_ids": participants, "pinned": pinned}
+
+    def test_assemble_and_finalize_duplicate_groups_and_pinned_only_conversation(self) -> None:
+        backend = extension()
+        if not all(
+            hasattr(backend, name)
+            for name in ("assemble_recent_conversations", "finalize_recent_conversations")
+        ):
+            self.skipTest("Rust extension does not support recent-conversation formatting")
+        recent = {101: 1000, 102: 1100, 103: 1100, 104: 7}
+        subscriptions = [
+            (101, 800, False),
+            (101, 700, False),
+            (101, 700, True),
+            (102, 799, False),
+            (103, 700, False),
+            (103, 800, False),
+            (104, 1, True),
+            (104, 1, False),
+        ]
+        with patch.object(native_recent_conversations, "_backend", backend):
+            raw = native_recent_conversations.assemble(1, recent, subscriptions)
+            assert raw is not None
+            self.assertEqual(list(raw), [frozenset({700, 800}), frozenset({799}), frozenset()])
+            self.assertEqual(
+                native_recent_conversations.finalize(raw),
+                [
+                    {"user_ids": [700, 800], "max_message_id": 1100, "pinned": False},
+                    {"user_ids": [799], "max_message_id": 1100, "pinned": False},
+                    {"user_ids": [], "max_message_id": 7, "pinned": True},
+                ],
+            )
+            malformed: dict[frozenset[int], RecentPrivateConversationDict] = {
+                frozenset({2**100}): {"max_message_id": 1, "pinned": False}
+            }
+            self.assertIsNone(native_recent_conversations.finalize(malformed))
+            self.assertIsNone(native_recent_conversations.assemble(1, {101: 2**100}, subscriptions))
+
+    def test_register_assembly_and_replay_preserve_both_real_routes(self) -> None:
+        backend = extension()
+        if not all(
+            hasattr(backend, method)
+            for method in ("assemble_recent_conversations", "finalize_recent_conversations")
+        ):
+            self.skipTest("Rust extension does not support recent-conversation formatting")
+        assembly_enabled = environ.get("ZULIP_RUST_RECENT_CONVERSATIONS") == "1"
+        replay_enabled = environ.get("ZULIP_RUST_RECENT_CONVERSATION_REPLAY") == "1"
+        self.assertEqual(native_recent_conversations.assembly_available(), assembly_enabled)
+
+        owner = self.example_user("hamlet")
+        peer = self.example_user("cordelia")
+        other = self.example_user("othello")
+        direct = self.send_personal_message(owner, peer)
+        self_message = self.send_personal_message(owner, owner)
+        group = self.send_group_direct_message(owner, [peer, other])
+        group_members = sorted([peer.id, other.id])
+        queued_latest = group + 100
+        events = [
+            {**self.message(queued_latest, [owner.id, other.id, peer.id]), "id": 7},
+            {**self.pin(group_members, pinned=True), "id": 8},
+        ]
+        params = {
+            "event_types": orjson.dumps(
+                ["recent_private_conversations", "message", "direct_message_conversation"]
+            ).decode()
+        }
+        queue = EventQueueData(queue_id="15:21", idle_queue_timeout_secs=600)
+        self.login_user(owner)
+
+        def request(session: bool) -> tuple[int, bytes]:
+            with stub_event_queue_user_events(queue, events):
+                response = (
+                    self.client_post("/json/register", params)
+                    if session
+                    else self.api_post(owner, "/api/v1/register", params)
+                )
+            self.assert_json_success(response)
+            return response.status_code, response.content
+
+        def decline(
+            me: int, recent: dict[int, int], subscriptions: list[tuple[int, int, bool]]
+        ) -> None:
+            # The bridge rejects the entire noncanonical copy. Django keeps
+            # its original selected rows for the Python fallback.
+            malformed = [*subscriptions, (next(iter(recent)), True, False)]
+            self.assertIsNone(backend.assemble_recent_conversations(me, recent, malformed))
+
+        def decline_finalization(
+            conversations: dict[frozenset[int], RecentPrivateConversationDict],
+        ) -> None:
+            malformed = {
+                **conversations,
+                frozenset({2**100}): {"max_message_id": 1, "pinned": False},
+            }
+            self.assertIsNone(backend.finalize_recent_conversations(malformed))
+
+        for session in (False, True):
+            with self.subTest(session=session):
+                with (
+                    patch.object(native_recent_conversations, "_backend", None),
+                    patch.object(native_recent_conversation_replay, "_backend", None),
+                ):
+                    expected = request(session)
+                data = orjson.loads(expected[1])
+                self.assertEqual(data["last_event_id"], 8)
+                self.assertEqual(
+                    data["recent_private_conversations"],
+                    [
+                        {
+                            "user_ids": group_members,
+                            "max_message_id": queued_latest,
+                            "pinned": True,
+                        },
+                        {"user_ids": [], "max_message_id": self_message, "pinned": False},
+                        {"user_ids": [peer.id], "max_message_id": direct, "pinned": False},
+                    ],
+                )
+                with (
+                    patch.object(
+                        backend,
+                        "assemble_recent_conversations",
+                        wraps=backend.assemble_recent_conversations,
+                    ) as assembly,
+                    patch.object(
+                        backend,
+                        "finalize_recent_conversations",
+                        wraps=backend.finalize_recent_conversations,
+                    ) as finalization,
+                    patch.object(
+                        backend, METHODS[0], wraps=getattr(backend, METHODS[0])
+                    ) as message,
+                    patch.object(backend, METHODS[1], wraps=getattr(backend, METHODS[1])) as pin,
+                ):
+                    self.assertEqual(request(session), expected)
+                self.assertEqual(assembly.call_count, int(assembly_enabled))
+                self.assertEqual(finalization.call_count, int(assembly_enabled))
+                self.assertEqual(message.call_count, int(replay_enabled))
+                self.assertEqual(pin.call_count, int(replay_enabled))
+
+                reject_assembly = Mock(side_effect=decline)
+                reject_finalization = Mock(side_effect=decline_finalization)
+                for candidate in (
+                    SimpleNamespace(),
+                    SimpleNamespace(
+                        assemble_recent_conversations=reject_assembly,
+                        finalize_recent_conversations=backend.finalize_recent_conversations,
+                    ),
+                    SimpleNamespace(
+                        assemble_recent_conversations=backend.assemble_recent_conversations,
+                        finalize_recent_conversations=reject_finalization,
+                    ),
+                ):
+                    with patch.object(native_recent_conversations, "_backend", candidate):
+                        self.assertEqual(request(session), expected)
+                reject_assembly.assert_called_once()
+                reject_finalization.assert_called_once()
 
     def test_register_order_and_pin_identity(self) -> None:
         backend = extension()
