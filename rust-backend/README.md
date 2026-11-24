@@ -5594,6 +5594,23 @@ Rust formatter for each row, and about 1.1–1.3 times faster than the
 Python formatter. These are formatting measurements, not database or
 whole registration timings. Independent HTTP coverage does not change.
 
+### Replay selected user status events through Rust
+
+Set `ZULIP_RUST_USER_STATUS_REPLAY=1` on a Django worker to replay
+received status edits during registration through the Rust row reducer.
+Django still selects the status row and owns the outer map. Visibility,
+database queries, event ordering, and persistent writes are unchanged.
+An older extension or a declined row uses the existing Python replay.
+
+The flag defaults to off and is separate from status reads and writes.
+Unset it and restart the worker to restore Python replay. With the
+locally built extension, run both flag states in an isolated database:
+
+```bash
+ZULIP_RUST_USER_STATUS_REPLAY=0 ./tools/test-backend zerver.tests.test_user_status_batch_rust
+ZULIP_RUST_USER_STATUS_REPLAY=1 ./tools/test-backend zerver.tests.test_user_status_batch_rust
+```
+
 ### Persist an existing user status through Rust
 
 The separate, default-off `ZULIP_RUST_USER_STATUS_PERSISTENCE=1` option

@@ -379,7 +379,9 @@ mod _zulip_backend {
     use crate::python_topic_history::format_visible_topic_history;
 
     #[pymodule_export]
-    use crate::python_user_status_batch::format_visible_user_statuses;
+    use crate::python_user_status_batch::{
+        apply_user_status_row_event, format_visible_user_statuses,
+    };
 
     #[pymodule_export]
     use crate::python_user_status_persistence::update_existing_user_status;

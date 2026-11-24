@@ -1,8 +1,9 @@
 from datetime import timedelta
 from importlib import import_module
+from os import environ
 from random import Random
 from types import ModuleType, SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest import SkipTest
 from unittest.mock import Mock, patch
 
@@ -13,8 +14,9 @@ from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now as timezone_now
 
 from zerver.actions.users import change_user_is_active
-from zerver.lib import user_status
+from zerver.lib import native_user_status_replay, user_status
 from zerver.lib.test_classes import ZulipTestCase
+from zerver.lib.test_helpers import stub_event_queue_user_events
 from zerver.models import UserProfile, UserStatus
 from zerver.models.clients import get_client
 from zerver.tornado.django_api import EventQueueData
@@ -78,6 +80,169 @@ class UserStatusBatchRustTest(ZulipTestCase):
             [(1, True, "", "")],
         ):
             self.assertIsNone(backend.format_visible_user_statuses(unsupported))
+
+    def test_existing_status_replay_preserves_order_and_declines_atomically(self) -> None:
+        backend = extension()
+        native = getattr(backend, "apply_user_status_row_event", None)
+        if not callable(native):
+            self.skipTest("Rust extension does not support status replay")
+
+        row = {"away": True, "status_text": "سلام", "emoji_name": "car", "emoji_code": "1f697"}
+        alias = row
+        ignored = {"emoji_name": "", "emoji_code": "", "reaction_type": "unicode_emoji"}
+        self.assertTrue(native(row, ignored))
+        self.assertEqual(list(row), ["away", "status_text", "emoji_name", "emoji_code"])
+
+        before = list(row.items())
+        bad = {**ignored, "away": False, "status_text": "", "emoji_code": 17}
+        self.assertIsNone(native(row, bad))
+        self.assertIsNone(native(row, row))
+        self.assertEqual(list(row.items()), before)
+        noncanonical = {"away": True, "status_text": 42}
+        self.assertIsNone(native(noncanonical, {"away": False}))
+        self.assertEqual(noncanonical, {"away": True, "status_text": 42})
+
+        self.assertTrue(native(row, {**ignored, "status_text": "🙂"}))
+        self.assertIs(row, alias)
+        self.assertEqual(list(row.items()), [("away", True), ("status_text", "🙂")])
+        self.assertIs(native(row, {"away": False, "status_text": ""}), False)
+        self.assertEqual(alias, {})
+
+    def test_register_status_events_preserve_both_routes_and_fallback(self) -> None:
+        backend = extension()
+        native = getattr(backend, "apply_user_status_row_event", None)
+        if not callable(native):
+            self.skipTest("Rust extension does not support status replay")
+        enabled = environ.get("ZULIP_RUST_USER_STATUS_REPLAY") == "1"
+
+        owner = self.example_user("hamlet")
+        peer = self.example_user("cordelia")
+        other = self.example_user("othello")
+        UserStatus.objects.create(
+            user_profile=owner,
+            client=get_client("website"),
+            timestamp=timezone_now(),
+            status_text="Before",
+            emoji_name="car",
+            emoji_code="1f697",
+            reaction_type=UserStatus.UNICODE_EMOJI,
+        )
+
+        def change(number: int, user: UserProfile, **fields: object) -> dict[str, Any]:
+            return {"id": number, "type": "user_status", "user_id": user.id, **fields}
+
+        events = [
+            change(1, peer, away=True),
+            change(
+                2,
+                owner,
+                away=True,
+                status_text="سلام",
+                emoji_name="",
+                emoji_code="",
+                reaction_type=UserStatus.UNICODE_EMOJI,
+            ),
+            change(3, peer, away=False),
+            change(
+                4,
+                other,
+                status_text="🙂 فارسی",
+                emoji_name="car",
+                emoji_code="1f697",
+                reaction_type=UserStatus.UNICODE_EMOJI,
+            ),
+            change(5, other, emoji_name=""),
+            change(6, owner, away=False, status_text=""),
+            change(7, owner, away=True),
+        ]
+        params = {"event_types": orjson.dumps(["user_status"]).decode()}
+        queue = EventQueueData(queue_id="15:21", idle_queue_timeout_secs=600)
+        self.login_user(owner)
+
+        def request(session: bool) -> tuple[int, bytes]:
+            with stub_event_queue_user_events(queue, events):
+                response = (
+                    self.client_post("/json/register", params)
+                    if session
+                    else self.api_post(owner, "/api/v1/register", params)
+                )
+            self.assert_json_success(response)
+            return response.status_code, response.content
+
+        def decline_one(row: dict[str, Any], event: dict[str, Any]) -> bool | None:
+            if event["id"] == 2:
+                before = list(row.items())
+                self.assertIsNone(native(row, {**event, "emoji_code": 17}))
+                self.assertEqual(list(row.items()), before)
+                return None
+            return native(row, event)
+
+        native_results: list[bool | None] = []
+
+        def witness(row: dict[str, Any], event: dict[str, Any]) -> bool | None:
+            result: bool | None = native(row, event)
+            native_results.append(result)
+            return result
+
+        with time_machine.travel(timezone_now() + timedelta(seconds=1), tick=False):
+            for session in (False, True):
+                with self.subTest(session=session):
+                    with patch.object(native_user_status_replay, "_backend", None):
+                        expected = request(session)
+                    data = orjson.loads(expected[1])
+                    self.assertEqual(data["last_event_id"], 7)
+                    self.assertEqual(list(data["user_status"]), [str(other.id), str(owner.id)])
+                    self.assertEqual(
+                        list(data["user_status"][str(other.id)].items()),
+                        [
+                            ("status_text", "🙂 فارسی"),
+                            ("emoji_name", "car"),
+                            ("emoji_code", "1f697"),
+                            ("reaction_type", UserStatus.UNICODE_EMOJI),
+                        ],
+                    )
+                    self.assertEqual(data["user_status"][str(owner.id)], {"away": True})
+
+                    native_results.clear()
+                    with patch.object(backend, "apply_user_status_row_event", side_effect=witness):
+                        self.assertEqual(request(session), expected)
+                    self.assertEqual(
+                        native_results,
+                        [True, True, False, True, True, False, True] if enabled else [],
+                    )
+
+                    decline = Mock(side_effect=decline_one)
+                    for candidate in (
+                        SimpleNamespace(
+                            format_visible_user_statuses=backend.format_visible_user_statuses
+                        ),
+                        SimpleNamespace(apply_user_status_row_event=decline),
+                    ):
+                        with patch.object(native_user_status_replay, "_backend", candidate):
+                            self.assertEqual(request(session), expected)
+                    self.assertEqual(decline.call_count, len(events))
+
+    def test_adapter_declines_foreign_rows_and_container_aliases(self) -> None:
+        backend = extension()
+        if not callable(getattr(backend, "apply_user_status_row_event", None)):
+            self.skipTest("Rust extension does not support status replay")
+        event = {"away": False}
+        wrong_row = {"away": True, "status_text": 42}
+        statuses = {"7": wrong_row}
+        with patch.object(native_user_status_replay, "_backend", backend):
+            self.assertFalse(native_user_status_replay.apply(statuses, "7", event))
+            self.assertIs(statuses["7"], wrong_row)
+            self.assertEqual(wrong_row, {"away": True, "status_text": 42})
+
+            outer_alias: dict[str, object] = {}
+            outer_alias["7"] = outer_alias
+            self.assertFalse(native_user_status_replay.apply(outer_alias, "7", event))
+            self.assertIs(outer_alias["7"], outer_alias)
+
+            event_alias = {"7": event}
+            self.assertFalse(native_user_status_replay.apply(event_alias, "7", event))
+            self.assertIs(event_alias["7"], event)
+            self.assertEqual(event, {"away": False})
 
     def test_registration_preserves_django_visibility_bytes_and_rollback(self) -> None:
         backend = extension()

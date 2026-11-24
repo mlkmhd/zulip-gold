@@ -30,6 +30,7 @@ from zerver.lib import (
     native_schedule_replay,
     native_settings_payload,
     native_unread_replay,
+    native_user_status_replay,
 )
 from zerver.lib.alert_words import user_alert_words
 from zerver.lib.avatar import avatar_url
@@ -2001,6 +2002,10 @@ def apply_event(
     elif event["type"] == "user_status":
         user_id_str = str(event["user_id"])
         user_status = state["user_status"]
+        if native_user_status_replay.apply(user_status, user_id_str, event):
+            state["user_status"] = user_status
+            return
+
         away = event.get("away")
         status_text = event.get("status_text")
         emoji_name = event.get("emoji_name")
