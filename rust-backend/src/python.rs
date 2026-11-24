@@ -500,6 +500,9 @@ mod _zulip_backend {
     use crate::python_gong_display::{format_gong_duration_display, join_gong_topic_display};
 
     #[pymodule_export]
+    use crate::python_channel_folder_display::plan_channel_folder_display_order;
+
+    #[pymodule_export]
     use crate::python_push_text::{quote_mobile_push_text, truncate_mobile_push_text};
 
     #[pymodule_export]

@@ -6828,3 +6828,11 @@ and joins the already selected topic display labels. Python still checks
 inputs, chooses and sorts topics, and owns time, URL, message and webhook
 handling. The switch defaults off; absent, older, or declining native
 implementations use the original Python formatting.
+
+### Opt-in channel folder display ordering
+
+`ZULIP_RUST_CHANNEL_FOLDER_DISPLAY=1` optionally plans stable ordering
+after Python selects channel folders and builds the display rows. Realm and
+spectator views retain their existing sort keys and original DTO objects.
+Python handles absent, older, declining or malformed native results. This is
+off by default and does not participate in folder writes or reordering.

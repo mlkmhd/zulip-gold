@@ -1,4 +1,7 @@
+import os
 from dataclasses import dataclass
+from importlib import import_module
+from typing import Literal
 
 from django.utils.translation import gettext as _
 
@@ -8,6 +11,19 @@ from zerver.lib.streams import get_web_public_streams_queryset
 from zerver.lib.string_validation import check_string_is_printable
 from zerver.lib.timestamp import datetime_to_timestamp
 from zerver.models import ChannelFolder, Realm, Stream, UserProfile
+
+try:
+    _rust_channel_folder_display = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_CHANNEL_FOLDER_DISPLAY") == "1"
+        else None
+    )
+except ImportError:
+    _rust_channel_folder_display = None
+
+_rust_plan_channel_folder_display_order = getattr(
+    _rust_channel_folder_display, "plan_channel_folder_display_order", None
+)
 
 
 @dataclass
@@ -58,6 +74,33 @@ def get_channel_folder_data(channel_folder: ChannelFolder) -> ChannelFolderData:
     )
 
 
+def _native_channel_folder_order_for_display(
+    channel_folders: list[ChannelFolderData], key: Literal["order", "id"]
+) -> list[ChannelFolderData] | None:
+    if not callable(_rust_plan_channel_folder_display_order) or any(
+        type(folder) is not ChannelFolderData for folder in channel_folders
+    ):
+        return None
+    keys = [getattr(folder, key) for folder in channel_folders]
+    if any(type(value) is not int for value in keys):
+        return None
+    positions = _rust_plan_channel_folder_display_order(keys)
+    if type(positions) is not list or len(positions) != len(channel_folders):
+        return None
+
+    ordered = []
+    previous: tuple[int, int] | None = None
+    for position in positions:
+        if type(position) is not int or not 0 <= position < len(channel_folders):
+            return None
+        current = (keys[position], position)
+        if previous is not None and current <= previous:
+            return None
+        previous = current
+        ordered.append(channel_folders[position])
+    return ordered
+
+
 def get_channel_folders_in_realm(
     realm: Realm, include_archived: bool = False
 ) -> list[ChannelFolderData]:
@@ -66,6 +109,9 @@ def get_channel_folders_in_realm(
         folders = folders.exclude(is_archived=True)
 
     channel_folders = [get_channel_folder_data(channel_folder) for channel_folder in folders]
+    projected = _native_channel_folder_order_for_display(channel_folders, "order")
+    if projected is not None:
+        return projected
     return sorted(channel_folders, key=lambda folder: folder.order)
 
 
@@ -83,6 +129,9 @@ def get_channel_folders_for_spectators(realm: Realm) -> list[ChannelFolderData]:
     )
     folders = ChannelFolder.objects.filter(id__in=folder_ids_for_web_public_streams)
     channel_folders = [get_channel_folder_data(channel_folder) for channel_folder in folders]
+    projected = _native_channel_folder_order_for_display(channel_folders, "id")
+    if projected is not None:
+        return projected
     return sorted(channel_folders, key=lambda folder: folder.id)
 
 

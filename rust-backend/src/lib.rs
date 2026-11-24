@@ -298,6 +298,9 @@ mod python_navigation_view_display;
 mod python_gong_display;
 
 #[cfg(feature = "python")]
+mod python_channel_folder_display;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]
