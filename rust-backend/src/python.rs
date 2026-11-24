@@ -380,6 +380,11 @@ mod _zulip_backend {
     use crate::python_message_window::plan_sorted_message_window;
 
     #[pymodule_export]
+    use crate::python_emoji_codepoints::{
+        decode_emoji_codepoints, encode_emoji_codepoints, unqualify_emoji_text,
+    };
+
+    #[pymodule_export]
     use crate::python_push_text::{quote_mobile_push_text, truncate_mobile_push_text};
 
     #[pymodule_export]

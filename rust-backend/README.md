@@ -5531,6 +5531,23 @@ nginx include restores that same history to the API without restarting
 Rust. This does not change route configuration, defaults, or independent
 HTTP coverage.
 
+### Convert emoji code points through Rust
+
+Set `ZULIP_RUST_EMOJI_CODEPOINTS=1` to remove the emoji presentation
+selector and convert already selected emoji text to or from its
+hexadecimal code points in Rust. Markdown, notification preview text,
+and the standalone emoji build helper keep their existing behavior.
+Missing methods and values the extension declines, including legacy
+numeric spellings and lone surrogates, use the original Python helpers.
+
+The flag defaults to off. Unset it and restart the worker to return to
+the Python helpers. With a locally built extension, test both modes:
+
+```bash
+ZULIP_RUST_EMOJI_CODEPOINTS=0 ./tools/test-backend zerver.tests.test_emoji_codepoints_rust
+ZULIP_RUST_EMOJI_CODEPOINTS=1 ./tools/test-backend zerver.tests.test_emoji_codepoints_rust
+```
+
 ### Format prepared mobile push text through Rust
 
 Set `ZULIP_RUST_PUSH_TEXT=1` on a Django worker to prefix extracted

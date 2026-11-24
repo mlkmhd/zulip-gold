@@ -1,4 +1,25 @@
-# This file doesn't import from django so that we can use it in `build_emoji`
+# This file doesn't import from django so that we can use it in `build_emoji`.
+from importlib import import_module
+from os import environ
+from typing import cast
+
+try:
+    _backend = (
+        import_module("_zulip_backend")
+        if environ.get("ZULIP_RUST_EMOJI_CODEPOINTS") == "1"
+        else None
+    )
+except ModuleNotFoundError as error:
+    if error.name != "_zulip_backend":
+        raise
+    _backend = None
+
+
+def _convert(name: str, text: str) -> str | None:
+    if _backend is None:
+        return None
+    native = getattr(_backend, name, None)
+    return cast("str | None", native(text)) if callable(native) else None
 
 
 def unqualify_emoji(emoji: str) -> str:
@@ -14,12 +35,15 @@ def unqualify_emoji(emoji: str) -> str:
     # colorful display. Hence we can continue using emoji characters
     # without appending emoji presentation selector.
     # (http://unicode.org/reports/tr51/index.html#Presentation_Style)
-    return emoji.replace("\ufe0f", "")
+    native = _convert("unqualify_emoji_text", emoji)
+    return emoji.replace("\ufe0f", "") if native is None else native
 
 
 def emoji_to_hex_codepoint(emoji: str) -> str:
-    return "-".join(f"{ord(c):04x}" for c in emoji)
+    native = _convert("encode_emoji_codepoints", emoji)
+    return "-".join(f"{ord(c):04x}" for c in emoji) if native is None else native
 
 
 def hex_codepoint_to_emoji(hex: str) -> str:
-    return "".join(chr(int(h, 16)) for h in hex.split("-"))
+    native = _convert("decode_emoji_codepoints", hex)
+    return "".join(chr(int(h, 16)) for h in hex.split("-")) if native is None else native

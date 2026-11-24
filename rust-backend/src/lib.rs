@@ -199,6 +199,9 @@ mod python_message_payload;
 mod python_message_window;
 
 #[cfg(feature = "python")]
+mod python_emoji_codepoints;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]
