@@ -19,7 +19,10 @@ def get_saved_snippets(
     request: HttpRequest,
     user_profile: UserProfile,
 ) -> HttpResponse:
-    return json_success(request, data={"saved_snippets": do_get_saved_snippets(user_profile)})
+    return json_success(
+        request,
+        data={"saved_snippets": do_get_saved_snippets(user_profile, rust_display_for_get=True)},
+    )
 
 
 @typed_endpoint

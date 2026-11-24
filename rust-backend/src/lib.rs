@@ -289,6 +289,9 @@ mod python_git_display_people;
 mod python_chart_timestamp_display;
 
 #[cfg(feature = "python")]
+mod python_saved_snippet_display;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]

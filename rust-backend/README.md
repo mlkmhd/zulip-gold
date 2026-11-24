@@ -6803,3 +6803,12 @@ Python chart timestamp floats toward zero for display. Python retains timestamp
 calculation, timezone and bucket handling, and response serialization. The
 original Python conversion is the default and handles unavailable or declined
 native values.
+
+### Opt-in saved-snippet display rows
+
+`ZULIP_RUST_SAVED_SNIPPET_DISPLAY=1` optionally assembles the existing ordered
+saved-snippet dictionaries for the legacy Django GET after the same query.
+Python still prepares the original values, including the integer timestamp, and
+handles the response. Events, bootstrap and writes keep their original Python
+formatting. The switch defaults off; absent, older, or declining native
+implementations use Python.

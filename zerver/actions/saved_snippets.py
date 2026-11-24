@@ -1,3 +1,5 @@
+import os
+from importlib import import_module
 from typing import Any
 
 from django.db import transaction
@@ -76,8 +78,46 @@ def do_edit_saved_snippet(
     return saved_snippet
 
 
-def do_get_saved_snippets(user_profile: UserProfile) -> list[dict[str, Any]]:
+try:
+    _rust_saved_snippet_display = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_SAVED_SNIPPET_DISPLAY") == "1"
+        else None
+    )
+except ImportError:
+    _rust_saved_snippet_display = None
+
+_render_saved_snippet_display_rows = getattr(
+    _rust_saved_snippet_display, "render_saved_snippet_display_rows", None
+)
+
+
+def do_get_saved_snippets(
+    user_profile: UserProfile, *, rust_display_for_get: bool = False
+) -> list[dict[str, Any]]:
     saved_snippets = SavedSnippet.objects.filter(user_profile=user_profile)
+
+    if rust_display_for_get and callable(_render_saved_snippet_display_rows):
+        # The existing queryset fetches all rows before exposing its iterator.
+        # Only renderer input, not the queryset or timestamp semantics, is native.
+        snippets = list(iter(saved_snippets))
+        if all(type(snippet) is SavedSnippet for snippet in snippets):
+            rows = [
+                (snippet.id, snippet.title, snippet.content, int(snippet.date_created.timestamp()))
+                for snippet in snippets
+            ]
+            rendered = _render_saved_snippet_display_rows(rows)
+            if (
+                type(rendered) is list
+                and len(rendered) == len(rows)
+                and all(type(row) is dict for row in rendered)
+            ):
+                return rendered
+            return [
+                {"id": snippet_id, "title": title, "content": content, "date_created": date_created}
+                for snippet_id, title, content, date_created in rows
+            ]
+        return [snippet.to_api_dict() for snippet in snippets]
 
     return [saved_snippet.to_api_dict() for saved_snippet in saved_snippets]
 
