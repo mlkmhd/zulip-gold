@@ -310,6 +310,9 @@ mod python_rocketchat_display_name;
 mod python_openproject_duration_display;
 
 #[cfg(feature = "python")]
+mod python_integration_catalog_display;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]

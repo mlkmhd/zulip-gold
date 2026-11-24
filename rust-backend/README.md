@@ -6861,3 +6861,11 @@ prepared duration counts and joins the display parts. Python retains the
 existing parser, field order, integer conversions, and singular/plural unit
 selection. The switch defaults off; absent, older or declining extensions
 use the original formatting. Webhook inputs and delivery are unchanged.
+
+### Opt-in integration catalog display
+
+`ZULIP_RUST_INTEGRATION_CATALOG_DISPLAY=1` optionally rounds the
+already aggregated integration count and assembles selected category tuples
+for documentation display. Return-category routing, catalog eligibility,
+templates and URL handling retain their existing Python paths. Default is
+off; an absent, older, declining or incompatible extension uses Python.

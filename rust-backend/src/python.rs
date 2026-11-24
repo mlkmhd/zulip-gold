@@ -516,6 +516,11 @@ mod _zulip_backend {
     };
 
     #[pymodule_export]
+    use crate::python_integration_catalog_display::{
+        project_integration_display_categories, round_integration_display_count,
+    };
+
+    #[pymodule_export]
     use crate::python_push_text::{quote_mobile_push_text, truncate_mobile_push_text};
 
     #[pymodule_export]

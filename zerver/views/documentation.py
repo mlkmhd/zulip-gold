@@ -4,6 +4,7 @@ import re
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
+from importlib import import_module
 from typing import Any
 
 import werkzeug
@@ -403,11 +404,36 @@ def get_visible_integrations_for_category(category_slug: str) -> list[Integratio
     return [integration for integration in enabled if category in integration.categories]
 
 
+try:
+    _rust_integration_catalog_display = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_INTEGRATION_CATALOG_DISPLAY") == "1"
+        else None
+    )
+except ImportError:
+    _rust_integration_catalog_display = None
+
+_rust_round_integration_display_count = getattr(
+    _rust_integration_catalog_display, "round_integration_display_count", None
+)
+_rust_project_integration_display_categories = getattr(
+    _rust_integration_catalog_display, "project_integration_display_categories", None
+)
+
+
+def _round_integration_display_count(count: int) -> int:
+    if callable(_rust_round_integration_display_count):
+        rendered = _rust_round_integration_display_count(count)
+        if type(rendered) is int:
+            return rendered
+    return ((count - 1) // 10) * 10
+
+
 def add_catalog_integrations_context(request: HttpRequest, category_slug: str) -> dict[str, Any]:
     enabled_integrations_count = sum(v.is_enabled_in_catalog() for v in INTEGRATIONS.values())
     # Subtract 1 so saying "Over X integrations" is correct. Then,
     # round down to the nearest multiple of 10.
-    integrations_count_display = ((enabled_integrations_count - 1) // 10) * 10
+    integrations_count_display = _round_integration_display_count(enabled_integrations_count)
 
     context = add_base_integrations_context(request)
     context.update(
@@ -421,10 +447,42 @@ def add_catalog_integrations_context(request: HttpRequest, category_slug: str) -
     return context
 
 
-def get_categories_for_integration(integration: Integration) -> list[tuple[str, str]]:
-    display_to_slug = {display: slug for slug, display in CATEGORIES.items()}
+def get_categories_for_integration(
+    integration: Integration, *, rust_for_display: bool = False
+) -> list[tuple[str, str]]:
+    if (
+        rust_for_display
+        and callable(_rust_project_integration_display_categories)
+        and type(CATEGORIES) is dict
+        and all(type(slug) is str and type(name) is str for slug, name in CATEGORIES.items())
+    ):
+        # Snapshot this exact string table before accessing the chosen names.
+        # Routing and lookup go through the original Python path below.
+        catalog = CATEGORIES.copy()
+        names = integration.categories
+        if type(names) is list and all(type(name) is str for name in names):
+            projected = _rust_project_integration_display_categories(catalog, names)
+            if (
+                type(projected) is list
+                and len(projected) == len(names)
+                and all(
+                    type(row) is tuple
+                    and len(row) == 2
+                    and type(row[0]) is str
+                    and row[0] in catalog
+                    and row[1] is name
+                    and catalog[row[0]] == name
+                    for row, name in zip(projected, names, strict=True)
+                )
+            ):
+                return projected
+        display_to_slug = {display: slug for slug, display in catalog.items()}
+    else:
+        display_to_slug = {display: slug for slug, display in CATEGORIES.items()}
+        names = integration.categories
+
     result = []
-    for display_name in integration.categories:
+    for display_name in names:
         slug = display_to_slug.get(display_name)
         assert slug is not None
         result.append((slug, display_name))
@@ -440,7 +498,9 @@ def add_doc_integrations_context(
         {
             "selected_integration": integration,
             "integration_doc_html": build_integration_doc_html(integration, request),
-            "integration_categories": get_categories_for_integration(integration),
+            "integration_categories": get_categories_for_integration(
+                integration, rust_for_display=True
+            ),
             "return_category_slug": return_category_slug,
         }
     )
