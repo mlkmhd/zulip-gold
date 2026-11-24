@@ -73,6 +73,21 @@ _order_analytics_chart_totals = getattr(_rust_chart_order, "order_analytics_char
 _order_analytics_chart_clients = getattr(_rust_chart_order, "order_analytics_chart_clients", None)
 
 
+try:
+    _rust_time_buckets = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_ANALYTICS_TIME_BUCKETS") == "1"
+        else None
+    )
+except ImportError:
+    _rust_time_buckets = None
+
+_plan_analytics_time_buckets = getattr(_rust_time_buckets, "plan_analytics_time_buckets", None)
+_CHART_EPOCH = datetime.min.replace(tzinfo=timezone.utc)
+_CHART_HOUR_MICROSECONDS = 3_600_000_000
+_CHART_DAY_MICROSECONDS = 24 * _CHART_HOUR_MICROSECONDS
+
+
 def is_analytics_ready(realm: Realm) -> bool:
     return (timezone_now() - realm.date_created) > MAX_TIME_FOR_FULL_ANALYTICS_GENERATION
 
@@ -347,6 +362,41 @@ def get_chart_data(
     )
 
 
+def _chart_time_in_microseconds(value: datetime) -> int:
+    elapsed = value - _CHART_EPOCH
+    return (elapsed.days * 86400 + elapsed.seconds) * 1_000_000 + elapsed.microseconds
+
+
+def _chart_time_range(
+    start: datetime, end: datetime, frequency: str, min_length: int | None
+) -> list[datetime]:
+    if (
+        _plan_analytics_time_buckets is not None
+        and type(start) is datetime
+        and type(end) is datetime
+        and start.tzinfo is timezone.utc
+        and end.tzinfo is timezone.utc
+        and type(frequency) is str
+        and frequency in (CountStat.HOUR, CountStat.DAY)
+        and (min_length is None or type(min_length) is int)
+    ):
+        step = _CHART_HOUR_MICROSECONDS if frequency == CountStat.HOUR else _CHART_DAY_MICROSECONDS
+        native = _plan_analytics_time_buckets(
+            _chart_time_in_microseconds(start), _chart_time_in_microseconds(end), step, min_length
+        )
+        if native is not None:
+            first_us, count, step_us = native
+            if count == 0:
+                return []
+            times = [_CHART_EPOCH + timedelta(microseconds=first_us)]
+            increment = timedelta(microseconds=step_us)
+            for _ in range(1, count):
+                times.append(times[-1] + increment)
+            return times
+
+    return time_range(start, end, frequency, min_length)
+
+
 @require_non_guest_user
 def do_get_chart_data(
     request: HttpRequest,
@@ -519,7 +569,7 @@ def do_get_chart_data(
             )
 
     assert len({stat.frequency for stat in stats}) == 1
-    end_times = time_range(start, end, stats[0].frequency, min_length)
+    end_times = _chart_time_range(start, end, stats[0].frequency, min_length)
     data: dict[str, Any] = {
         "end_times": [int(end_time.timestamp()) for end_time in end_times],
         "frequency": stats[0].frequency,

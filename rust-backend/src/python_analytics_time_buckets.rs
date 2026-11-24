@@ -1,0 +1,56 @@
+//! Bucket arithmetic for preselected UTC chart boundaries.
+
+use pyo3::prelude::*;
+use pyo3::types::PyInt;
+
+const HOUR_US: i64 = 3_600_000_000;
+const DAY_US: i64 = 24 * HOUR_US;
+const MAX_DATETIME_US: i64 = 3_652_059 * DAY_US - 1;
+const MAX_BUCKETS: i64 = 65_536;
+
+fn integer(value: &Bound<'_, PyAny>) -> Option<i64> {
+    value.cast_exact::<PyInt>().ok()?.extract().ok()
+}
+
+#[pyfunction]
+pub(crate) fn plan_analytics_time_buckets(
+    start: &Bound<'_, PyAny>,
+    end: &Bound<'_, PyAny>,
+    step: &Bound<'_, PyAny>,
+    minimum_length: &Bound<'_, PyAny>,
+) -> Option<(i64, i64, i64)> {
+    let span = 0..=MAX_DATETIME_US;
+    let start = integer(start)?;
+    let end = integer(end)?;
+    let step = integer(step)?;
+    if !span.contains(&start) || !span.contains(&end) || !matches!(step, HOUR_US | DAY_US) {
+        return None;
+    }
+    let end = end - end % step;
+    let start = if minimum_length.is_none() {
+        start
+    } else {
+        let adjustment = integer(minimum_length)?.checked_sub(1)?.checked_mul(step)?;
+        let padded = end.checked_sub(adjustment)?;
+        // Python evaluates this expression before choosing the smaller start.
+        if !span.contains(&padded) {
+            return None;
+        }
+        start.min(padded)
+    };
+    if end < start {
+        return Some((0, 0, step));
+    }
+
+    let count = (end - start) / step + 1;
+    if count > MAX_BUCKETS {
+        return None;
+    }
+    let first = end - (count - 1) * step;
+    // The original while loop subtracts one step even after the final
+    // included element, raising when the subtraction precedes year 1.
+    if first < step {
+        return None;
+    }
+    Some((first, count, step))
+}

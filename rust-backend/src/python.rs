@@ -429,6 +429,9 @@ mod _zulip_backend {
     };
 
     #[pymodule_export]
+    use crate::python_analytics_time_buckets::plan_analytics_time_buckets;
+
+    #[pymodule_export]
     use crate::python_timezone_aliases::{lookup_timezone_alias, parse_timezone_alias_lines};
 
     #[pymodule_export]
