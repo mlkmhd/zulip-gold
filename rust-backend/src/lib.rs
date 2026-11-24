@@ -319,6 +319,9 @@ mod python_activity_date_display;
 mod python_mattermost_display_name;
 
 #[cfg(feature = "python")]
+mod python_redmine_display;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]

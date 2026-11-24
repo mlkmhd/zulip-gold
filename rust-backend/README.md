@@ -6886,3 +6886,11 @@ same whitespace as Python. The returned name is not trimmed. Python still
 chooses the original display name or username fallback. The switch defaults
 off, with Python fallback for absent, older or declining native helpers
 and unusual inputs.
+
+### Opt-in Redmine display labels
+
+`ZULIP_RUST_REDMINE_DISPLAY=1` optionally spells the
+already selected issue number and title or joins prepared name parts.
+Python still validates and chooses these values, and handles links and
+delivery. The switch defaults off; absent, older, declining or unsupported
+native implementations use the same Python formatting.

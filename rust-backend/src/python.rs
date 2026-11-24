@@ -529,6 +529,11 @@ mod _zulip_backend {
     use crate::python_mattermost_display_name::plan_mattermost_display_name;
 
     #[pymodule_export]
+    use crate::python_redmine_display::{
+        format_redmine_display_issue_label, join_redmine_display_name,
+    };
+
+    #[pymodule_export]
     use crate::python_push_text::{quote_mobile_push_text, truncate_mobile_push_text};
 
     #[pymodule_export]

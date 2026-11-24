@@ -1,3 +1,6 @@
+import os
+from importlib import import_module
+
 from django.http import HttpRequest, HttpResponse
 
 from zerver.decorator import webhook_view
@@ -17,9 +20,32 @@ ISSUE_UPDATED_MESSAGE_TEMPLATE = "**{author_name}** updated {issue_link}.{journa
 CONTENT_MESSAGE_TEMPLATE = "\n\n~~~ quote\n{message}\n~~~"
 
 
+try:
+    _rust_redmine_display = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_REDMINE_DISPLAY") == "1"
+        else None
+    )
+except ImportError:
+    _rust_redmine_display = None
+
+_rust_format_redmine_display_issue_label = getattr(
+    _rust_redmine_display, "format_redmine_display_issue_label", None
+)
+_rust_join_redmine_display_name = getattr(_rust_redmine_display, "join_redmine_display_name", None)
+
+
 def _extract_issue_label(issue: WildValue) -> str:
     id = issue["id"].tame(check_int)
     subject = issue["subject"].tame(check_string)
+    if (
+        type(id) is int
+        and type(subject) is str
+        and callable(_rust_format_redmine_display_issue_label)
+    ):
+        rendered = _rust_format_redmine_display_issue_label(id, subject)
+        if type(rendered) is str:
+            return rendered
     return f"#{id} {subject}"
 
 
@@ -36,7 +62,15 @@ def _get_issue_link(payload: WildValue) -> str:
 
 
 def _get_user_name(user: WildValue) -> str:
-    return f"{user['firstname'].tame(check_string)} {user['lastname'].tame(check_string)}"
+    first_name = user["firstname"].tame(check_string)
+    if type(first_name) is str and callable(_rust_join_redmine_display_name):
+        last_name = user["lastname"].tame(check_string)
+        if type(last_name) is str:
+            rendered = _rust_join_redmine_display_name(first_name, last_name)
+            if type(rendered) is str:
+                return rendered
+        return f"{first_name} {last_name}"
+    return f"{first_name} {user['lastname'].tame(check_string)}"
 
 
 def _get_assignee_string(issue: WildValue) -> str:
