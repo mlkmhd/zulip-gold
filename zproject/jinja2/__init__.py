@@ -12,7 +12,12 @@ from two_factor.plugins.phonenumber.templatetags.phonenumber import device_actio
 
 from zerver.context_processors import DEFAULT_PAGE_PARAMS
 from zerver.lib.send_email import FromAddress
-from zerver.lib.templates import display_list, render_markdown_path, webpack_entry
+from zerver.lib.templates import (
+    display_list,
+    plain_display_list,
+    render_markdown_path,
+    webpack_entry,
+)
 
 
 def json_dumps(obj: object) -> str:
@@ -43,6 +48,8 @@ def environment(**options: Any) -> Environment:
     env.filters["slugify"] = slugify
     env.filters["pluralize"] = pluralize
     env.filters["display_list"] = display_list
+    if env.autoescape is False:
+        env.filters["plain_display_list"] = plain_display_list
     env.filters["device_action"] = device_action
     env.filters["timesince"] = timesince
     env.filters["localize"] = localize

@@ -247,6 +247,9 @@ mod python_description_text;
 mod python_slack_import_pieces;
 
 #[cfg(feature = "python")]
+mod python_plain_display_list;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]

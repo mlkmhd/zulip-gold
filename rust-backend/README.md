@@ -5832,6 +5832,22 @@ for enabled in 0 1; do
 done
 ```
 
+### Format prepared plaintext digest lists through Rust
+
+Set `ZULIP_RUST_PLAIN_DISPLAY_LIST=1` before starting Django to format
+already selected plain names in the plaintext digest. The HTML
+template and its existing filter stay unchanged.
+
+The switch defaults to off. A missing method or unsupported input,
+including markup and string subclasses, uses the existing Python
+formatter. Test synthetic rendering without sending email:
+
+```bash
+for enabled in 0 1; do
+    ZULIP_RUST_PLAIN_DISPLAY_LIST=$enabled ./tools/test-backend zerver.tests.test_plain_display_list_rust
+done
+```
+
 ### Format prepared mobile push text through Rust
 
 Set `ZULIP_RUST_PUSH_TEXT=1` on a Django worker to prefix extracted

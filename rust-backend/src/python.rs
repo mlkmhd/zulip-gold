@@ -441,6 +441,9 @@ mod _zulip_backend {
     use crate::python_slack_import_pieces::join_slack_import_pieces;
 
     #[pymodule_export]
+    use crate::python_plain_display_list::format_plain_display_list;
+
+    #[pymodule_export]
     use crate::python_push_text::{quote_mobile_push_text, truncate_mobile_push_text};
 
     #[pymodule_export]

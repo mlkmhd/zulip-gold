@@ -1,4 +1,6 @@
+import os
 import time
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +34,20 @@ from zerver.openapi.merge_api_changelogs import (
 )
 
 register = Library()
+
+
+try:
+    _rust_plain_display_list = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_PLAIN_DISPLAY_LIST") == "1"
+        else None
+    )
+except ImportError:
+    _rust_plain_display_list = None
+
+_rust_format_plain_display_list = getattr(
+    _rust_plain_display_list, "format_plain_display_list", None
+)
 
 
 def and_n_others(values: list[str | Markup], limit: int) -> str | Markup:
@@ -79,6 +95,14 @@ def display_list(values: list[str | Markup], display_limit: int) -> str | Markup
         display_string += and_n_others(values, display_limit)
 
     return display_string
+
+
+def plain_display_list(values: list[str | Markup], display_limit: int) -> str | Markup:
+    if _rust_format_plain_display_list is not None:
+        native = _rust_format_plain_display_list(values, display_limit)
+        if native is not None:
+            return native
+    return display_list(values, display_limit)
 
 
 md_extensions: list[markdown.Extension] | None = None
