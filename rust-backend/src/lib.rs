@@ -268,6 +268,9 @@ mod python_api_type_display;
 mod python_analytics_subgroup_projection;
 
 #[cfg(feature = "python")]
+mod python_tabbed_text;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]

@@ -1,5 +1,7 @@
+import os
 import re
 from collections.abc import Mapping
+from importlib import import_module
 from typing import Any
 
 import markdown
@@ -8,6 +10,18 @@ from markdown.preprocessors import Preprocessor
 from typing_extensions import override
 
 from zerver.lib.markdown.priorities import PREPROCESSOR_PRIORITIES
+
+try:
+    _rust_tabbed_text = (
+        import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_TABBED_TEXT") == "1" else None
+    )
+except ImportError:
+    _rust_tabbed_text = None
+
+_rust_normalize_prepared_tabbed_lines = getattr(
+    _rust_tabbed_text, "normalize_prepared_tabbed_lines", None
+)
+_rust_join_prepared_tabbed_blocks = getattr(_rust_tabbed_text, "join_prepared_tabbed_blocks", None)
 
 START_TABBED_SECTION_REGEX = re.compile(r"^\{start_tabs\}$")
 END_TABBED_SECTION_REGEX = re.compile(r"^\{end_tabs\}$")
@@ -102,7 +116,14 @@ def generate_content_blocks(
             # Otherwise, just use the end of the entire section
             end_index = tab_section["end_tabs_index"]
 
-        content = "\n".join(lines[start_index:end_index]).strip()
+        selected_lines = lines[start_index:end_index]
+        content = (
+            _rust_normalize_prepared_tabbed_lines(selected_lines)
+            if _rust_normalize_prepared_tabbed_lines is not None
+            else None
+        )
+        if content is None:
+            content = "\n".join(selected_lines).strip()
         tab_content_block = tab_content_template.format(
             class_="active" if index == 0 else "",
             data_tab_key=tab["tab_key"],
@@ -116,6 +137,10 @@ def generate_content_blocks(
             content=f"\n{content}\n",
         )
         tab_content_blocks.append(tab_content_block)
+    if _rust_join_prepared_tabbed_blocks is not None:
+        joined = _rust_join_prepared_tabbed_blocks(tab_content_blocks)
+        if joined is not None:
+            return joined
     return "\n".join(tab_content_blocks)
 
 

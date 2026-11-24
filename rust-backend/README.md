@@ -6747,3 +6747,11 @@ selected subgroup labels and prepared UTC time keys. Django retains chart
 queries, grouping and eligible-label selection; the unchanged client alias
 step runs afterward. The default and unsupported-value fallback is the
 original Python fill loop. No time conversion or scope decision runs in Rust.
+
+### Opt-in documentation tab text
+
+`ZULIP_RUST_TABBED_TEXT=1` enables LF joining and the original outer Python
+whitespace trimming for already-selected documentation tab lines, and LF
+joining of already-formatted blocks. Python keeps directive parsing, tab
+selection, labels, callbacks, templates, and Markdown behavior. Python is
+the default and the fallback for unavailable or declined native helpers.
