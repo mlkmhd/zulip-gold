@@ -6755,3 +6755,11 @@ whitespace trimming for already-selected documentation tab lines, and LF
 joining of already-formatted blocks. Python keeps directive parsing, tab
 selection, labels, callbacks, templates, and Markdown behavior. Python is
 the default and the fallback for unavailable or declined native helpers.
+
+### Opt-in prepared commit display values
+
+`ZULIP_RUST_COMMIT_DISPLAY=1` enables short SHA and first-LF subject extraction
+at the existing display row, and ranking of already-extracted display names.
+Python keeps the original field access order, URL lookup, row template,
+committer extraction, and all notification behavior. Original Python runs
+by default and when either native helper is unavailable or declines.

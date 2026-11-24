@@ -1,9 +1,23 @@
+import os
 import string
 from collections import defaultdict
+from importlib import import_module
 from typing import Any
 
 from zerver.lib.markdown.fenced_code import get_unused_fence
 from zerver.lib.validator import WildValue
+
+try:
+    _rust_commit_display = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_COMMIT_DISPLAY") == "1"
+        else None
+    )
+except ImportError:
+    _rust_commit_display = None
+
+_rust_project_commit_display_row = getattr(_rust_commit_display, "project_commit_display_row", None)
+_rust_rank_commit_display_names = getattr(_rust_commit_display, "rank_commit_display_names", None)
 
 TOPIC_WITH_BRANCH_TEMPLATE = "{repo} / {branch}"
 TOPIC_WITH_PR_OR_ISSUE_INFO_TEMPLATE = "{repo} / {type} #{id} {title}"
@@ -416,9 +430,9 @@ def get_commits_content(commits_data: list[dict[str, Any]], is_truncated: bool =
     commits_content = ""
     for commit in commits_data[:COMMITS_LIMIT]:
         commits_content += COMMIT_ROW_TEMPLATE.format(
-            commit_short_sha=get_short_sha(commit["sha"]),
+            commit_short_sha=_commit_row_short_sha(commit["sha"]),
             commit_url=commit.get("url"),
-            commit_msg=commit["message"].partition("\n")[0],
+            commit_msg=_commit_row_first_lf_line(commit["message"]),
         )
 
     if len(commits_data) > COMMITS_LIMIT:
@@ -450,11 +464,43 @@ def get_short_sha(sha: str) -> str:
     return sha[:11]
 
 
+_python_get_short_sha = get_short_sha
+
+
+def _commit_row_short_sha(sha: str) -> str:
+    if _rust_project_commit_display_row is not None and get_short_sha is _python_get_short_sha:
+        native = _rust_project_commit_display_row(sha, "")
+        if native is not None:
+            return native[0]
+    return get_short_sha(sha)
+
+
+def _commit_row_first_lf_line(message: str) -> str:
+    if _rust_project_commit_display_row is not None:
+        native = _rust_project_commit_display_row("", message)
+        if native is not None:
+            return native[1]
+    return message.partition("\n")[0]
+
+
 def get_all_committers(commits_data: list[dict[str, Any]]) -> list[tuple[str, int]]:
     committers: dict[str, int] = defaultdict(int)
+    names: list[str] | None = [] if _rust_rank_commit_display_names is not None else None
 
     for commit in commits_data:
-        committers[commit["name"]] += 1
+        name = commit["name"]
+        committers[name] += 1
+        if names is not None:
+            names.append(name)
+
+    if names is not None:
+        assert _rust_rank_commit_display_names is not None
+        native = _rust_rank_commit_display_names(names, PUSH_COMMITTERS_LIMIT_INFO)
+        if native is not None:
+            if len(committers) > PUSH_COMMITTERS_LIMIT_INFO:
+                # Retain the original Python literal object on the summary row.
+                native[-1] = ("others", native[-1][1])
+            return native
 
     # Sort by commit count, breaking ties alphabetically.
     committers_items: list[tuple[str, int]] = sorted(

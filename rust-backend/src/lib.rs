@@ -271,6 +271,9 @@ mod python_analytics_subgroup_projection;
 mod python_tabbed_text;
 
 #[cfg(feature = "python")]
+mod python_commit_display;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]

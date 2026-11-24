@@ -469,6 +469,9 @@ mod _zulip_backend {
     use crate::python_tabbed_text::{join_prepared_tabbed_blocks, normalize_prepared_tabbed_lines};
 
     #[pymodule_export]
+    use crate::python_commit_display::{project_commit_display_row, rank_commit_display_names};
+
+    #[pymodule_export]
     use crate::python_push_text::{quote_mobile_push_text, truncate_mobile_push_text};
 
     #[pymodule_export]
