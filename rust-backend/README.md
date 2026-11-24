@@ -744,6 +744,25 @@ synthetic composition over private TLS, not browser login, live
 Tornado delivery or production. No defaults or independent HTTP
 coverage change.
 
+### Rehearse scheduled-message writes, reads, and rollback
+
+Use the [same private Django and RabbitMQ fixture](#rehearse-draft-composition-and-rollback), replacing the script in that command with
+`$checkout/rust-backend/tests/check_scheduled_message_workflow.py`.
+Use only disposable test data and a loopback-only network namespace.
+
+Basic Auth schedules a future direct message. A Django session then
+edits and cancels it with the normal CSRF header. These writes stay
+on Django in both routing states. The opt-in Rust GET and HEAD routes
+reflect the committed version, keep the other account's list empty,
+and leave the owner-only broker events to Django. No delivery worker
+runs and the scheduled message is not sent.
+
+Stopping Rust produces 502 on the opted-in reads without deleting the
+pending message. Removing the optional route and reloading nginx
+restores the same card and session through Django. The owner can
+reschedule and cancel it there. This is a private TLS rehearsal, not
+a new route, a default-routing change, or a production result.
+
 ## Read organization linkifiers through Rust
 
 The listener serves `GET` and `HEAD` on `/api/v1/realm/linkifiers` with Basic
