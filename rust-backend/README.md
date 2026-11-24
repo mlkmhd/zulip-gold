@@ -5694,6 +5694,23 @@ for enabled in 0 1; do
 done
 ```
 
+### Extract selected poll and todo text through Rust
+
+Set `ZULIP_RUST_WIDGET_TEXT=1` before starting Django to extract titles
+and ordered rows from already selected poll and todo plaintext.
+Python still selects the widget type, creates and serializes its
+dataclasses, validates inputs, and handles persistence and delivery.
+
+The switch defaults to off. A missing extension or symbol, a string
+subclass, or a string with lone surrogates keeps the original Python
+parser. Test both modes without sending messages or saving widgets:
+
+```bash
+for enabled in 0 1; do
+    ZULIP_RUST_WIDGET_TEXT=$enabled ./tools/test-backend zerver.tests.test_widget_text_rust
+done
+```
+
 ### Format prepared mobile push text through Rust
 
 Set `ZULIP_RUST_PUSH_TEXT=1` on a Django worker to prefix extracted

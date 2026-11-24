@@ -1,10 +1,22 @@
 import json
+import os
 import re
 from dataclasses import asdict, dataclass
+from importlib import import_module
 from typing import Any
 
 from zerver.lib.message import SendMessageRequest
 from zerver.models import Message, SubMessage
+
+try:
+    _rust_widget_text = (
+        import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_WIDGET_TEXT") == "1" else None
+    )
+except ImportError:
+    _rust_widget_text = None
+
+_extract_poll_widget_text = getattr(_rust_widget_text, "extract_poll_widget_text", None)
+_extract_todo_widget_text = getattr(_rust_widget_text, "extract_todo_widget_text", None)
 
 
 @dataclass
@@ -41,6 +53,12 @@ def get_widget_data(content: str) -> tuple[str | None, Any]:
 
 
 def parse_poll_extra_data(content: str) -> PollData:
+    if _extract_poll_widget_text is not None:
+        native = _extract_poll_widget_text(content)
+        if native is not None:
+            question, options = native
+            return PollData(question=question, options=options)
+
     # This is used to extract the question from the poll command.
     # The command '/poll question' will pre-set the question in the poll
     lines = content.splitlines()
@@ -58,6 +76,15 @@ def parse_poll_extra_data(content: str) -> PollData:
 
 
 def parse_todo_extra_data(content: str) -> TodoData:
+    if _extract_todo_widget_text is not None:
+        native = _extract_todo_widget_text(content)
+        if native is not None:
+            task_list_title, native_tasks = native
+            return TodoData(
+                task_list_title=task_list_title,
+                tasks=[TodoTaskData(task=task, desc=desc) for task, desc in native_tasks],
+            )
+
     # This is used to extract the task list title from the todo command.
     # The command '/todo Title' will pre-set the task list title
     lines = content.splitlines()
