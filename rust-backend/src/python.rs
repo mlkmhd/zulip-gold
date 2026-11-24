@@ -458,6 +458,11 @@ mod _zulip_backend {
     };
 
     #[pymodule_export]
+    use crate::python_api_type_display::{
+        append_doc_nullable_label, join_prepared_doc_type_labels, wrap_prepared_doc_array_label,
+    };
+
+    #[pymodule_export]
     use crate::python_push_text::{quote_mobile_push_text, truncate_mobile_push_text};
 
     #[pymodule_export]

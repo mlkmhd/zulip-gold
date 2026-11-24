@@ -1,6 +1,8 @@
 import json
+import os
 import re
 from collections.abc import Mapping, Sequence
+from importlib import import_module
 from typing import Any
 
 import markdown
@@ -16,6 +18,23 @@ from zerver.openapi.openapi import (
     get_openapi_parameters,
     get_parameters_description,
 )
+
+try:
+    _rust_api_type_display = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_API_TYPE_DISPLAY") == "1"
+        else None
+    )
+except ImportError:
+    _rust_api_type_display = None
+
+_rust_join_prepared_doc_type_labels = getattr(
+    _rust_api_type_display, "join_prepared_doc_type_labels", None
+)
+_rust_wrap_prepared_doc_array_label = getattr(
+    _rust_api_type_display, "wrap_prepared_doc_array_label", None
+)
+_rust_append_doc_nullable_label = getattr(_rust_api_type_display, "append_doc_nullable_label", None)
 
 REGEXP = re.compile(r"\{generate_api_arguments_table\|\s*(.+?)\s*\|\s*(.+)\s*\}")
 
@@ -306,11 +325,28 @@ def makeExtension(*args: Any, **kwargs: str) -> MarkdownArgumentsTableGenerator:
 def generate_data_type(schema: Mapping[str, Any]) -> str:
     data_type = ""
     if "oneOf" in schema:
-        data_type = " | ".join(generate_data_type(item) for item in schema["oneOf"])
+        items = (generate_data_type(item) for item in schema["oneOf"])
+        if _rust_join_prepared_doc_type_labels is None:
+            data_type = " | ".join(items)
+        else:
+            # The original str.join also exhausts the iterator before
+            # validating its items; reuse these same results if Rust declines.
+            prepared_items = list(items)
+            native = _rust_join_prepared_doc_type_labels(prepared_items)
+            data_type = " | ".join(prepared_items) if native is None else native
     elif "items" in schema:
-        data_type = "(" + generate_data_type(schema["items"]) + ")[]"
+        item_type = generate_data_type(schema["items"])
+        if _rust_wrap_prepared_doc_array_label is not None:
+            native = _rust_wrap_prepared_doc_array_label(item_type)
+            if native is not None:
+                return native
+        data_type = "(" + item_type + ")[]"
     else:
         data_type = schema["type"]
         if schema.get("nullable", False):
+            if _rust_append_doc_nullable_label is not None:
+                native = _rust_append_doc_nullable_label(data_type)
+                if native is not None:
+                    return native
             data_type += " | null"
     return data_type

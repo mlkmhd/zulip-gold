@@ -262,6 +262,9 @@ mod python_log_display;
 mod python_migration_display;
 
 #[cfg(feature = "python")]
+mod python_api_type_display;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]

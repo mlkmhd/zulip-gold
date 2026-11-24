@@ -6731,3 +6731,11 @@ badge and title. Migration commands, data reads, traversal, state selection,
 and squashed-title construction still run in Python. The original formatting
 is the default and remains the fallback if either native symbol is missing
 or declines.
+
+### Opt-in API documentation type labels
+
+`ZULIP_RUST_API_TYPE_DISPLAY=1` enables literal union, array, and nullable type
+label assembly for the API documentation tables. Python retains schema
+traversal, validation and error behavior, and all markup and escaping. Python is
+the default and the fallback if the extension or an individual helper is missing
+or declines an already-prepared value.
