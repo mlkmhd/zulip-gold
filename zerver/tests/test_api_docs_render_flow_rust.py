@@ -1,0 +1,170 @@
+import os
+from collections.abc import Callable
+from contextlib import ExitStack
+from unittest import TestCase
+from unittest.mock import Mock, patch
+
+from markdown import Markdown
+
+from zerver.lib.markdown import api_arguments_table_generator as arguments
+from zerver.lib.markdown import api_return_values_table_generator as returns
+from zerver.lib.partial import partial
+from zerver.openapi.openapi import Parameter
+
+FIXTURE_ROUTE = "/synthetic-docs"
+FIXTURE_PAGE = """# Synthetic reference
+
+Before the generated sections.
+
+{generate_api_arguments_table| fixture | /synthetic-docs:get}
+
+{generate_return_values_table| fixture | /synthetic-docs:get}
+
+After the generated sections.
+"""
+
+NATIVE_HOOKS = (
+    (arguments, "_rust_join_prepared_doc_type_labels", "ZULIP_RUST_API_TYPE_DISPLAY", 1),
+    (arguments, "_rust_wrap_prepared_doc_array_label", "ZULIP_RUST_API_TYPE_DISPLAY", 2),
+    (arguments, "_rust_append_doc_nullable_label", "ZULIP_RUST_API_TYPE_DISPLAY", 2),
+    (arguments, "_rust_join_prepared_api_enum_examples", "ZULIP_RUST_API_ENUM_DISPLAY", 1),
+    (returns, "_rust_indent_prepared_api_return_description", "ZULIP_RUST_API_RETURN_INDENT", 3),
+)
+
+
+def require_native_text(native: Callable[..., object], *args: object) -> str:
+    result = native(*args)
+    assert type(result) is str, "the prepared documentation values should not be declined"
+    return result
+
+
+class APIDocsRenderFlowRustTest(TestCase):
+    def render_synthetic_reference(self) -> str:
+        parameters = [
+            Parameter(
+                kind="query",
+                name="kind",
+                description="Select the display kind.",
+                json_encoded=True,
+                value_schema={
+                    "type": "string",
+                    "nullable": True,
+                    "enum": ["compact", "فارسی"],
+                },
+                example="<&>",
+                required=True,
+                deprecated=False,
+            ),
+            Parameter(
+                kind="query",
+                name="formats",
+                description="Choose the display formats.",
+                json_encoded=True,
+                value_schema={
+                    "oneOf": [{"type": "integer"}, {"type": "array", "items": {"type": "string"}}]
+                },
+                example=["compact"],
+                required=False,
+                deprecated=False,
+            ),
+        ]
+        fields = {
+            "result": {"type": "string", "description": "Omitted result metadata."},
+            "receipt": {
+                "type": "object",
+                "description": "First paragraph.\n\nSecond paragraph.",
+                "properties": {
+                    "count": {"type": "integer", "description": "Number of values."},
+                    "labels": {
+                        "type": "array",
+                        "items": {"type": "string", "nullable": True},
+                        "description": "First line.\nSecond line: فارسی.",
+                    },
+                },
+            },
+        }
+
+        engine = Markdown(extensions=[arguments.makeExtension(), returns.makeExtension()])
+        self.assertIsInstance(
+            engine.preprocessors["generate_api_arguments"],
+            arguments.APIArgumentsTablePreprocessor,
+        )
+        self.assertIsInstance(
+            engine.preprocessors["generate_return_values"],
+            returns.APIReturnValuesTablePreprocessor,
+        )
+        with (
+            patch.object(
+                arguments, "get_openapi_parameters", return_value=parameters
+            ) as arg_lookup,
+            patch.object(
+                returns, "get_openapi_return_values", return_value=fields
+            ) as return_lookup,
+        ):
+            html = engine.convert(FIXTURE_PAGE)
+        arg_lookup.assert_called_once_with(FIXTURE_ROUTE, "get")
+        return_lookup.assert_called_once_with(FIXTURE_ROUTE, "get")
+        return html
+
+    def render_python_baseline(self) -> str:
+        with ExitStack() as stack:
+            for module, hook, _, _ in NATIVE_HOOKS:
+                stack.enter_context(patch.object(module, hook, None))
+            return self.render_synthetic_reference()
+
+    def assert_expected_document(self, html: str) -> None:
+        self.assertIn('id="parameter-kind"', html)
+        self.assertIn('id="parameter-formats"', html)
+        self.assertIn("&lt;&amp;&gt;", html)
+        self.assertIn('Must be one of: <code>"compact"</code>', html)
+        self.assertIn("string | null", html)
+        self.assertIn("integer | (string)[]", html)
+        self.assertIn("<h4>Return values</h4>", html)
+        self.assertIn("Second paragraph.", html)
+        self.assertIn("Second line: فارسی.", html)
+        self.assertNotIn("Omitted result metadata.", html)
+        self.assertNotIn("generate_api_arguments_table", html)
+        self.assertNotIn("generate_return_values_table", html)
+        self.assertLess(
+            html.index("Before the generated sections."),
+            html.index('id="parameter-kind"'),
+        )
+        self.assertLess(
+            html.index("Second line: فارسی."),
+            html.index("After the generated sections."),
+        )
+
+    def test_registered_renderers_match_python_under_the_actual_flags(self) -> None:
+        expected = self.render_python_baseline()
+        self.assert_expected_document(expected)
+
+        with ExitStack() as stack:
+            spies: list[tuple[Mock, int]] = []
+            for module, hook, flag, expected_calls in NATIVE_HOOKS:
+                native = getattr(module, hook)
+                if os.environ.get(flag) == "1":
+                    self.assertTrue(callable(native), (flag, hook))
+                    spy = stack.enter_context(
+                        patch.object(module, hook, side_effect=partial(require_native_text, native))
+                    )
+                    spies.append((spy, expected_calls))
+                else:
+                    self.assertIsNone(native, (flag, hook))
+            self.assertEqual(self.render_synthetic_reference(), expected)
+            for spy, expected_calls in spies:
+                self.assertEqual(spy.call_count, expected_calls)
+
+    def test_same_document_for_partial_exports_and_native_declines(self) -> None:
+        expected = self.render_python_baseline()
+        for missing in (None, "_rust_wrap_prepared_doc_array_label"):
+            with self.subTest(missing=missing), ExitStack() as stack:
+                declines: list[tuple[Mock, int]] = []
+                for module, hook, _, expected_calls in NATIVE_HOOKS:
+                    if hook == missing:
+                        stack.enter_context(patch.object(module, hook, None))
+                    else:
+                        decline = stack.enter_context(patch.object(module, hook, return_value=None))
+                        declines.append((decline, expected_calls))
+                self.assertEqual(self.render_synthetic_reference(), expected)
+                for decline, expected_calls in declines:
+                    self.assertEqual(decline.call_count, expected_calls)
