@@ -491,6 +491,11 @@ mod _zulip_backend {
     use crate::python_git_commit_summary_text::finish_git_commit_summary_text;
 
     #[pymodule_export]
+    use crate::python_sonarqube_display::{
+        format_sonarqube_metric_label, join_sonarqube_condition_lines,
+    };
+
+    #[pymodule_export]
     use crate::python_chart_timestamp_display::truncate_chart_timestamp_display;
 
     #[pymodule_export]

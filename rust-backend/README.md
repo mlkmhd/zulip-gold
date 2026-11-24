@@ -6790,6 +6790,14 @@ fallback for unavailable or declined native helpers.
 
 ### Opt-in Git people display text
 
+`ZULIP_RUST_SONARQUBE_DISPLAY=1` optionally replaces underscores with spaces
+in prepared SonarQube metric labels and joins already formatted condition
+lines with newlines. Django still validates values, selects and formats
+conditions, and controls URLs, routing and delivery. The helpers are off by
+default; a missing or older extension, unsupported input, or a native
+decline preserves the original Python behavior. This does not change
+independent Rust API coverage.
+
 `ZULIP_RUST_GIT_COMMIT_SUMMARY_TEXT=1` optionally finishes already-rendered
 Git commit display rows with the literal omission suffix selected by Django
 and trims trailing Python whitespace. Django retains the existing commit

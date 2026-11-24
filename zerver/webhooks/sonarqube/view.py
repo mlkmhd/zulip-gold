@@ -1,4 +1,7 @@
 # Webhooks for external integrations.
+import os
+from importlib import import_module
+
 from django.http import HttpRequest, HttpResponse
 
 from zerver.decorator import webhook_view
@@ -7,6 +10,22 @@ from zerver.lib.typed_endpoint import JsonBodyPayload, typed_endpoint
 from zerver.lib.validator import WildValue, check_none_or, check_string
 from zerver.lib.webhooks.common import check_send_webhook_message
 from zerver.models import UserProfile
+
+try:
+    _rust_sonarqube_display = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_SONARQUBE_DISPLAY") == "1"
+        else None
+    )
+except ImportError:
+    _rust_sonarqube_display = None
+
+_rust_format_sonarqube_metric_label = getattr(
+    _rust_sonarqube_display, "format_sonarqube_metric_label", None
+)
+_rust_join_sonarqube_condition_lines = getattr(
+    _rust_sonarqube_display, "join_sonarqube_condition_lines", None
+)
 
 TOPIC_WITH_BRANCH = "{} / {}"
 
@@ -30,6 +49,10 @@ TEMPLATES = {
 
 
 def parse_metric_name(metric_name: str) -> str:
+    if callable(_rust_format_sonarqube_metric_label):
+        native = _rust_format_sonarqube_metric_label(metric_name)
+        if type(native) is str:
+            return native
     return " ".join(metric_name.split("_"))
 
 
@@ -52,14 +75,17 @@ def parse_condition(condition: WildValue) -> str:
 
 
 def parse_conditions(conditions: WildValue) -> str:
-    return "\n".join(
-        [
-            parse_condition(condition)
-            for condition in conditions
-            if condition["status"].tame(check_string).lower() != "ok"
-            and condition["status"].tame(check_string).lower() != "no_value"
-        ]
-    )
+    lines = [
+        parse_condition(condition)
+        for condition in conditions
+        if condition["status"].tame(check_string).lower() != "ok"
+        and condition["status"].tame(check_string).lower() != "no_value"
+    ]
+    if callable(_rust_join_sonarqube_condition_lines):
+        native = _rust_join_sonarqube_condition_lines(lines)
+        if type(native) is str:
+            return native
+    return "\n".join(lines)
 
 
 def render_body_with_branch(payload: WildValue) -> str:
