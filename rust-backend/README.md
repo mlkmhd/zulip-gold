@@ -5848,6 +5848,23 @@ for enabled in 0 1; do
 done
 ```
 
+### Format a prepared request duration through Rust
+
+Set `ZULIP_RUST_DURATION_TEXT=1` before starting Django to format an
+already computed duration with the existing seconds or milliseconds
+suffix. Clock sampling, logger destinations and slow-request decisions
+stay in Python.
+
+The switch defaults to off. A missing method or an unsupported value,
+including nonfinite or very large durations, uses the original Python
+formatter. Test both modes with synthetic durations:
+
+```bash
+for enabled in 0 1; do
+    ZULIP_RUST_DURATION_TEXT=$enabled ./tools/test-backend zerver.tests.test_duration_text_rust
+done
+```
+
 ### Format prepared mobile push text through Rust
 
 Set `ZULIP_RUST_PUSH_TEXT=1` on a Django worker to prefix extracted

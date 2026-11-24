@@ -250,6 +250,9 @@ mod python_slack_import_pieces;
 mod python_plain_display_list;
 
 #[cfg(feature = "python")]
+mod python_duration_text;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]

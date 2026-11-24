@@ -4,6 +4,7 @@ import os
 import tempfile
 import time
 from collections.abc import Callable, MutableMapping
+from importlib import import_module
 from typing import Annotated, Any, Concatenate
 from urllib.parse import urlencode, urljoin
 
@@ -53,6 +54,18 @@ from zproject.config import get_config
 ParamT = ParamSpec("ParamT")
 logger = logging.getLogger("zulip.requests")
 slow_query_logger = logging.getLogger("zulip.slow_queries")
+
+
+try:
+    _rust_duration_text = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_DURATION_TEXT") == "1"
+        else None
+    )
+except ImportError:
+    _rust_duration_text = None
+
+_rust_format_prepared_duration = getattr(_rust_duration_text, "format_prepared_duration", None)
 
 
 def record_request_stop_data(log_data: MutableMapping[str, Any]) -> None:
@@ -111,6 +124,11 @@ def timedelta_ms(timedelta: float) -> float:
 
 
 def format_timedelta(timedelta: float) -> str:
+    if _rust_format_prepared_duration is not None:
+        native = _rust_format_prepared_duration(timedelta)
+        if native is not None:
+            return native
+
     if timedelta >= 1:
         return f"{timedelta:.1f}s"
     return f"{timedelta_ms(timedelta):.0f}ms"
