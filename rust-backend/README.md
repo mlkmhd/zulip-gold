@@ -763,6 +763,24 @@ restores the same card and session through Django. The owner can
 reschedule and cancel it there. This is a private TLS rehearsal, not
 a new route, a default-routing change, or a production result.
 
+### Rehearse reminder creation, cancellation, and read rollback
+
+Use the [same private Django and RabbitMQ fixture](#rehearse-draft-composition-and-rollback),
+replacing the script with `$checkout/rust-backend/tests/check_reminder_workflow.py`.
+The fixture creates a synthetic direct message; no delivery worker is run.
+
+Basic and session requests create reminders through Django and cancel them
+using the session's CSRF header. Both opt-in Rust lists show the committed
+cards in delivery-time order, preserve the note and message reference,
+return empty HEAD bodies, and do not show the owner's cards to the peer.
+The harness verifies one owner-only broker event per write.
+
+While Rust is stopped, its opt-in reads return 502, but Django can still
+create and cancel reminders. Removing the route include and reloading
+private nginx restores the same retained card and selected headers through
+Django. No reminder is delivered. This test changes no route configuration,
+default, or independent HTTP coverage count.
+
 ## Read organization linkifiers through Rust
 
 The listener serves `GET` and `HEAD` on `/api/v1/realm/linkifiers` with Basic
