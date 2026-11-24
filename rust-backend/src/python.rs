@@ -450,6 +450,9 @@ mod _zulip_backend {
     use crate::python_time_display::{format_gmt_display_name, wrap_global_time_display};
 
     #[pymodule_export]
+    use crate::python_log_display::{log_level_display_prefix, standard_log_display_format};
+
+    #[pymodule_export]
     use crate::python_push_text::{quote_mobile_push_text, truncate_mobile_push_text};
 
     #[pymodule_export]

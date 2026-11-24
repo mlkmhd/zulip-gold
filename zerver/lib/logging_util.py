@@ -1,11 +1,13 @@
 # System documented in https://zulip.readthedocs.io/en/latest/subsystems/logging.html
 import hashlib
 import logging
+import os
 import threading
 import traceback
 from collections.abc import Iterable
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
+from importlib import import_module
 from logging import Logger
 from logging.handlers import WatchedFileHandler
 
@@ -15,6 +17,16 @@ from django.core.cache import cache
 from django.http import HttpRequest
 from django.utils.timezone import now as timezone_now
 from typing_extensions import override
+
+try:
+    _rust_log_display = (
+        import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_LOG_DISPLAY") == "1" else None
+    )
+except ImportError:
+    _rust_log_display = None
+
+_rust_log_level_display_prefix = getattr(_rust_log_display, "log_level_display_prefix", None)
+_rust_standard_log_display_format = getattr(_rust_log_display, "standard_log_display_format", None)
 
 
 class _RateLimitFilter:
@@ -177,10 +189,18 @@ log_level_abbrevs = {
 }
 
 
+def _log_level_display_prefix(levelname: str) -> str:
+    if _rust_log_level_display_prefix is not None:
+        native = _rust_log_level_display_prefix(levelname)
+        if native is not None:
+            return native
+    return levelname[:4]
+
+
 def abbrev_log_levelname(levelname: str) -> str:
     # It's unlikely someone will set a custom log level with a custom name,
     # but it's an option, so we shouldn't crash if someone does.
-    return log_level_abbrevs.get(levelname, levelname[:4])
+    return log_level_abbrevs.get(levelname, _log_level_display_prefix(levelname))
 
 
 class ZulipFormatter(logging.Formatter):
@@ -192,7 +212,12 @@ class ZulipFormatter(logging.Formatter):
 
     def _compute_fmt(self) -> str:
         pieces = ["%(asctime)s", "%(zulip_level_abbrev)-4s"]
-        if settings.LOGGING_SHOW_PID:
+        include_pid = bool(settings.LOGGING_SHOW_PID)
+        if _rust_standard_log_display_format is not None:
+            native = _rust_standard_log_display_format(include_pid)
+            if native is not None:
+                return native
+        if include_pid:
             pieces.append("pid:%(process)d")
         pieces.extend(["[%(zulip_origin)s]", "%(message)s"])
         return " ".join(pieces)

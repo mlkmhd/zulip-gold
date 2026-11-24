@@ -256,6 +256,9 @@ mod python_duration_text;
 mod python_time_display;
 
 #[cfg(feature = "python")]
+mod python_log_display;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]

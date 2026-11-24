@@ -6712,3 +6712,12 @@ already-validated sign, hours, and minutes. Timezone selection, conversion,
 minute validation, and ICU locale formatting are unchanged. Python remains the
 default and retains its original formatting if the extension or either symbol is
 missing, or if a native helper declines its input.
+
+### Opt-in log display text
+
+`ZULIP_RUST_LOG_DISPLAY=1` enables two literal calculations in
+`zerver.lib.logging_util`: the four-codepoint fallback level prefix and the
+standard format template with or without an already-selected PID placeholder.
+The level map, Python logging formatter, record data and decoration, and
+handlers are unchanged. Python is the default, and the original formatting
+still runs if the extension or either symbol is missing or declines.
