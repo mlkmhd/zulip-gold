@@ -453,6 +453,11 @@ mod _zulip_backend {
     use crate::python_log_display::{log_level_display_prefix, standard_log_display_format};
 
     #[pymodule_export]
+    use crate::python_migration_display::{
+        format_migration_display_row, strip_migration_display_sgr,
+    };
+
+    #[pymodule_export]
     use crate::python_push_text::{quote_mobile_push_text, truncate_mobile_push_text};
 
     #[pymodule_export]

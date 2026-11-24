@@ -6721,3 +6721,13 @@ standard format template with or without an already-selected PID placeholder.
 The level map, Python logging formatter, record data and decoration, and
 handlers are unchanged. Python is the default, and the original formatting
 still runs if the extension or either symbol is missing or declines.
+
+### Opt-in migration diagnostic text
+
+`ZULIP_RUST_MIGRATION_DISPLAY=1` enables two cosmetics in
+`zerver.lib.migration_status`: removing the existing narrowly defined SGR
+spans from already-buffered output and formatting an already-selected
+badge and title. Migration commands, data reads, traversal, state selection,
+and squashed-title construction still run in Python. The original formatting
+is the default and remains the fallback if either native symbol is missing
+or declines.

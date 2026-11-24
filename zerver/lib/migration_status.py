@@ -8,6 +8,22 @@ from django.db import connection
 from django.db.migrations.loader import MigrationLoader
 from django.db.migrations.recorder import MigrationRecorder
 
+try:
+    _rust_migration_display = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_MIGRATION_DISPLAY") == "1"
+        else None
+    )
+except ImportError:
+    _rust_migration_display = None
+
+_rust_strip_migration_display_sgr = getattr(
+    _rust_migration_display, "strip_migration_display_sgr", None
+)
+_rust_format_migration_display_row = getattr(
+    _rust_migration_display, "format_migration_display_row", None
+)
+
 AppMigrations: TypeAlias = dict[str, list[str]]
 
 
@@ -104,7 +120,20 @@ def get_migration_status(**options: Any) -> str:
     )
     out.seek(0)
     output = out.read()
+    if _rust_strip_migration_display_sgr is not None:
+        native = _rust_strip_migration_display_sgr(output)
+        if native is not None:
+            return native
     return re.sub(r"\x1b\[[0-9;]*m", "", output)
+
+
+def _format_migration_display_row(badge: str, title: str) -> str:
+    if _rust_format_migration_display_row is not None:
+        # Python has already prepared any squashed-migration suffix.
+        native = _rust_format_migration_display_row(badge, title, 0)
+        if native is not None:
+            return native
+    return f"[{badge}] {title}"
 
 
 def parse_migration_status(
@@ -155,11 +184,11 @@ def parse_migration_status(
                     # Mark it as applied/unapplied
                     if applied_migration:
                         if plan_node in recorded_migrations:
-                            output = f"[X] {title}"
+                            output = _format_migration_display_row("X", title)
                         else:
-                            output = f"[-] {title}"
+                            output = _format_migration_display_row("-", title)
                     else:
-                        output = f"[ ] {title}"
+                        output = _format_migration_display_row(" ", title)
                     migrations_dict[app_name].append(output)
                     shown.add(plan_node)
         # If there are no migrations, record as such
