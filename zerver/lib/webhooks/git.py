@@ -19,6 +19,22 @@ except ImportError:
 _rust_project_commit_display_row = getattr(_rust_commit_display, "project_commit_display_row", None)
 _rust_rank_commit_display_names = getattr(_rust_commit_display, "rank_commit_display_names", None)
 
+try:
+    _rust_git_display_people = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_GIT_DISPLAY_PEOPLE") == "1"
+        else None
+    )
+except ImportError:
+    _rust_git_display_people = None
+
+_rust_join_git_display_assignees = getattr(
+    _rust_git_display_people, "join_git_display_assignees", None
+)
+_rust_format_git_display_committers = getattr(
+    _rust_git_display_people, "format_git_display_committers", None
+)
+
 TOPIC_WITH_BRANCH_TEMPLATE = "{repo} / {branch}"
 TOPIC_WITH_PR_OR_ISSUE_INFO_TEMPLATE = "{repo} / {type} #{id} {title}"
 TOPIC_WITH_RELEASE_TEMPLATE = "{repo} / {tag} {title}"
@@ -55,6 +71,7 @@ PUSH_LOCAL_BRANCH_WITHOUT_COMMITS_MESSAGE_WITHOUT_URL_TEMPLATE = (
     "{user_name} {push_type} the branch {branch_name}."
 )
 PUSH_COMMITS_MESSAGE_EXTENSION = "Commits by {}"
+_python_push_commits_message_extension = PUSH_COMMITS_MESSAGE_EXTENSION
 PUSH_COMMITTERS_LIMIT_INFO = 3
 
 FORCE_PUSH_COMMITS_MESSAGE_TEMPLATE = (
@@ -101,6 +118,10 @@ def get_assignee_string(assignees: list[dict[str, Any]]) -> str:
         assignees_string = "{username}".format(**assignees[0])
     else:
         usernames = [a["username"] for a in assignees]
+        if _rust_join_git_display_assignees is not None and len(usernames) > 1:
+            native = _rust_join_git_display_assignees(usernames)
+            if native is not None:
+                return native
 
         assignees_string = ", ".join(usernames[:-1]) + " and " + usernames[-1]
     return assignees_string
@@ -170,17 +191,30 @@ def get_push_commits_event_message(
             commits_data=get_commits_content(commits_data, is_truncated),
         ).rstrip()
     else:
-        committers_details = "{} ({})".format(*committers_items[0])
+        native_details = (
+            _rust_format_git_display_committers(committers_items)
+            if _rust_format_git_display_committers is not None
+            and PUSH_COMMITS_MESSAGE_EXTENSION is _python_push_commits_message_extension
+            else None
+        )
+        if native_details is None:
+            committers_details = "{} ({})".format(*committers_items[0])
 
-        for name, number_of_commits in committers_items[1:-1]:
-            committers_details = f"{committers_details}, {name} ({number_of_commits})"
+            for name, number_of_commits in committers_items[1:-1]:
+                committers_details = f"{committers_details}, {name} ({number_of_commits})"
 
-        if len(committers_items) > 1:
-            committers_details = "{} and {} ({})".format(committers_details, *committers_items[-1])
+            if len(committers_items) > 1:
+                committers_details = "{} and {} ({})".format(
+                    committers_details, *committers_items[-1]
+                )
 
         return PUSH_COMMITS_MESSAGE_TEMPLATE_WITH_COMMITTERS.format(
             base_message=base_message,
-            committers_details=PUSH_COMMITS_MESSAGE_EXTENSION.format(committers_details),
+            committers_details=(
+                PUSH_COMMITS_MESSAGE_EXTENSION.format(committers_details)
+                if native_details is None
+                else native_details
+            ),
             commits_data=get_commits_content(commits_data, is_truncated),
         ).rstrip()
 

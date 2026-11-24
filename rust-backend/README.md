@@ -6787,3 +6787,11 @@ table after the existing Python cleanup, and LF-joins prepared attachment field
 rows with no trimming. Python retains field selection, cleanup, markup
 decisions, and import behavior. The original assembly is the default and the
 fallback for unavailable or declined native helpers.
+
+### Opt-in Git people display text
+
+`ZULIP_RUST_GIT_DISPLAY_PEOPLE=1` optionally joins already-extracted assignee
+labels and formats already-ranked committer labels and counts. The single-name
+path, selection, ranking, surrounding templates, URLs, and notification
+behavior stay in Python. The original display formatting is the default and
+handles unavailable or declined native inputs.

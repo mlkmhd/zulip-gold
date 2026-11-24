@@ -283,6 +283,9 @@ mod python_api_enum_display;
 mod python_slack_field_display;
 
 #[cfg(feature = "python")]
+mod python_git_display_people;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]
