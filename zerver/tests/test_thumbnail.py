@@ -29,6 +29,7 @@ from zerver.lib.thumbnail import (
     get_transcoded_format,
     manifest_and_get_user_upload_previews,
     missing_thumbnails,
+    plan_missing_thumbnails,
     resize_emoji,
     split_thumbnail_path,
 )
@@ -665,6 +666,108 @@ class TestStoreThumbnail(ZulipTestCase):
         image_attachment.frames = 10
         with self.thumbnail_formats(still_webp, anim_webp, still_jpeg):
             self.assertEqual(missing_thumbnails(image_attachment), [anim_webp, still_jpeg])
+
+    def test_worker_plan_parity(self) -> None:
+        still = ThumbnailFormat("webp", 100, 75, False, opts="Q=90")
+        animated = ThumbnailFormat("webp", 100, 75, True, opts="Q=75")
+        other = ThumbnailFormat("jpeg", 150, 90, False, opts="Q=80")
+        stored_still = asdict(
+            StoredThumbnailFormat("webp", 100, 75, False, "image/webp", 65, 75, 100)
+        )
+        stored_portrait = asdict(
+            StoredThumbnailFormat("webp", 3024, 4032, False, "image/webp", 100, 200, 400)
+        )
+        image = ImageAttachment(
+            path_id="synthetic/worker",
+            content_type="image/tiff",
+            original_width_px=100,
+            original_height_px=200,
+            frames=2,
+            thumbnail_metadata=[stored_still, stored_portrait],
+        )
+
+        with self.thumbnail_formats(still, animated, other):
+            with patch.object(native_thumbnail_status, "_plan_backend", None):
+                baseline = [asdict(fmt) for fmt in missing_thumbnails(image)]
+            self.assertEqual(baseline, [asdict(animated), asdict(other)])
+            with patch.object(native_thumbnail_status, "_plan_backend", SimpleNamespace()):
+                self.assertEqual([asdict(fmt) for fmt in plan_missing_thumbnails(image)], baseline)
+
+            try:
+                backend = import_module("_zulip_backend")
+            except ModuleNotFoundError as error:
+                if error.name != "_zulip_backend":
+                    raise
+                return
+            native = getattr(backend, "thumbnail_missing_indexes", None)
+            if not callable(native):
+                return
+
+            observed: list[list[int] | None] = []
+
+            def witness(*args: object) -> list[int] | None:
+                result: list[int] | None = native(*args)
+                observed.append(result)
+                return result
+
+            with patch.object(
+                native_thumbnail_status,
+                "_plan_backend",
+                SimpleNamespace(thumbnail_missing_indexes=witness),
+            ):
+                self.assertEqual([asdict(fmt) for fmt in plan_missing_thumbnails(image)], baseline)
+                image.thumbnail_metadata = [stored_still, {**stored_portrait, "height": 200.5}]
+                self.assertEqual([asdict(fmt) for fmt in plan_missing_thumbnails(image)], baseline)
+
+                image.thumbnail_metadata = [stored_still, stored_portrait]
+                image.frames = 1
+                with (
+                    self.thumbnail_formats(still, animated),
+                    patch(
+                        "zerver.worker.thumbnail._select_needed_thumbnails", plan_missing_thumbnails
+                    ),
+                    patch("zerver.worker.thumbnail.save_attachment_contents") as fetch,
+                ):
+                    self.assertEqual(ensure_thumbnails(image).generated_thumbnail_count, 0)
+                    fetch.assert_not_called()
+
+            self.assertEqual(observed, [[1, 2], None, []])
+
+    def test_worker_resume_generates_only_missing_output(self) -> None:
+        self.login("hamlet")
+        first = ThumbnailFormat("webp", 40, 40, False, opts="Q=85")
+        missing = ThumbnailFormat("webp", 80, 80, False, opts="Q=75")
+        last = ThumbnailFormat("webp", 120, 120, False, opts="Q=60")
+        with self.thumbnail_formats(first, missing, last):
+            path = self.upload_and_thumbnail_image("img.png")
+            image = ImageAttachment.objects.get(path_id=path)
+            self.assert_length(image.thumbnail_metadata, 3)
+            all_metadata = image.thumbnail_metadata.copy()
+            retained = [all_metadata[0], all_metadata[2]]
+            image.thumbnail_metadata = retained.copy()
+            image.save(update_fields=["thumbnail_metadata"])
+            with (
+                patch.object(
+                    native_thumbnail_status,
+                    "missing_indexes",
+                    wraps=native_thumbnail_status.missing_indexes,
+                ) as plan,
+                patch(
+                    "zerver.worker.thumbnail.store_message_attachment",
+                    wraps=store_message_attachment,
+                ) as store,
+            ):
+                self.assertEqual(ensure_thumbnails(image).generated_thumbnail_count, 1)
+                if native_thumbnail_status.plan_available():
+                    plan.assert_called_once()
+                else:
+                    plan.assert_not_called()
+                store.assert_called_once()
+                self.assertEqual(store.call_args.args[0], get_image_thumbnail_path(image, missing))
+                self.assertEqual(ensure_thumbnails(image).generated_thumbnail_count, 0)
+                store.assert_called_once()
+            image.refresh_from_db()
+            self.assertEqual(image.thumbnail_metadata, [*retained, all_metadata[1]])
 
     def test_transcoded_format(self) -> None:
         image_attachment = ImageAttachment(

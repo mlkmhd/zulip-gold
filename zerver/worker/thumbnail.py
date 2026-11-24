@@ -9,6 +9,7 @@ from django.db import transaction
 from typing_extensions import override
 
 from zerver.actions.message_edit import do_update_embedded_data
+from zerver.lib import native_thumbnail_status
 from zerver.lib.mime_types import guess_type
 from zerver.lib.thumbnail import (
     IMAGE_MAX_ANIMATED_PIXELS,
@@ -18,6 +19,7 @@ from zerver.lib.thumbnail import (
     get_image_thumbnail_path,
     get_transcoded_format,
     missing_thumbnails,
+    plan_missing_thumbnails,
     rewrite_thumbnailed_images,
 )
 from zerver.lib.upload import save_attachment_contents, store_message_attachment
@@ -25,6 +27,10 @@ from zerver.models import ArchivedMessage, ImageAttachment, Message
 from zerver.worker.base import QueueProcessingWorker, assign_queue
 
 logger = logging.getLogger(__name__)
+
+_select_needed_thumbnails = (
+    plan_missing_thumbnails if native_thumbnail_status.plan_available() else missing_thumbnails
+)
 
 
 @assign_queue("thumbnail")
@@ -80,7 +86,7 @@ class ThumbnailingResult:
 
 
 def ensure_thumbnails(image_attachment: ImageAttachment) -> ThumbnailingResult:
-    needed_thumbnails = missing_thumbnails(image_attachment)
+    needed_thumbnails = _select_needed_thumbnails(image_attachment)
 
     if not needed_thumbnails:
         return ThumbnailingResult()

@@ -314,13 +314,7 @@ def needs_transcoded_format(image_attachment: ImageAttachment) -> bool:
     )
 
 
-def missing_thumbnails(
-    image_attachment: ImageAttachment,
-) -> list[ThumbnailFormat]:
-    seen_thumbnails: set[StoredThumbnailFormat] = set()
-    for existing_thumbnail in image_attachment.thumbnail_metadata:
-        seen_thumbnails.add(StoredThumbnailFormat(**existing_thumbnail))
-
+def configured_thumbnail_formats(image_attachment: ImageAttachment) -> list[ThumbnailFormat]:
     potential_output_formats = list(THUMBNAIL_OUTPUT_FORMATS)
     if needs_transcoded_format(image_attachment):
         if image_attachment.original_width_px >= image_attachment.original_height_px:
@@ -339,6 +333,41 @@ def missing_thumbnails(
                 TRANSCODED_IMAGE_FORMAT.animated,
             )
         potential_output_formats.append(additional_format)
+
+    return potential_output_formats
+
+
+def thumbnail_key(format: BaseThumbnailFormat) -> native_thumbnail_status.ThumbnailKey:
+    return (format.extension, format.max_width, format.max_height, format.animated)
+
+
+def plan_missing_thumbnails(image_attachment: ImageAttachment) -> list[ThumbnailFormat]:
+    metadata = image_attachment.thumbnail_metadata
+    if type(metadata) is list and len(metadata) >= 2 and native_thumbnail_status.plan_available():
+        try:
+            formats = configured_thumbnail_formats(image_attachment)
+        except (TypeError, ValueError):
+            # Keep the reference's validation order for unexpected legacy data.
+            pass
+        else:
+            if all(type(format) is ThumbnailFormat for format in formats):
+                indexes = native_thumbnail_status.missing_indexes(
+                    metadata,
+                    tuple(thumbnail_key(format) for format in formats),
+                    image_attachment.frames,
+                )
+                if indexes is not None:
+                    return [formats[index] for index in indexes]
+
+    return missing_thumbnails(image_attachment)
+
+
+def missing_thumbnails(image_attachment: ImageAttachment) -> list[ThumbnailFormat]:
+    seen_thumbnails: set[StoredThumbnailFormat] = set()
+    for existing_thumbnail in image_attachment.thumbnail_metadata:
+        seen_thumbnails.add(StoredThumbnailFormat(**existing_thumbnail))
+
+    potential_output_formats = configured_thumbnail_formats(image_attachment)
 
     # We use the shared `__eq__` method from BaseThumbnailFormat to
     # compare between the StoredThumbnailFormat values pulled from the
@@ -363,14 +392,12 @@ def missing_thumbnails(
 
 def has_ready_thumbnail(image_attachment: ImageAttachment) -> bool:
     if native_thumbnail_status.available():
-
-        def key(format: BaseThumbnailFormat) -> native_thumbnail_status.ThumbnailKey:
-            return (format.extension, format.max_width, format.max_height, format.animated)
-
         status = native_thumbnail_status.completeness(
             image_attachment.thumbnail_metadata,
-            tuple(key(format) for format in THUMBNAIL_OUTPUT_FORMATS),
-            key(TRANSCODED_IMAGE_FORMAT) if needs_transcoded_format(image_attachment) else None,
+            tuple(thumbnail_key(format) for format in THUMBNAIL_OUTPUT_FORMATS),
+            thumbnail_key(TRANSCODED_IMAGE_FORMAT)
+            if needs_transcoded_format(image_attachment)
+            else None,
             image_attachment.frames,
             image_attachment.original_width_px,
             image_attachment.original_height_px,

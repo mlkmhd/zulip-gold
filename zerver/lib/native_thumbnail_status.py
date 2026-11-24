@@ -23,6 +23,7 @@ def load_backend(flag: str) -> ModuleType | None:
 
 _backend = load_backend("ZULIP_RUST_THUMBNAIL_STATUS")
 _selection_backend = load_backend("ZULIP_RUST_TRANSCODE_SELECTION")
+_plan_backend = load_backend("ZULIP_RUST_THUMBNAIL_PLAN")
 
 
 def available() -> bool:
@@ -54,3 +55,16 @@ def transcode_indexes(candidates: list[object]) -> list[int] | None:
     if not callable(native):
         return None
     return cast("list[int] | None", native(candidates))
+
+
+def plan_available() -> bool:
+    return callable(getattr(_plan_backend, "thumbnail_missing_indexes", None))
+
+
+def missing_indexes(
+    metadata: object, formats: tuple[ThumbnailKey, ...], frames: int
+) -> list[int] | None:
+    native = getattr(_plan_backend, "thumbnail_missing_indexes", None)
+    if not callable(native):
+        return None
+    return cast("list[int] | None", native(metadata, formats, frames))

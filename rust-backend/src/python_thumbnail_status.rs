@@ -129,6 +129,70 @@ pub(crate) fn thumbnail_status_complete(
     ))
 }
 
+fn mark_stored(value: &Bound<'_, PyAny>, formats: &[FormatKey], found: &mut [bool]) -> Option<()> {
+    let row = value.cast_exact::<PyDict>().ok()?;
+    if row.len() != 8 {
+        return None;
+    }
+    let (mut extension, mut width, mut height, mut animated) = (None, None, None, None);
+    for (key, value) in row.iter() {
+        match key.cast_exact::<PyString>().ok()?.to_str().ok()? {
+            "extension" => extension = Some(value.cast_into_exact::<PyString>().ok()?),
+            "max_width" => width = Some(integer(&value)?),
+            "max_height" => height = Some(integer(&value)?),
+            "animated" => {
+                animated = Some(value.cast_exact::<PyBool>().ok()?.extract::<bool>().ok()?)
+            }
+            "width" | "height" | "byte_size" => {
+                integer(&value)?;
+            }
+            "content_type" if value.is_exact_instance_of::<PyString>() => (),
+            _ => return None,
+        }
+    }
+    let extension = extension?;
+    let extension = extension.to_str().ok()?;
+    let (width, height, animated) = (width?, height?, animated?);
+    for (format, found) in formats.iter().zip(found) {
+        *found |= format.extension == extension
+            && format.width == width
+            && format.height == height
+            && format.animated == animated;
+    }
+    Some(())
+}
+
+/// Return the missing positions in Django's ordered output configuration.
+#[pyfunction]
+pub(crate) fn thumbnail_missing_indexes(
+    metadata: &Bound<'_, PyAny>,
+    formats: &Bound<'_, PyAny>,
+    frames: &Bound<'_, PyAny>,
+) -> Option<Vec<usize>> {
+    let metadata = metadata.cast_exact::<PyList>().ok()?;
+    let formats = formats
+        .cast_exact::<PyTuple>()
+        .ok()?
+        .iter()
+        .map(|row| supplied_key(&row))
+        .collect::<Option<Vec<_>>>()?;
+    let still = integer(frames)? == 1;
+    let mut found = vec![false; formats.len()];
+    for row in metadata.iter() {
+        mark_stored(&row, &formats, &mut found)?;
+    }
+    Some(
+        formats
+            .into_iter()
+            .zip(found)
+            .enumerate()
+            .filter_map(|(index, (format, found))| {
+                (!(found || still && format.animated)).then_some(index)
+            })
+            .collect(),
+    )
+}
+
 // The dataclass constructor expects exactly these eight field names. Only
 // dimensions affect the selection; Python still constructs the selected row.
 fn stored_area(value: &Bound<'_, PyAny>) -> Option<i128> {

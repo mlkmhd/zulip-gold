@@ -4999,6 +4999,31 @@ The local benchmark showed a speedup for metadata selection in larger
 batches. Selected-row manifest timing excluded SQL and does not estimate
 request or production latency.
 
+### Plan missing thumbnail variants in the Django worker
+
+Set `ZULIP_RUST_THUMBNAIL_PLAN=1` on the Django thumbnail worker to plan
+the missing positions in its configured output list through Rust, when at
+least two variants are already stored. The worker keeps the same format
+objects, order, options, still/animated rules, and portrait transcode.
+Python still owns MIME policy, locking, decoding, encoding, and storage.
+
+An older extension, a small metadata list, or an unsupported row uses the
+existing Django planner. The flag is independent of readiness and preview
+selection and defaults off; restart the worker with it unset to roll back.
+
+```sh
+for flag in 0 1; do
+    ZULIP_RUST_THUMBNAIL_PLAN=$flag ./tools/test-backend \
+        zerver.tests.test_thumbnail.TestStoreThumbnail.test_worker_plan_parity \
+        zerver.tests.test_thumbnail.TestStoreThumbnail.test_worker_resume_generates_only_missing_output
+done
+```
+
+The retry fixture loses one of three ordinary PNG derivative metadata rows,
+then verifies that Django writes only the missing variant and that a second
+retry writes none. Local timings compare metadata planning only, not
+storage, encoding, or worker throughput.
+
 ## Assemble user settings and preference catalogs through Rust
 
 Set `ZULIP_RUST_SETTINGS_PAYLOAD=1` to build the personal and realm
