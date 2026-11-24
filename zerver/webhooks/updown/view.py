@@ -1,6 +1,8 @@
 # Webhooks for external integrations.
+import os
 import re
 from datetime import datetime
+from importlib import import_module
 
 from django.http import HttpRequest, HttpResponse
 
@@ -12,6 +14,19 @@ from zerver.lib.typed_endpoint import JsonBodyPayload, typed_endpoint
 from zerver.lib.validator import WildValue, check_int, check_none_or, check_string
 from zerver.lib.webhooks.common import check_send_webhook_message
 from zerver.models import UserProfile
+
+try:
+    _rust_updown_duration = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_UPDOWN_DURATION_DISPLAY") == "1"
+        else None
+    )
+except ImportError:
+    _rust_updown_duration = None
+
+_rust_format_updown_duration_display = getattr(
+    _rust_updown_duration, "format_updown_duration_display", None
+)
 
 TOPIC_TEMPLATE = "{service_url}"
 
@@ -39,6 +54,14 @@ def get_body_for_up_event(event: WildValue) -> str:
 
 
 def get_time_string_based_on_duration(duration: int) -> str:
+    if (
+        callable(_rust_format_updown_duration_display)
+        and add_time_part_to_string_date_if_needed is _python_add_updown_time_part
+    ):
+        native = _rust_format_updown_duration_display(duration)
+        if type(native) is str:
+            return native
+
     days, reminder = divmod(duration, 86400)
     hours, reminder = divmod(reminder, 3600)
     minutes, seconds = divmod(reminder, 60)
@@ -57,6 +80,9 @@ def add_time_part_to_string_date_if_needed(value: int, text_name: str) -> str:
     if value > 1:
         return f"{value} {text_name}s "
     return ""
+
+
+_python_add_updown_time_part = add_time_part_to_string_date_if_needed
 
 
 def get_body_for_down_event(event: WildValue) -> str:

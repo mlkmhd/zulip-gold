@@ -292,6 +292,9 @@ mod python_git_commit_summary_text;
 mod python_sonarqube_display;
 
 #[cfg(feature = "python")]
+mod python_updown_duration_display;
+
+#[cfg(feature = "python")]
 mod python_chart_timestamp_display;
 
 #[cfg(feature = "python")]

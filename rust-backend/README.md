@@ -6790,6 +6790,13 @@ fallback for unavailable or declined native helpers.
 
 ### Opt-in Git people display text
 
+`ZULIP_RUST_UPDOWN_DURATION_DISPLAY=1` optionally formats the existing
+duration wording for already supplied integer seconds. Django still
+controls event selection, timestamp processing, routes and delivery.
+The helper is off by default; a missing or older extension, unsupported
+input, or a native decline preserves the original Python behavior.
+This does not change independent Rust API coverage.
+
 `ZULIP_RUST_SONARQUBE_DISPLAY=1` optionally replaces underscores with spaces
 in prepared SonarQube metric labels and joins already formatted condition
 lines with newlines. Django still validates values, selects and formats
