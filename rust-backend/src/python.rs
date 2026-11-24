@@ -503,6 +503,9 @@ mod _zulip_backend {
     use crate::python_channel_folder_display::plan_channel_folder_display_order;
 
     #[pymodule_export]
+    use crate::python_jotform_value_display::join_jotform_display_values;
+
+    #[pymodule_export]
     use crate::python_push_text::{quote_mobile_push_text, truncate_mobile_push_text};
 
     #[pymodule_export]

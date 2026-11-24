@@ -1,6 +1,8 @@
 # Webhooks for external integrations.
 
 import json
+import os
+from importlib import import_module
 from typing import Any
 from urllib.parse import unquote
 
@@ -13,6 +15,19 @@ from zerver.lib.response import json_success
 from zerver.lib.typed_endpoint import typed_endpoint_without_parameters
 from zerver.lib.webhooks.common import check_send_webhook_message
 from zerver.models import UserProfile
+
+try:
+    _rust_jotform_value_display = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_JOTFORM_VALUE_DISPLAY") == "1"
+        else None
+    )
+except ImportError:
+    _rust_jotform_value_display = None
+
+_rust_join_jotform_display_values = getattr(
+    _rust_jotform_value_display, "join_jotform_display_values", None
+)
 
 
 def format_uploaded_file_links(file_question_value: str, file_url_mappings: dict[str, str]) -> str:
@@ -65,9 +80,18 @@ def format_value(value: str | list[str] | dict[str, str]) -> str:
     if isinstance(value, str):
         return value
     elif isinstance(value, list):
+        if type(value) is list and callable(_rust_join_jotform_display_values):
+            rendered = _rust_join_jotform_display_values(value)
+            if type(rendered) is str:
+                return rendered
         return " ".join(value)
 
-    return " ".join(value.values())
+    values = value.values()
+    if type(value) is dict and callable(_rust_join_jotform_display_values):
+        rendered = _rust_join_jotform_display_values(list(values))
+        if type(rendered) is str:
+            return rendered
+    return " ".join(values)
 
 
 def get_pretty_fields(pretty: str, values: list[str]) -> list[tuple[str, str]]:

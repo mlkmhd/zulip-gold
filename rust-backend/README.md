@@ -6836,3 +6836,11 @@ after Python selects channel folders and builds the display rows. Realm and
 spectator views retain their existing sort keys and original DTO objects.
 Python handles absent, older, declining or malformed native results. This is
 off by default and does not participate in folder writes or reordering.
+
+### Opt-in Jotform display value joining
+
+`ZULIP_RUST_JOTFORM_VALUE_DISPLAY=1` optionally joins selected list items
+and ordered dictionary values with a space. Python still handles scalar
+strings, selects fields, parses input, and handles files and delivery.
+The switch defaults off; an absent, older, or declining extension uses the
+original Python joins.

@@ -301,6 +301,9 @@ mod python_gong_display;
 mod python_channel_folder_display;
 
 #[cfg(feature = "python")]
+mod python_jotform_value_display;
+
+#[cfg(feature = "python")]
 mod python_push_text;
 
 #[cfg(feature = "python")]
