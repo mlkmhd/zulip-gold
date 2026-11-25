@@ -224,6 +224,9 @@ mod python_onboarding_text;
 mod python_display_mentions;
 
 #[cfg(feature = "python")]
+mod python_text_bytes;
+
+#[cfg(feature = "python")]
 mod python_widget_text;
 
 #[cfg(feature = "python")]

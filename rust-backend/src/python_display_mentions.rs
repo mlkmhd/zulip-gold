@@ -1,23 +1,11 @@
 //! Presentation-only joining of previously constructed silent mention strings.
 
-use std::borrow::Cow;
-
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyBytes, PyList, PyString};
+use pyo3::types::{PyBool, PyList, PyString};
+
+use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes};
 
 type MentionParts<'py> = (Option<Bound<'py, PyString>>, Bound<'py, PyString>);
-
-fn ordered_str_bytes<'a>(value: &'a Bound<'_, PyString>) -> Option<Cow<'a, [u8]>> {
-    if let Ok(text) = value.to_str() {
-        return Some(Cow::Borrowed(text.as_bytes()));
-    }
-    let encoded = value
-        .call_method1("encode", ("utf-8", "surrogatepass"))
-        .ok()?
-        .cast_into_exact::<PyBytes>()
-        .ok()?;
-    Some(Cow::Owned(encoded.as_bytes().to_vec()))
-}
 
 #[pyfunction]
 pub(crate) fn plan_display_mentions<'py>(
@@ -35,7 +23,7 @@ pub(crate) fn plan_display_mentions<'py>(
     // us join exact strings without changing isolated surrogate values.
     let mut ordered = strings
         .iter()
-        .map(|value| Some((ordered_str_bytes(value)?, value)))
+        .map(|value| Some((python_string_bytes(value)?, value)))
         .collect::<Option<Vec<_>>>()?;
     if sort {
         ordered.sort_by(|(left, _), (right, _)| left.cmp(right));
@@ -55,14 +43,6 @@ pub(crate) fn plan_display_mentions<'py>(
     if preceding.len() > 1 {
         head.push(b',');
     }
-    let text = if let Ok(text) = std::str::from_utf8(&head) {
-        PyString::new(py, text)
-    } else {
-        PyBytes::new(py, &head)
-            .call_method1("decode", ("utf-8", "surrogatepass"))
-            .ok()?
-            .cast_into_exact::<PyString>()
-            .ok()?
-    };
+    let text = python_string_from_bytes(py, &head)?;
     Some((Some(text), (*last).clone()))
 }
