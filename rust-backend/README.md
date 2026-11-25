@@ -5588,20 +5588,19 @@ done
 
 ### Format selected topic title text through Rust
 
-Set `ZULIP_RUST_TOPIC_TEXT=1` before starting Django to apply the existing
-topic code point cutoff and recognize the literal resolution marker
-(`✔ `) through Rust. The helper removes at most one marker, preserves
-the original string when unchanged, and does not select or rename topics.
+On Ubuntu 24.04 x86-64 a wheel with `TOPIC_TITLE_API = 1` applies the
+existing code point cutoff and recognizes the literal resolution marker
+(`✔ `) through Rust without flags. The helper removes at most one marker,
+preserves the original string when unchanged, and does not select or
+rename topics.
 
-The switch defaults to off. Each helper falls back to Python if the
-extension is absent, its method is missing, the Python punctuation
-differs, or the input is not supported. With the current extension built,
-test both modes in an isolated Django environment:
+Older wheels and absent extensions retain the original defaults.
+`ZULIP_RUST_TOPIC_TEXT=1` still enables the earlier explicit opt-in.
+Patched punctuation and unsupported Python values retain their
+original behavior. With the matching wheel installed:
 
 ```bash
-for enabled in 0 1; do
-    ZULIP_RUST_TOPIC_TEXT=$enabled ./tools/test-backend zerver.tests.test_topic_text_rust
-done
+env -u ZULIP_RUST_TOPIC_TEXT ./tools/test-backend zerver.tests.test_topic_text_rust
 ```
 
 ### Size and clip prepared quote-and-reply text through Rust

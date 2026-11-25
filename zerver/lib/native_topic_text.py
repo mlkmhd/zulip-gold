@@ -1,18 +1,11 @@
-"""Optional format operations on already selected topic title text."""
+"""Native format operations on already selected topic title text."""
 
 from collections.abc import Callable
-from importlib import import_module
-from os import environ
 from typing import cast
 
-try:
-    _backend = (
-        import_module("_zulip_backend") if environ.get("ZULIP_RUST_TOPIC_TEXT") == "1" else None
-    )
-except ModuleNotFoundError as error:
-    if error.name != "_zulip_backend":
-        raise
-    _backend = None
+from zerver.lib.native_backend import load_native_contract
+
+_backend = load_native_contract("ZULIP_RUST_TOPIC_TEXT", "TOPIC_TITLE_API")
 
 
 def _optional_symbol(name: str) -> object:

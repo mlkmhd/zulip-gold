@@ -10,6 +10,7 @@ from django.test import SimpleTestCase
 from typing_extensions import override
 
 from zerver.lib import message, native_topic_text, topic
+from zerver.lib.native_backend import supports_default_rust_backend
 
 
 def extension() -> ModuleType:
@@ -75,7 +76,9 @@ class TopicTextRustTest(SimpleTestCase):
 class TopicTextDjangoDispatchRustTest(SimpleTestCase):
     def test_real_startup_mode_and_wrappers(self) -> None:
         native = extension()
-        enabled = environ.get("ZULIP_RUST_TOPIC_TEXT") == "1"
+        enabled = environ.get("ZULIP_RUST_TOPIC_TEXT") == "1" or (
+            supports_default_rust_backend() and getattr(native, "TOPIC_TITLE_API", None) == 1
+        )
         truncate = native_topic_text.truncate_topic_title
         split = native_topic_text.split_resolved_topic_title
         self.assertIs(truncate, native.truncate_topic_title if enabled else None)

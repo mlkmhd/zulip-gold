@@ -298,7 +298,8 @@ mod _zulip_backend {
     fn export_capabilities(module: &Bound<'_, PyModule>) -> PyResult<()> {
         module.add("WIDGET_PARSER_API", 1)?;
         module.add("VISIBLE_TOPIC_HISTORY_API", 1)?;
-        module.add("USER_STATUS_READ_API", 1)
+        module.add("USER_STATUS_READ_API", 1)?;
+        module.add("TOPIC_TITLE_API", 1)
     }
 
     #[pymodule_export]
