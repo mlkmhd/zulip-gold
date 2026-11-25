@@ -1,11 +1,11 @@
 //! Plain-text formatting after Django extracts a mobile notification preview.
 
-use std::fmt::Write;
+use std::io::Write;
 
 use pyo3::prelude::*;
 use pyo3::types::{PyInt, PyList, PyString};
 
-use crate::draft_text::is_python_whitespace;
+use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes, trim_python_text};
 
 fn is_line_boundary(character: char) -> bool {
     matches!(
@@ -22,21 +22,37 @@ fn is_line_boundary(character: char) -> bool {
     )
 }
 
-#[pyfunction]
-pub(crate) fn quote_mobile_push_text(input: &Bound<'_, PyAny>) -> Option<String> {
-    let input = input.cast_exact::<PyString>().ok()?.to_str().ok()?;
-    let mut output = String::with_capacity(input.len());
-    // Python's splitlines treats CRLF as a single boundary. Treating it as
-    // two is equivalent here because empty lines are not rendered.
-    for line in input
-        .split(is_line_boundary)
-        .filter(|line| !line.is_empty())
-    {
-        output.push_str("> ");
-        output.push_str(line);
-        output.push('\n');
+fn append_quote_line(output: &mut Vec<u8>, line: &[u8]) {
+    if !line.is_empty() {
+        output.extend_from_slice(b"> ");
+        output.extend_from_slice(line);
+        output.push(b'\n');
     }
-    Some(output)
+}
+
+#[pyfunction]
+pub(crate) fn quote_mobile_push_text<'py>(
+    input: &Bound<'py, PyAny>,
+) -> Option<Bound<'py, PyString>> {
+    let input = input.cast_exact::<PyString>().ok()?;
+    let text = python_string_bytes(input)?;
+    let mut output = Vec::with_capacity(text.len());
+    let mut offset = 0;
+    let mut line_start = 0;
+    for chunk in text.utf8_chunks() {
+        for (index, ch) in chunk.valid().char_indices() {
+            if is_line_boundary(ch) {
+                let end = offset + index;
+                append_quote_line(&mut output, &text[line_start..end]);
+                line_start = end + ch.len_utf8();
+            }
+        }
+        // Preserve lone surrogates in the line. CRLF may split twice,
+        // which is equivalent because empty lines are never quoted.
+        offset += chunk.valid().len() + chunk.invalid().len();
+    }
+    append_quote_line(&mut output, &text[line_start..]);
+    python_string_from_bytes(input.py(), &output)
 }
 
 #[pyfunction]
@@ -44,24 +60,28 @@ pub(crate) fn truncate_mobile_push_text<'py>(
     input: &Bound<'py, PyAny>,
 ) -> Option<(Bound<'py, PyString>, bool)> {
     let input = input.cast_exact::<PyString>().ok()?;
-    let text = input.to_str().ok()?;
-    // The existing mobile payload limit counts Python code points, not
-    // UTF-8 bytes or grapheme clusters.
-    let Some((end, _)) = text.char_indices().nth(200) else {
+    let text = python_string_bytes(input)?;
+    // Count Python code points, including lone surrogates, not graphemes.
+    let Some((end, _)) = text
+        .iter()
+        .enumerate()
+        .filter(|(_, byte)| **byte & 0xc0 != 0x80)
+        .nth(200)
+    else {
         return Some((input.clone(), false));
     };
-    let mut output = String::with_capacity(end + '…'.len_utf8());
-    output.push_str(&text[..end]);
-    output.push('…');
-    Some((PyString::new(input.py(), &output), true))
+    let mut output = Vec::with_capacity(end + '…'.len_utf8());
+    output.extend_from_slice(&text[..end]);
+    output.extend_from_slice("…".as_bytes());
+    Some((python_string_from_bytes(input.py(), &output)?, true))
 }
 
 #[pyfunction]
-pub(crate) fn format_mobile_ordered_list(
-    rows: &Bound<'_, PyAny>,
+pub(crate) fn format_mobile_ordered_list<'py>(
+    rows: &Bound<'py, PyAny>,
     start: &Bound<'_, PyAny>,
     depth: &Bound<'_, PyAny>,
-) -> Option<String> {
+) -> Option<Bound<'py, PyString>> {
     let rows = rows.cast_exact::<PyList>().ok()?;
     let start = start.cast_exact::<PyInt>().ok()?.extract::<i64>().ok()?;
     let depth = depth.cast_exact::<PyInt>().ok()?.extract::<usize>().ok()?;
@@ -75,16 +95,16 @@ pub(crate) fn format_mobile_ordered_list(
     } else {
         format!("\n{}", "  ".repeat(depth))
     };
-    let mut output = String::new();
+    let mut output = Vec::new();
     for (index, row) in rows.iter().enumerate() {
-        let row = row.cast_exact::<PyString>().ok()?.to_str().ok()?;
+        let row = python_string_bytes(row.cast_exact::<PyString>().ok()?)?;
         if index != 0 {
-            output.push('\n');
+            output.push(b'\n');
         }
-        output.push_str(&indent);
+        output.extend_from_slice(indent.as_bytes());
         let number = start + i64::try_from(index).ok()?;
         write!(output, "{number}. ").ok()?;
-        output.push_str(row.trim_matches(is_python_whitespace));
+        output.extend_from_slice(trim_python_text(&row));
     }
-    Some(output)
+    python_string_from_bytes(rows.py(), &output)
 }

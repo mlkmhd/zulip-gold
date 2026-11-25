@@ -1,5 +1,4 @@
 from importlib import import_module
-from os import environ
 from random import Random
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -61,12 +60,23 @@ class PushTextRustTest(SimpleTestCase):
         self.assertEqual(result, (text, False))
         self.assertEqual(native.truncate_mobile_push_text(text + "a"), (text + "…", True))
 
+        if getattr(native, "MOBILE_PUSH_TEXT_API", None) == 1:
+            specials = "".join(map(chr, range(0xD800, 0xE000)))
+            sample = "\u2028" + "\u0085".join(specials) + "\r\n"
+            expected = "".join(f"> {line}\n" for line in sample.splitlines() if line)
+            self.assertEqual(native.quote_mobile_push_text(sample), expected)
+            self.assertEqual(
+                native.truncate_mobile_push_text(specials), (specials[:200] + "…", True)
+            )
+            short = "\ud800🙂\udfff"
+            self.assertIs(native.truncate_mobile_push_text(short)[0], short)
+
     def test_noncanonical_strings_decline_to_python(self) -> None:
         class StringSubclass(str):
             __slots__ = ()
 
         native = extension()
-        for value in ("\ud800", None, b"plain bytes", StringSubclass("plain subclass")):
+        for value in (None, b"plain bytes", StringSubclass("plain subclass")):
             self.assertIsNone(native.quote_mobile_push_text(value))
             self.assertIsNone(native.truncate_mobile_push_text(value))
 
@@ -76,9 +86,13 @@ class PushTextRustTest(SimpleTestCase):
 
         exact_limit = StringSubclass("🙂" * 200)
         surrogate = "a" * 199 + "\ud800" + "x"
-        with patch.object(native_push_text, "_backend", extension()):
+        backend = extension()
+        with patch.object(native_push_text, "_backend", backend):
             self.assertIsNone(native_push_text.truncate(exact_limit))
-            self.assertIsNone(native_push_text.quote(surrogate))
+            expected_quote = (
+                f"> {surrogate}\n" if getattr(backend, "MOBILE_PUSH_TEXT_API", None) == 1 else None
+            )
+            self.assertEqual(native_push_text.quote(surrogate), expected_quote)
             unchanged, truncated = truncate_content(exact_limit)
             self.assertIs(unchanged, exact_limit)
             self.assertFalse(truncated)
@@ -100,7 +114,7 @@ class PushTextRustTest(SimpleTestCase):
 class PushTextPayloadRustTest(ZulipTestCase):
     def test_synthetic_apns_and_gcm_payload_bytes_across_modes(self) -> None:
         backend = extension()
-        enabled = environ.get("ZULIP_RUST_PUSH_TEXT") == "1"
+        enabled = native_push_text._backend is backend
         actor = self.example_user("hamlet")
         actor.default_language = "fa"
         stream = get_stream("Verona", actor.realm)
@@ -173,7 +187,8 @@ class PushTextPayloadRustTest(ZulipTestCase):
 
 class MobileOrderedListRustTest(SimpleTestCase):
     def test_native_matches_python_for_preprocessed_rows(self) -> None:
-        render = getattr(extension(), "format_mobile_ordered_list", None)
+        backend = extension()
+        render = getattr(backend, "format_mobile_ordered_list", None)
         if not callable(render):
             self.skipTest("Rust extension does not support mobile ordered lists")
 
@@ -200,6 +215,12 @@ class MobileOrderedListRustTest(SimpleTestCase):
                         )
         self.assertEqual(render(["last"], 2**63 - 1, 0), f"{2**63 - 1}. last")
 
+        if getattr(backend, "MOBILE_ORDERED_LIST_API", None) == 1:
+            special = "".join(map(chr, range(0xD800, 0xE000)))
+            self.assertEqual(
+                render([" \ud800\t", special + "\u3000"], -1, 0), f"-1. \ud800\n0. {special}"
+            )
+
         class TextSubclass(str):
             __slots__ = ()
 
@@ -211,7 +232,6 @@ class MobileOrderedListRustTest(SimpleTestCase):
             (["foo"], 1, 257),
             (["foo"], True, 0),
             (["foo"], 1, False),
-            (["\ud800"], 1, 0),
             ([TextSubclass("foo")], 1, 0),
         ):
             self.assertIsNone(render(*args))
@@ -219,8 +239,7 @@ class MobileOrderedListRustTest(SimpleTestCase):
     def test_real_nested_preview_uses_native_without_receiving_spoiler_body(self) -> None:
         backend = extension()
         render = getattr(backend, "format_mobile_ordered_list", None)
-        enabled = environ.get("ZULIP_RUST_MOBILE_ORDERED_LIST") == "1"
-        self.assertEqual(native_push_text.get_ordered_list_formatter() is not None, enabled)
+        enabled = native_push_text.get_ordered_list_formatter() is not None
         if not callable(render):
             self.skipTest("Rust extension does not support mobile ordered lists")
 
