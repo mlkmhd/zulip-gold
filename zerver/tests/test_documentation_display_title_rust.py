@@ -9,6 +9,7 @@ from django.http import HttpRequest
 from lxml import html
 from typing_extensions import override
 
+from zerver.lib.native_backend import supports_default_rust_backend
 from zerver.views import documentation
 
 
@@ -32,15 +33,39 @@ class DocumentationDisplayTitleRustTest(TestCase):
         class Derived(str):
             __slots__ = ()
 
-        for invalid in (None, b"title", 1, Derived("title"), "\ud800"):
+        for invalid in (None, b"title", 1, Derived("title")):
             self.assertIsNone(article(invalid, base, True))
             self.assertIsNone(integration(invalid))
         self.assertIsNone(article("other", base, 1))
         self.assertIsNone(article("other", Derived(base), False))
 
+    def test_prepared_titles_preserve_all_surrogate_code_points(self) -> None:
+        try:
+            module = import_module("_zulip_backend")
+        except ImportError:
+            self.skipTest("Wheel is absent")
+        if getattr(module, "DOCUMENTATION_DISPLAY_TITLE_API", None) != 1:
+            self.skipTest("Wheel predates surrogate-safe documentation titles")
+        article = module.format_documentation_display_title
+        integration = module.format_integration_documentation_title
+        base = "نمایش 😀"
+        for code in range(0xD800, 0xE000):
+            unusual = f"آ{chr(code)}\0😀"
+            self.assertEqual(article(unusual, base, True), unusual + " | " + base)
+            self.assertEqual(article(base, unusual, True), base + " | " + unusual)
+            self.assertEqual(integration(unusual), unusual + " | Zulip integrations")
+
     def test_real_prepared_article_branch_does_not_infer_from_empty_title(self) -> None:
         native = documentation._rust_format_documentation_display_title
-        enabled = os.environ.get("ZULIP_RUST_DOCUMENTATION_DISPLAY_TITLE") == "1"
+        enabled = os.environ.get("ZULIP_RUST_DOCUMENTATION_DISPLAY_TITLE") == "1" or (
+            supports_default_rust_backend()
+            and getattr(
+                documentation._rust_documentation_display_title,
+                "DOCUMENTATION_DISPLAY_TITLE_API",
+                None,
+            )
+            == 1
+        )
         self.assertEqual(callable(native), enabled)
         article = documentation.DocumentationArticle("/synthetic/article.md", 200, None, None)
         index = documentation.DocumentationArticle("/synthetic/index.md", 200, None, None)
@@ -81,7 +106,15 @@ class DocumentationDisplayTitleRustTest(TestCase):
 
     def test_synthetic_integration_and_category_display_do_not_touch_root(self) -> None:
         native = documentation._rust_format_integration_documentation_title
-        enabled = os.environ.get("ZULIP_RUST_DOCUMENTATION_DISPLAY_TITLE") == "1"
+        enabled = os.environ.get("ZULIP_RUST_DOCUMENTATION_DISPLAY_TITLE") == "1" or (
+            supports_default_rust_backend()
+            and getattr(
+                documentation._rust_documentation_display_title,
+                "DOCUMENTATION_DISPLAY_TITLE_API",
+                None,
+            )
+            == 1
+        )
         self.assertEqual(callable(native), enabled)
         with (
             patch.object(

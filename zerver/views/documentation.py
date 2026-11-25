@@ -31,6 +31,7 @@ from zerver.lib.integrations import (
     PythonAPIIntegration,
     get_all_event_types_for_integration,
 )
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.subdomains import get_subdomain
 from zerver.lib.templates import render_markdown_path
 from zerver.lib.typed_endpoint import PathOnly, typed_endpoint
@@ -38,10 +39,8 @@ from zerver.models import Realm
 from zerver.openapi.openapi import get_endpoint_from_operationid, get_openapi_summary
 
 try:
-    _rust_documentation_display_title = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_DOCUMENTATION_DISPLAY_TITLE") == "1"
-        else None
+    _rust_documentation_display_title = load_native_contract(
+        "ZULIP_RUST_DOCUMENTATION_DISPLAY_TITLE", "DOCUMENTATION_DISPLAY_TITLE_API"
     )
 except ImportError:
     _rust_documentation_display_title = None

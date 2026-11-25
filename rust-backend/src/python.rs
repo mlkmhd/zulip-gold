@@ -315,7 +315,8 @@ mod _zulip_backend {
         module.add("SAVED_SNIPPET_DISPLAY_API", 1)?;
         module.add("NAVIGATION_VIEW_DISPLAY_API", 1)?;
         module.add("DRAFT_GET_DISPLAY_API", 1)?;
-        module.add("CHANNEL_FOLDER_DISPLAY_ORDER_API", 1)
+        module.add("CHANNEL_FOLDER_DISPLAY_ORDER_API", 1)?;
+        module.add("DOCUMENTATION_DISPLAY_TITLE_API", 1)
     }
 
     #[pymodule_export]

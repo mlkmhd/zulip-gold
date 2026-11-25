@@ -6922,13 +6922,14 @@ Python still validates and chooses these values, and handles links and
 delivery. The switch defaults off; absent, older, declining or unsupported
 native implementations use the same Python formatting.
 
-### Opt-in documentation display titles
+### Format prepared documentation display titles in Rust
 
-`ZULIP_RUST_DOCUMENTATION_DISPLAY_TITLE=1` optionally spells the
-literal title after Python has chosen its article, integration, or category
-parts. Index and catalog-root titles are unchanged. Extraction, routing,
-metadata, escaping and rendering stay in Python. The switch defaults off;
-absent, older, declining or unsupported native helpers use Python.
+An Ubuntu 24.04 x86-64 wheel with `DOCUMENTATION_DISPLAY_TITLE_API = 1` assembles
+literal display titles after Python chooses the article, integration or
+category. The Rust helpers preserve all Python string code points. Index
+and catalog-root titles, extraction, routing, metadata selection, escaping
+and rendering are unchanged. Absent or older wheels keep the original
+behavior; `ZULIP_RUST_DOCUMENTATION_DISPLAY_TITLE=1` remains explicit opt-in.
 
 ### Opt-in New Relic display list joins
 
