@@ -6866,11 +6866,12 @@ An older or absent wheel, or unsupported input, keeps the original sort.
 
 ### Opt-in Jotform display value joining
 
-`ZULIP_RUST_JOTFORM_VALUE_DISPLAY=1` optionally joins selected list items
-and ordered dictionary values with a space. Python still handles scalar
-strings, selects fields, parses input, and handles files and delivery.
-The switch defaults off; an absent, older, or declining extension uses the
-original Python joins.
+On Ubuntu 24.04 x86-64 a wheel exporting `JOTFORM_VALUE_DISPLAY_API = 1`
+joins prepared non-file answers without a flag. All code points and
+singleton identity survive. File handling, answer selection, validation
+and message delivery stay in Python. Older or absent wheels and
+unsupported inputs use the original behavior; the explicit
+`ZULIP_RUST_JOTFORM_VALUE_DISPLAY=1` remains available.
 
 ### Opt-in Rocket.Chat display name text
 

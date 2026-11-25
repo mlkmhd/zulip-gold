@@ -7,6 +7,7 @@ from unittest.mock import call, patch
 
 from typing_extensions import override
 
+from zerver.lib.native_backend import supports_default_rust_backend
 from zerver.webhooks.jotform import view
 
 
@@ -23,7 +24,6 @@ class JotformValueDisplayRustTest(TestCase):
         self.assertIs(join([text]), text)
         self.assertEqual(join([]), "")
         self.assertEqual(join(["", "x\x00", "متن\r\n😀 "]), " x\x00 متن\r\n😀 ")
-        self.assertIsNone(join(["ordinary", surrogate]))
 
         class Derived(str):
             __slots__ = ()
@@ -33,9 +33,24 @@ class JotformValueDisplayRustTest(TestCase):
         self.assertIsNone(join(("plain",)))
         self.assertIsNone(join({"form-key": "value"}))
 
+    def test_all_surrogate_code_points_in_selected_display_values(self) -> None:
+        try:
+            module = import_module("_zulip_backend")
+        except ImportError:
+            self.skipTest("Wheel is absent")
+        if getattr(module, "JOTFORM_VALUE_DISPLAY_API", None) != 1:
+            self.skipTest("Wheel predates surrogate-safe Jotform list joining")
+        for code in range(0xD800, 0xE000):
+            value = f"پاسخ{chr(code)}\0😀"
+            self.assertIs(module.join_jotform_display_values([value]), value)
+            self.assertEqual(module.join_jotform_display_values(["a", value, ""]), f"a {value} ")
+
     def test_real_helper_passes_only_ordered_display_values(self) -> None:
         native = view._rust_join_jotform_display_values
-        enabled = os.environ.get("ZULIP_RUST_JOTFORM_VALUE_DISPLAY") == "1"
+        enabled = os.environ.get("ZULIP_RUST_JOTFORM_VALUE_DISPLAY") == "1" or (
+            supports_default_rust_backend()
+            and getattr(view._rust_jotform_value_display, "JOTFORM_VALUE_DISPLAY_API", None) == 1
+        )
         self.assertEqual(callable(native), enabled)
         raw = f" فارسی {len(self.id())} "
         with (
