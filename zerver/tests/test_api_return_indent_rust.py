@@ -1,4 +1,3 @@
-import os
 from importlib import import_module
 from typing import SupportsIndex
 from unittest import TestCase
@@ -13,7 +12,8 @@ from zerver.lib.markdown import api_return_values_table_generator as returns
 class APIReturnIndentRustTest(TestCase):
     def test_native_prepared_lf_replacement_and_noop_identity(self) -> None:
         try:
-            native = import_module("_zulip_backend").indent_prepared_api_return_description
+            module = import_module("_zulip_backend")
+            native = module.indent_prepared_api_return_description
         except (AttributeError, ImportError):
             self.skipTest("Rust API return description indentation is not available")
 
@@ -22,15 +22,16 @@ class APIReturnIndentRustTest(TestCase):
         self.assertIs(native(no_lf, "\n    "), no_lf)
         self.assertIs(native(with_lf, "\n"), with_lf)
         self.assertEqual(native("\r\nیک\u2028\n\n", "\n   "), "\r\n   یک\u2028\n   \n   ")
-        self.assertIsNone(native("\ud800\n", "\n "))
+        if getattr(module, "API_RETURN_INDENT_API", None) == 1:
+            text = "prefix\ud800\n\udfff\n\ud800\udfff🙂"
+            self.assertEqual(native(text, "\n "), text.replace("\n", "\n "))
+            self.assertIs(native(text, "\n"), text)
         self.assertIsNone(native("a\nb", "\n\t"))
         self.assertIsNone(native("a\nb", " "))
         self.assertIsNone(native("\n" * 1024, "\n" + " " * 8192))
 
     def test_real_table_and_key_description_paths_are_unchanged(self) -> None:
         native = returns._rust_indent_prepared_api_return_description
-        if os.environ.get("ZULIP_RUST_API_RETURN_INDENT") != "1":
-            self.assertIsNone(native)
         spy = Mock(wraps=native) if native is not None else None
         docs = returns.APIReturnValuesTablePreprocessor(Markdown(), {})
         desc = "First\r\nSecond\u2028same\n  Third"

@@ -12,6 +12,7 @@ from markdown.preprocessors import Preprocessor
 from typing_extensions import override
 
 from zerver.lib.markdown.priorities import PREPROCESSOR_PRIORITIES
+from zerver.lib.native_backend import load_native_contract
 from zerver.openapi.openapi import (
     Parameter,
     check_deprecated_consistency,
@@ -20,10 +21,8 @@ from zerver.openapi.openapi import (
 )
 
 try:
-    _rust_api_type_display = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_API_TYPE_DISPLAY") == "1"
-        else None
+    _rust_api_type_display = load_native_contract(
+        "ZULIP_RUST_API_TYPE_DISPLAY", "API_TYPE_DISPLAY_API"
     )
 except ImportError:
     _rust_api_type_display = None
@@ -48,10 +47,8 @@ except ImportError:
 _rust_render_api_doc_type_tree = getattr(_rust_api_type_tree, "render_api_doc_type_tree", None)
 
 try:
-    _rust_api_enum_display = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_API_ENUM_DISPLAY") == "1"
-        else None
+    _rust_api_enum_display = load_native_contract(
+        "ZULIP_RUST_API_ENUM_DISPLAY", "API_ENUM_DISPLAY_API"
     )
 except ImportError:
     _rust_api_enum_display = None

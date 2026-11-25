@@ -1,6 +1,7 @@
 import os
 from collections.abc import Callable
 from contextlib import ExitStack
+from importlib import import_module
 from unittest import TestCase
 from unittest.mock import Mock, patch
 
@@ -8,6 +9,7 @@ from markdown import Markdown
 
 from zerver.lib.markdown import api_arguments_table_generator as arguments
 from zerver.lib.markdown import api_return_values_table_generator as returns
+from zerver.lib.native_backend import supports_default_rust_backend
 from zerver.lib.partial import partial
 from zerver.openapi.openapi import Parameter
 
@@ -138,7 +140,7 @@ class APIDocsRenderFlowRustTest(TestCase):
             html.index("After the generated sections."),
         )
 
-    def test_registered_renderers_match_python_under_the_actual_flags(self) -> None:
+    def test_registered_renderers_match_python_with_selected_native_helpers(self) -> None:
         expected = self.render_python_baseline()
         self.assert_expected_document(expected)
 
@@ -155,10 +157,19 @@ class APIDocsRenderFlowRustTest(TestCase):
                 if tree_enabled
                 else None
             )
+            try:
+                backend = import_module("_zulip_backend")
+            except ImportError:
+                backend = None
             spies: list[tuple[Mock, int]] = []
             for module, hook, flag, expected_calls in NATIVE_HOOKS:
                 native = getattr(module, hook)
-                if os.environ.get(flag) == "1":
+                contract = flag.removeprefix("ZULIP_RUST_") + "_API"
+                default_enabled = (
+                    supports_default_rust_backend() and getattr(backend, contract, None) == 1
+                )
+                explicitly_enabled = os.environ.get(flag) == "1"
+                if default_enabled or explicitly_enabled:
                     self.assertTrue(callable(native), (flag, hook))
                     spy = stack.enter_context(
                         patch.object(module, hook, side_effect=partial(require_native_text, native))

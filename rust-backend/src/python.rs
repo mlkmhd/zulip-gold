@@ -329,6 +329,9 @@ mod _zulip_backend {
         module.add("JOTFORM_VALUE_DISPLAY_API", 1)?;
         module.add("OPENPROJECT_DURATION_DISPLAY_API", 1)?;
         module.add("MARKDOWN_WHITESPACE_API", 1)?;
+        module.add("API_TYPE_DISPLAY_API", 1)?;
+        module.add("API_ENUM_DISPLAY_API", 1)?;
+        module.add("API_RETURN_INDENT_API", 1)?;
         module.add("DISPLAY_RECIPIENT_ORDER_API", 1)
     }
 

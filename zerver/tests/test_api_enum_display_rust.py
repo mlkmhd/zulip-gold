@@ -1,5 +1,4 @@
 import json
-import os
 from collections.abc import Iterator
 from importlib import import_module
 from typing import cast
@@ -16,7 +15,8 @@ from zerver.openapi.openapi import Parameter
 class APIEnumDisplayRustTest(TestCase):
     def test_native_join_and_identity(self) -> None:
         try:
-            join = import_module("_zulip_backend").join_prepared_api_enum_examples
+            native = import_module("_zulip_backend")
+            join = native.join_prepared_api_enum_examples
         except (AttributeError, ImportError):
             self.skipTest("Rust API documentation enum join is not available")
 
@@ -31,14 +31,13 @@ class APIEnumDisplayRustTest(TestCase):
             __slots__ = ()
 
         self.assertIsNone(join([Derived("x")]))
-        self.assertIsNone(join([text, surrogate]))
+        if getattr(native, "API_ENUM_DISPLAY_API", None) == 1:
+            self.assertEqual(join([text, surrogate, "\udfff"]), f"{text}, {surrogate}, \udfff")
         self.assertIsNone(join((text,)))
         self.assertIsNone(join([text, 0]))
 
     def test_real_argument_and_object_call_sites_receive_prepared_examples(self) -> None:
         native = docs._rust_join_prepared_api_enum_examples
-        if os.environ.get("ZULIP_RUST_API_ENUM_DISPLAY") != "1":
-            self.assertIsNone(native)
         spy = Mock(wraps=native) if native is not None else None
         argument_enum = ["آ", 2, False, None]
         field_enum = ["nested", "فارسی"]

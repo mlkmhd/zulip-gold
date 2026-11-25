@@ -1,4 +1,3 @@
-import os
 from collections import UserDict
 from collections.abc import Iterator
 from importlib import import_module
@@ -31,9 +30,12 @@ class APITypeDisplayRustTest(TestCase):
         self.assertEqual(nullable(short), "نوع🙂 | null")
         self.assertIsNone(join(("string", "integer")))
         self.assertIsNone(join(["string", 7]))
-        self.assertIsNone(join(["string", surrogate]))
-        self.assertIsNone(array(surrogate))
-        self.assertIsNone(nullable(surrogate))
+        if getattr(native, "API_TYPE_DISPLAY_API", None) != 1:
+            return
+        for value in ("\ud800", "\udfff", "\ud800\udfff🙂"):
+            self.assertEqual(join(["string", value]), f"string | {value}")
+            self.assertEqual(array(value), f"({value})[]")
+            self.assertEqual(nullable(value), f"{value} | null")
 
     def test_argument_and_return_value_docs_use_prepared_labels(self) -> None:
         originals = (
@@ -41,8 +43,6 @@ class APITypeDisplayRustTest(TestCase):
             arguments._rust_wrap_prepared_doc_array_label,
             arguments._rust_append_doc_nullable_label,
         )
-        if os.environ.get("ZULIP_RUST_API_TYPE_DISPLAY") != "1":
-            self.assertEqual(originals, (None, None, None))
         join, array, nullable = (Mock(wraps=fn) if fn is not None else None for fn in originals)
         schema = {"items": {"oneOf": [{"type": "string", "nullable": True}, {"type": "integer"}]}}
         parameter = Parameter(

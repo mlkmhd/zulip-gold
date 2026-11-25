@@ -1,11 +1,9 @@
 import copy
 import json
-import os
 import re
 from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass
-from importlib import import_module
 from typing import Any
 
 import markdown
@@ -14,15 +12,14 @@ from markdown.preprocessors import Preprocessor
 from typing_extensions import override
 
 from zerver.lib.markdown.priorities import PREPROCESSOR_PRIORITIES
+from zerver.lib.native_backend import load_native_contract
 from zerver.openapi.openapi import check_deprecated_consistency, get_openapi_return_values
 
 from .api_arguments_table_generator import generate_data_type
 
 try:
-    _rust_api_return_indent = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_API_RETURN_INDENT") == "1"
-        else None
+    _rust_api_return_indent = load_native_contract(
+        "ZULIP_RUST_API_RETURN_INDENT", "API_RETURN_INDENT_API"
     )
 except ImportError:
     _rust_api_return_indent = None
