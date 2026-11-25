@@ -128,15 +128,11 @@ _rust_markdown_list_indent = (
     if os.environ.get("ZULIP_RUST_MARKDOWN_LIST_INDENT") == "1"
     else None
 )
-_rust_markdown_horizontal_rules = (
-    import_module("_zulip_backend")
-    if os.environ.get("ZULIP_RUST_MARKDOWN_HORIZONTAL_RULES") == "1"
-    else None
+_rust_markdown_horizontal_rules = load_native_contract(
+    "ZULIP_RUST_MARKDOWN_HORIZONTAL_RULES", "MARKDOWN_HORIZONTAL_RULES_API"
 )
-_rust_markdown_paragraphs = (
-    import_module("_zulip_backend")
-    if os.environ.get("ZULIP_RUST_MARKDOWN_PARAGRAPHS") == "1"
-    else None
+_rust_markdown_paragraphs = load_native_contract(
+    "ZULIP_RUST_MARKDOWN_PARAGRAPHS", "MARKDOWN_PARAGRAPHS_API"
 )
 _rust_markdown_headings = load_native_contract(
     "ZULIP_RUST_MARKDOWN_HEADINGS", "MARKDOWN_HEADINGS_API"
@@ -1741,10 +1737,18 @@ class HashHeaderProcessor(markdown.blockprocessors.HashHeaderProcessor):
         super().run(parent, blocks)
 
 
+_STANDARD_HR_SEARCH_RE = markdown.blockprocessors.HRProcessor.SEARCH_RE
+
+
 class HRProcessor(markdown.blockprocessors.HRProcessor):
     @override
     def test(self, parent: Element, block: str) -> bool:
-        if _rust_markdown_horizontal_rules is not None:
+        if (
+            _rust_markdown_horizontal_rules is not None
+            and type(self) is HRProcessor
+            and self.SEARCH_RE is _STANDARD_HR_SEARCH_RE
+            and type(block) is str
+        ):
             result = _rust_markdown_horizontal_rules.parse_markdown_horizontal_rule(block)
             if result is not None:
                 return result[0]
@@ -1752,7 +1756,14 @@ class HRProcessor(markdown.blockprocessors.HRProcessor):
 
     @override
     def run(self, parent: Element, blocks: list[str]) -> None:
-        if _rust_markdown_horizontal_rules is not None:
+        if (
+            _rust_markdown_horizontal_rules is not None
+            and type(self) is HRProcessor
+            and self.SEARCH_RE is _STANDARD_HR_SEARCH_RE
+            and type(blocks) is list
+            and blocks
+            and type(blocks[0]) is str
+        ):
             result = _rust_markdown_horizontal_rules.parse_markdown_horizontal_rule(blocks[0])
             if result is not None and result[0]:
                 _, before, after = result
@@ -1766,15 +1777,31 @@ class HRProcessor(markdown.blockprocessors.HRProcessor):
         super().run(parent, blocks)
 
 
+_STANDARD_PARAGRAPH_LAST_CHILD = markdown.blockprocessors.ParagraphProcessor.lastChild
+
+
 class ParagraphProcessor(markdown.blockprocessors.ParagraphProcessor):
     @override
     def run(self, parent: Element, blocks: list[str]) -> None:
-        if _rust_markdown_paragraphs is not None:
+        if (
+            _rust_markdown_paragraphs is not None
+            and type(self) is ParagraphProcessor
+            and type(parent) is Element
+            and type(blocks) is list
+            and blocks
+            and type(blocks[0]) is str
+            and type(self.parser.state) is markdown.blockparser.State
+            and getattr(self.lastChild, "__func__", None) is _STANDARD_PARAGRAPH_LAST_CHILD
+        ):
             tight_list = self.parser.state.isstate("list")
             sibling = self.lastChild(parent) if tight_list else None
             previous_text = sibling.tail if sibling is not None else parent.text
-            result = _rust_markdown_paragraphs.plan_markdown_paragraph(
-                blocks[0], tight_list, sibling is not None, previous_text
+            result = (
+                _rust_markdown_paragraphs.plan_markdown_paragraph(
+                    blocks[0], tight_list, sibling is not None, previous_text
+                )
+                if previous_text is None or type(previous_text) is str
+                else None
             )
             if result is not None:
                 kind, text = result

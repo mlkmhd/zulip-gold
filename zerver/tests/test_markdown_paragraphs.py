@@ -4,6 +4,7 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 
 from markdown import Markdown
 from markdown.blockprocessors import ParagraphProcessor as PythonParagraphProcessor
+from typing_extensions import override
 
 from zerver.lib.markdown import ParagraphProcessor
 
@@ -74,3 +75,19 @@ class MarkdownParagraphTest(TestCase):
             self.skipTest("Rust paragraph planner is disabled")
         with mock.patch.object(PythonParagraphProcessor, "run", side_effect=AssertionError):
             self.assertEqual(self.render("  text"), "<p>text</p>")
+
+    def test_paragraph_subclass_uses_its_own_last_child(self) -> None:
+        class CustomParagraph(ParagraphProcessor):
+            @override
+            def lastChild(self, parent: Element) -> Element | None:
+                return parent[0]
+
+        engine = Markdown()
+        engine.parser.state.set("list")
+        parent = Element("li")
+        first, second = SubElement(parent, "strong"), SubElement(parent, "em")
+        remaining = [" text "]
+        CustomParagraph(engine.parser).run(parent, remaining)
+        self.assertEqual(first.tail, "\n text ")
+        self.assertIsNone(second.tail)
+        self.assertEqual(remaining, [])

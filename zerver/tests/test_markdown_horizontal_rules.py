@@ -1,4 +1,5 @@
 import random
+import re
 from unittest import TestCase, mock
 
 from markdown import Markdown
@@ -54,7 +55,17 @@ class MarkdownHorizontalRuleTest(TestCase):
     def test_rust_path(self) -> None:
         from zerver.lib import markdown
 
-        if markdown._rust_markdown_horizontal_rules is None:
+        backend = markdown._rust_markdown_horizontal_rules
+        if backend is None:
             self.skipTest("Rust horizontal rule parser is disabled")
-        with mock.patch.object(HRProcessor, "SEARCH_RE", None):
+        with mock.patch.object(
+            backend,
+            "parse_markdown_horizontal_rule",
+            wraps=backend.parse_markdown_horizontal_rule,
+        ) as parser:
             self.assertEqual(self.render("---"), "<hr />")
+            parser.assert_called()
+
+    def test_custom_pattern_uses_original_matching(self) -> None:
+        with mock.patch.object(HRProcessor, "SEARCH_RE", re.compile(r"^@@@$")):
+            self.assertEqual(self.render("@@@"), "<hr />")
