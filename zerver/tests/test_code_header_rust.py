@@ -23,6 +23,31 @@ class CodeHeaderRustTest(SimpleTestCase):
         if not hasattr(self.extension, "parse_fenced_code_header"):
             raise SkipTest("Rust extension does not support code headers")
 
+    def test_matching_default_calls_native_for_standard_code_header(self) -> None:
+        if (
+            getattr(self.extension, "FENCED_CODE_HEADER_API", None) != 1
+            or fenced_code._rust_code_header is not self.extension
+            or sys.implementation.name != "cpython"
+            or sys.version_info[:2] != (3, 12)
+        ):
+            self.skipTest("Matching default Rust code header is not selected")
+        source = "#!/usr/bin/PYTHON hl_lines='1 3'\nprint(1)"
+        candidate = fenced_code.CodeHilite(source)
+        with patch.object(
+            self.extension,
+            "parse_fenced_code_header",
+            wraps=self.extension.parse_fenced_code_header,
+        ) as parser:
+            candidate._parseHeader()
+        parser.assert_called_once()
+        with patch.object(fenced_code, "_rust_code_header", None):
+            reference = fenced_code.CodeHilite(source)
+            reference._parseHeader()
+        self.assertEqual(
+            (candidate.lang, candidate.src, candidate.options),
+            (reference.lang, reference.src, reference.options),
+        )
+
     def test_header_preserves_source_language_and_line_options(self) -> None:
         for source, language, linenos, lines in [
             ("#!/bin/PYTHON\n<x>&", "python", True, []),

@@ -98,14 +98,13 @@ from typing_extensions import override
 from zerver.lib.exceptions import MarkdownRenderingError
 from zerver.lib.markdown.priorities import PREPROCESSOR_PRIORITIES
 from zerver.lib.markdown.whitespace import ZulipNormalizeWhitespace
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.tex import render_tex
 from zerver.models.realm_playgrounds import PLAYGROUND_LANGUAGE_REGEX
 
 _native_parse_hl_lines = parse_hl_lines
 
-_rust_code_header = (
-    import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_CODE_HEADER") == "1" else None
-)
+_rust_code_header = load_native_contract("ZULIP_RUST_CODE_HEADER", "FENCED_CODE_HEADER_API")
 
 _rust_code_highlight = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_CODE_HIGHLIGHT") == "1" else None
