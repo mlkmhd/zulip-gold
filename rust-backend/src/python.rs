@@ -10,6 +10,7 @@ use pyo3::types::{PyDict, PyInt, PyList, PyString, PyTuple};
 use crate::draft_fields::{DraftFields, Recipients};
 use crate::draft_input::{self, DraftInput, Location, ParseError, Timestamp};
 use crate::draft_recipients::{DirectRecipient, DirectRecipientError, validate_direct_recipients};
+use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes};
 use crate::scheduled_fields::{MessageFields, Recipient, ScheduledJob};
 use crate::scheduled_input::{self, ArgumentKind, ScheduledArgument};
 use crate::scheduled_validation::{self, RecipientError, RecipientKind};
@@ -326,7 +327,8 @@ mod _zulip_backend {
         module.add("ACTIVITY_DATE_DISPLAY_API", 1)?;
         module.add("GIT_COMMIT_SUMMARY_API", 1)?;
         module.add("JOTFORM_VALUE_DISPLAY_API", 1)?;
-        module.add("OPENPROJECT_DURATION_DISPLAY_API", 1)
+        module.add("OPENPROJECT_DURATION_DISPLAY_API", 1)?;
+        module.add("MARKDOWN_WHITESPACE_API", 1)
     }
 
     #[pymodule_export]
@@ -1510,17 +1512,27 @@ mod _zulip_backend {
     }
 
     #[pyfunction]
-    fn normalize_markdown_whitespace(
-        lines: Vec<Bound<'_, PyString>>,
+    fn normalize_markdown_whitespace<'py>(
+        py: Python<'py>,
+        lines: &Bound<'py, PyAny>,
         tab_length: i32,
-    ) -> Option<Vec<String>> {
-        let lines = lines
+    ) -> Option<Bound<'py, PyList>> {
+        let lines = lines.cast_exact::<PyList>().ok()?;
+        let strings = lines
             .iter()
-            .map(|line| line.to_str().ok())
+            .map(|line| line.cast_into_exact::<PyString>().ok())
             .collect::<Option<Vec<_>>>()?;
-        Some(markdown_whitespace::normalize_whitespace(
-            &lines, tab_length,
-        ))
+        let encoded = strings
+            .iter()
+            .map(python_string_bytes)
+            .collect::<Option<Vec<_>>>()?;
+        let slices = encoded.iter().map(AsRef::as_ref).collect::<Vec<&[u8]>>();
+        let joined = slices.join(&b'\n');
+        let expanded = markdown_whitespace::normalize_joined_whitespace(&joined, tab_length);
+        let result = markdown_whitespace::normalized_lines(&expanded)
+            .map(|line| python_string_from_bytes(py, line))
+            .collect::<Option<Vec<_>>>()?;
+        PyList::new(py, result).ok()
     }
 
     #[pyfunction]

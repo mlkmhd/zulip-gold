@@ -1261,7 +1261,10 @@ by a restart to return to the Python implementation.
   string subclasses stay on the Python path.
 - `ZULIP_RUST_MARKDOWN_WHITESPACE` removes control placeholders, normalizes
   line endings, expands tabs by Unicode character columns, and normalizes
-  blank lines before rendering and reminder quote completion.
+  blank lines before rendering and reminder quote completion. On Ubuntu
+  24.04 x86-64 with `MARKDOWN_WHITESPACE_API = 1` no flag is needed.
+  All Python string code points, tab columns and line boundaries survive;
+  older or absent wheels and unusual widths keep the original behavior.
 - `ZULIP_RUST_MARKDOWN_QUOTE_MENTIONS` silences user, group, and wildcard
   mentions in quotes, preserving user replacement before group replacement.
 - `ZULIP_RUST_MARKDOWN_INLINE_MENTIONS` builds span attributes, display text,
