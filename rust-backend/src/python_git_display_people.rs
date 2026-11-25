@@ -1,9 +1,9 @@
 //! Legacy final punctuation over already selected display strings.
 
-use std::fmt::Write;
-
 use pyo3::prelude::*;
 use pyo3::types::{PyInt, PyList, PyString, PyTuple};
+
+use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes};
 
 #[pyfunction]
 pub(crate) fn join_git_display_assignees<'py>(
@@ -11,31 +11,36 @@ pub(crate) fn join_git_display_assignees<'py>(
     names: &Bound<'py, PyAny>,
 ) -> Option<Bound<'py, PyString>> {
     let names = names.cast_exact::<PyList>().ok()?;
-    let values = names
-        .iter()
-        .map(|name| name.cast_into_exact::<PyString>().ok())
-        .collect::<Option<Vec<_>>>()?;
-    let strings = values
-        .iter()
-        .map(|name| name.to_str().ok())
-        .collect::<Option<Vec<_>>>()?;
-    let (last, prior) = strings.split_last()?;
-    if prior.is_empty() {
-        return values.into_iter().next();
+    if names.len() == 1 {
+        return names.get_item(0).ok()?.cast_into_exact().ok();
     }
-    let mut output = prior.join(", ");
-    output.push_str(" and ");
-    output.push_str(last);
-    Some(PyString::new(py, &output))
+    if names.is_empty() {
+        return None;
+    }
+    let mut output = Vec::new();
+    for (index, name) in names.iter().enumerate() {
+        if index > 0 {
+            let separator: &[u8] = if index == names.len() - 1 {
+                b" and "
+            } else {
+                b", "
+            };
+            output.extend_from_slice(separator);
+        }
+        output.extend_from_slice(&python_string_bytes(name.cast_exact::<PyString>().ok()?)?);
+    }
+    python_string_from_bytes(py, &output)
 }
 
 #[pyfunction]
-pub(crate) fn format_git_display_committers(rows: &Bound<'_, PyAny>) -> Option<String> {
+pub(crate) fn format_git_display_committers<'py>(
+    rows: &Bound<'py, PyAny>,
+) -> Option<Bound<'py, PyString>> {
     let rows = rows.cast_exact::<PyList>().ok()?;
     if rows.is_empty() {
         return None;
     }
-    let mut output = String::from("Commits by ");
+    let mut output = b"Commits by ".to_vec();
     for (index, item) in rows.iter().enumerate() {
         let row = item.cast_exact::<PyTuple>().ok()?;
         if row.len() != 2 {
@@ -50,11 +55,12 @@ pub(crate) fn format_git_display_committers(rows: &Bound<'_, PyAny>) -> Option<S
             .extract::<i64>()
             .ok()?;
         if index == rows.len() - 1 && index != 0 {
-            output.push_str(" and ");
+            output.extend_from_slice(b" and ");
         } else if index != 0 {
-            output.push_str(", ");
+            output.extend_from_slice(b", ");
         }
-        write!(&mut output, "{} ({count})", name.to_str().ok()?).ok()?;
+        output.extend_from_slice(&python_string_bytes(&name)?);
+        output.extend_from_slice(format!(" ({count})").as_bytes());
     }
-    Some(output)
+    python_string_from_bytes(rows.py(), &output)
 }

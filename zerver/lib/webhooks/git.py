@@ -5,6 +5,7 @@ from importlib import import_module
 from typing import Any
 
 from zerver.lib.markdown.fenced_code import get_unused_fence
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.validator import WildValue
 
 try:
@@ -20,10 +21,8 @@ _rust_project_commit_display_row = getattr(_rust_commit_display, "project_commit
 _rust_rank_commit_display_names = getattr(_rust_commit_display, "rank_commit_display_names", None)
 
 try:
-    _rust_git_display_people = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_GIT_DISPLAY_PEOPLE") == "1"
-        else None
+    _rust_git_display_people = load_native_contract(
+        "ZULIP_RUST_GIT_DISPLAY_PEOPLE", "GIT_DISPLAY_PEOPLE_API"
     )
 except ImportError:
     _rust_git_display_people = None

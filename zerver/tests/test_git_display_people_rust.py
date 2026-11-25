@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 from typing_extensions import override
 
+from zerver.lib.native_backend import supports_default_rust_backend
 from zerver.lib.webhooks import git
 
 
@@ -33,7 +34,6 @@ class GitDisplayPeopleRustTest(TestCase):
         invalid_names: tuple[object, ...] = (
             [],
             ["plain", Derived("custom")],
-            ["\ud800"],
             ("a", "b"),
         )
         for invalid_name in invalid_names:
@@ -44,16 +44,34 @@ class GitDisplayPeopleRustTest(TestCase):
             [["one", 1]],
             [("one", True)],
             [("one", 2**90)],
-            [("\ud800", 1)],
             [(Derived("test"), 5)],
         )
         for invalid_count in invalid_counts:
             self.assertIsNone(committers(invalid_count))
 
+    def test_all_surrogate_code_points_in_prepared_names(self) -> None:
+        try:
+            module = import_module("_zulip_backend")
+        except ImportError:
+            self.skipTest("Wheel is absent")
+        if getattr(module, "GIT_DISPLAY_PEOPLE_API", None) != 1:
+            self.skipTest("Wheel predates surrogate-safe Git display")
+        for code in range(0xD800, 0xE000):
+            part = f"آ{chr(code)}\0😀"
+            self.assertIs(module.join_git_display_assignees([part]), part)
+            self.assertEqual(module.join_git_display_assignees([part, "X"]), f"{part} and X")
+            self.assertEqual(
+                module.format_git_display_committers([("X", 2), (part, -1)]),
+                f"Commits by X (2) and {part} (-1)",
+            )
+
     def test_assignee_extraction_and_singleton_format_dispatch_remain_python(self) -> None:
         native = git._rust_join_git_display_assignees
-        if os.environ.get("ZULIP_RUST_GIT_DISPLAY_PEOPLE") != "1":
-            self.assertIsNone(native)
+        enabled = os.environ.get("ZULIP_RUST_GIT_DISPLAY_PEOPLE") == "1" or (
+            supports_default_rust_backend()
+            and getattr(git._rust_git_display_people, "GIT_DISPLAY_PEOPLE_API", None) == 1
+        )
+        self.assertEqual(callable(native), enabled)
         spy = Mock(wraps=native) if native is not None else None
 
         class Styled(str):
@@ -79,8 +97,11 @@ class GitDisplayPeopleRustTest(TestCase):
 
     def test_ranked_committer_details_only_in_the_original_display_branch(self) -> None:
         native = git._rust_format_git_display_committers
-        if os.environ.get("ZULIP_RUST_GIT_DISPLAY_PEOPLE") != "1":
-            self.assertIsNone(native)
+        enabled = os.environ.get("ZULIP_RUST_GIT_DISPLAY_PEOPLE") == "1" or (
+            supports_default_rust_backend()
+            and getattr(git._rust_git_display_people, "GIT_DISPLAY_PEOPLE_API", None) == 1
+        )
+        self.assertEqual(callable(native), enabled)
         spy = Mock(wraps=native) if native is not None else None
         rows = [{"name": "synthetic"}]
         picked = [("late", 2), ("early", 7), ("others", 1)]
