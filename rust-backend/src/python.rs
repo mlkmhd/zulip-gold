@@ -311,7 +311,8 @@ mod _zulip_backend {
         module.add("ANALYTICS_CHART_ORDER_API", 1)?;
         module.add("ANALYTICS_SUBGROUP_PROJECTION_API", 1)?;
         module.add("ANALYTICS_TIME_BUCKETS_API", 1)?;
-        module.add("ANALYTICS_CHART_TIMESTAMP_API", 1)
+        module.add("ANALYTICS_CHART_TIMESTAMP_API", 1)?;
+        module.add("SAVED_SNIPPET_DISPLAY_API", 1)
     }
 
     #[pymodule_export]

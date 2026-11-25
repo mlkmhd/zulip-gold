@@ -6829,14 +6829,15 @@ and buckets, and serializes the response. Incompatible wheels and
 unsupported or declined inputs keep the original behavior.
 `ZULIP_RUST_CHART_TIMESTAMP_DISPLAY=1` remains an explicit option.
 
-### Opt-in saved-snippet display rows
+### Render prepared saved-snippet display rows through Rust
 
-`ZULIP_RUST_SAVED_SNIPPET_DISPLAY=1` optionally assembles the existing ordered
-saved-snippet dictionaries for the legacy Django GET after the same query.
-Python still prepares the original values, including the integer timestamp, and
-handles the response. Events, bootstrap and writes keep their original Python
-formatting. The switch defaults off; absent, older, or declining native
-implementations use Python.
+On Ubuntu 24.04 x86-64 a wheel exporting `SAVED_SNIPPET_DISPLAY_API = 1`
+assembles saved-snippet dictionaries for the Django GET without a flag,
+after the unchanged user-filtered query. Django still prepares timestamps
+and serializes the response. Events, bootstrap and writes are unchanged.
+
+Older or absent wheels and unsupported rows retain the original result.
+`ZULIP_RUST_SAVED_SNIPPET_DISPLAY=1` remains an explicit opt-in.
 
 ### Opt-in navigation view display rows
 

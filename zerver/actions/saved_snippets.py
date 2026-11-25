@@ -1,5 +1,3 @@
-import os
-from importlib import import_module
 from typing import Any
 
 from django.db import transaction
@@ -13,6 +11,7 @@ from zerver.lib.event_types import (
     SavedSnippetsUpdateEvent,
 )
 from zerver.lib.exceptions import ResourceNotFoundError
+from zerver.lib.native_backend import load_native_contract
 from zerver.models import RealmAuditLog, SavedSnippet, UserProfile
 from zerver.models.realm_audit_logs import AuditLogEventType
 from zerver.tornado.django_api import send_event_on_commit
@@ -79,10 +78,8 @@ def do_edit_saved_snippet(
 
 
 try:
-    _rust_saved_snippet_display = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_SAVED_SNIPPET_DISPLAY") == "1"
-        else None
+    _rust_saved_snippet_display = load_native_contract(
+        "ZULIP_RUST_SAVED_SNIPPET_DISPLAY", "SAVED_SNIPPET_DISPLAY_API"
     )
 except ImportError:
     _rust_saved_snippet_display = None

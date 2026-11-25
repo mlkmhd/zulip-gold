@@ -9,6 +9,8 @@ from django.test import RequestFactory
 from typing_extensions import override
 
 from zerver.actions import saved_snippets as actions
+from zerver.lib.native_backend import supports_default_rust_backend
+from zerver.lib.test_classes import ZulipTestCase
 from zerver.models import SavedSnippet, UserProfile
 from zerver.views.saved_snippets import get_saved_snippets
 
@@ -69,7 +71,10 @@ class SavedSnippetDisplayRustTest(TestCase):
 
     def test_real_get_display_and_untouched_non_get_callers(self) -> None:
         native = actions._render_saved_snippet_display_rows
-        enabled = os.environ.get("ZULIP_RUST_SAVED_SNIPPET_DISPLAY") == "1"
+        enabled = os.environ.get("ZULIP_RUST_SAVED_SNIPPET_DISPLAY") == "1" or (
+            supports_default_rust_backend()
+            and getattr(actions._rust_saved_snippet_display, "SAVED_SNIPPET_DISPLAY_API", None) == 1
+        )
         self.assertEqual(callable(native), enabled)
         with (
             patch.object(SavedSnippet.objects, "filter", return_value=self.rows) as query,
@@ -125,3 +130,33 @@ class SavedSnippetDisplayRustTest(TestCase):
             response = get_saved_snippets(self.request, self.user)
         native.assert_not_called()
         self.assertEqual(json.loads(response.content)["saved_snippets"], [{"custom": "unchanged"}])
+
+
+class SavedSnippetNativeGetIsolationTest(ZulipTestCase):
+    def test_matching_wheel_renders_only_the_current_users_snippets(self) -> None:
+        if not supports_default_rust_backend() or os.environ.get(
+            "ZULIP_RUST_SAVED_SNIPPET_DISPLAY"
+        ):
+            self.skipTest("No-flag startup is tested on Ubuntu 24.04 x86-64")
+        backend = actions._rust_saved_snippet_display
+        if getattr(backend, "SAVED_SNIPPET_DISPLAY_API", None) != 1:
+            self.skipTest("Wheel predates the default saved-snippet contract")
+        reader = self.example_user("hamlet")
+        other = self.example_user("cordelia")
+        own = SavedSnippet.objects.create(
+            realm=reader.realm, user_profile=reader, title="نمونه", content="Own content"
+        )
+        SavedSnippet.objects.create(
+            realm=other.realm, user_profile=other, title="Other", content="Other content"
+        )
+        native = actions._render_saved_snippet_display_rows
+        assert native is not None
+        self.login_user(reader)
+        with patch.object(actions, "_render_saved_snippet_display_rows", wraps=native) as renderer:
+            basic = self.api_get(reader, "/api/v1/saved_snippets")
+            web = self.client_get("/json/saved_snippets")
+        self.assertEqual(self.assert_json_success(basic)["saved_snippets"], [own.to_api_dict()])
+        self.assertEqual(self.assert_json_success(web)["saved_snippets"], [own.to_api_dict()])
+        self.assertEqual(renderer.call_count, 2)
+        for invocation in renderer.call_args_list:
+            self.assertEqual([row[0] for row in invocation.args[0]], [own.id])
