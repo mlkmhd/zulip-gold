@@ -6803,13 +6803,12 @@ Django still validates fields, selects conditions and controls routing,
 links and delivery. Older or absent wheels and unsupported inputs use the
 original behavior; explicit `ZULIP_RUST_SONARQUBE_DISPLAY=1` remains available.
 
-`ZULIP_RUST_GIT_COMMIT_SUMMARY_TEXT=1` optionally finishes already-rendered
-Git commit display rows with the literal omission suffix selected by Django
-and trims trailing Python whitespace. Django retains the existing commit
-limit, row rendering, links and Markdown. The helper is off by default;
-unsupported values, absent or older extensions, and native declines use the
-original Python implementation. This does not change independent Rust API
-coverage.
+On Ubuntu 24.04 x86-64 a wheel with `GIT_COMMIT_SUMMARY_API = 1` finishes
+prepared Git rows without a flag, trimming Python whitespace or appending
+the literal omission suffix. All string code points are preserved. Django
+retains the commit limit, rows, links, Markdown and overridden templates.
+Older or absent wheels and unsupported input retain existing behavior.
+`ZULIP_RUST_GIT_COMMIT_SUMMARY_TEXT=1` remains explicitly available.
 
 ### Format prepared Git assignee and committer display text in Rust
 

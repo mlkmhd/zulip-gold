@@ -35,10 +35,8 @@ _rust_format_git_display_committers = getattr(
 )
 
 try:
-    _rust_git_commit_summary = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_GIT_COMMIT_SUMMARY_TEXT") == "1"
-        else None
+    _rust_git_commit_summary = load_native_contract(
+        "ZULIP_RUST_GIT_COMMIT_SUMMARY_TEXT", "GIT_COMMIT_SUMMARY_API"
     )
 except ImportError:
     _rust_git_commit_summary = None

@@ -1,7 +1,9 @@
+import os
 from importlib import import_module
 from unittest import TestCase
 from unittest.mock import patch
 
+from zerver.lib.native_backend import supports_default_rust_backend
 from zerver.lib.webhooks import git
 
 
@@ -25,10 +27,27 @@ class GitCommitSummaryTextRustTest(TestCase):
         class Derived(str):
             __slots__ = ()
 
-        for value in (b"rows", Derived("text"), "\ud800", None):
+        for value in (b"rows", Derived("text"), None):
             self.assertIsNone(finish(value, None))
         for invalid in (True, -1, 2**90, "5", 5.0):
             self.assertIsNone(finish("rows", invalid))
+
+    def test_all_surrogate_code_points_trim_and_append_like_python(self) -> None:
+        try:
+            module = import_module("_zulip_backend")
+        except ImportError:
+            self.skipTest("Wheel is absent")
+        if getattr(module, "GIT_COMMIT_SUMMARY_API", None) != 1:
+            self.skipTest("Wheel predates surrogate-safe commit summaries")
+        finish = module.finish_git_commit_summary_text
+        white = "".join(chr(value) for value in range(0x110000) if chr(value).isspace())
+        for code in range(0xD800, 0xE000):
+            row = f"آ{chr(code)}"
+            self.assertIs(finish(row, None), row)
+            source = row + white
+            self.assertEqual(finish(source, None), source.rstrip())
+            self.assertEqual(finish(source, 0), source + "[and more commit(s)]")
+            self.assertEqual(finish(source, 2), source + "[and 2 more commit(s)]")
 
     def test_prepared_commit_rows_and_three_suffix_modes(self) -> None:
         row = {"sha": "abcdef0123456789", "message": "تغییر😀\r\nignored", "name": "Tester"}
@@ -53,6 +72,11 @@ class GitCommitSummaryTextRustTest(TestCase):
         row = {"sha": "abcdefghijklmnop", "message": "summary\nignored", "name": "Tester"}
         known = "* summary ([abcdefghijk](None))\n"
         finish = git._rust_finish_git_commit_summary_text
+        enabled = os.environ.get("ZULIP_RUST_GIT_COMMIT_SUMMARY_TEXT") == "1" or (
+            supports_default_rust_backend()
+            and getattr(git._rust_git_commit_summary, "GIT_COMMIT_SUMMARY_API", None) == 1
+        )
+        self.assertEqual(callable(finish), enabled)
         samples = [
             ([row], False, (known, None)),
             ([row], True, (known, 0)),
