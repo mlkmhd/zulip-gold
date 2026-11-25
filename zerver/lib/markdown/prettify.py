@@ -1,5 +1,3 @@
-import os
-from importlib import import_module
 from xml.etree.ElementTree import Comment, Element, ProcessingInstruction
 
 from markdown import Markdown
@@ -7,11 +5,10 @@ from markdown.treeprocessors import PrettifyTreeprocessor as PythonPrettifyTreep
 from markdown.util import AtomicString
 from typing_extensions import override
 
-_rust_prettify = (
-    import_module("_zulip_backend")
-    if os.environ.get("ZULIP_RUST_MARKDOWN_PRETTIFY") == "1"
-    else None
-)
+from zerver.lib.native_backend import load_native_contract
+
+_rust_prettify = load_native_contract("ZULIP_RUST_MARKDOWN_PRETTIFY", "MARKDOWN_PRETTIFY_API")
+
 
 _python_prettify = PythonPrettifyTreeprocessor._prettifyETree  # type: ignore[attr-defined] # Incomplete upstream stubs.
 _python_is_block_level = Markdown.is_block_level

@@ -363,6 +363,7 @@ mod _zulip_backend {
         module.add("MARKDOWN_LIST_LAYOUT_API", 1)?;
         module.add("MARKDOWN_TABLES_API", 1)?;
         module.add("MARKDOWN_TABLE_LAYOUT_API", 1)?;
+        module.add("MARKDOWN_PRETTIFY_API", 1)?;
         module.add("DISPLAY_RECIPIENT_ORDER_API", 1)
     }
 
