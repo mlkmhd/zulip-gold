@@ -332,6 +332,7 @@ mod _zulip_backend {
         module.add("API_TYPE_DISPLAY_API", 1)?;
         module.add("API_ENUM_DISPLAY_API", 1)?;
         module.add("API_RETURN_INDENT_API", 1)?;
+        module.add("URL_FRAGMENTS_API", 1)?;
         module.add("DISPLAY_RECIPIENT_ORDER_API", 1)
     }
 

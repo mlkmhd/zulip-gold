@@ -1,7 +1,11 @@
 import os
+from typing import cast
+from unittest.mock import Mock, patch
 
 import orjson
+from typing_extensions import override
 
+from zerver.lib import url_encoding
 from zerver.lib.test_classes import ZulipTestCase
 from zerver.lib.url_encoding import (
     encode_channel,
@@ -26,6 +30,57 @@ class URLEncodeTest(ZulipTestCase):
         for test in data:
             with self.subTest(name=test["name"]):
                 self.assertEqual(encode_hash_component(test["input"]), test["expected_output"])
+
+    def test_prepared_fragments_match_the_original_encoder(self) -> None:
+        backend = url_encoding._rust_url_fragments
+        samples = ["", "".join(map(chr, range(256))), "سلا‌م (a.b) / 🙂", "\u2028", "a\0b"]
+        ids = [[1], [4, 10, 7, 10], [-(2**63), 2**63 - 1], [2**63, 1]]
+        with patch.object(url_encoding, "_rust_url_fragments", None):
+            expected_text = [encode_hash_component(value) for value in samples]
+            expected_ids = [encode_user_ids(group, with_operator=True) for group in ids]
+        spy = Mock(wraps=backend) if backend is not None else None
+        with patch.object(url_encoding, "_rust_url_fragments", spy):
+            self.assertEqual([encode_hash_component(value) for value in samples], expected_text)
+            self.assertEqual(
+                [encode_user_ids(group, with_operator=True) for group in ids], expected_ids
+            )
+        if spy is not None:
+            self.assertEqual(
+                [call.args for call in spy.encode_narrow_hash_component.call_args_list],
+                [(value,) for value in samples],
+            )
+            self.assertEqual(
+                [call.args for call in spy.encode_narrow_user_ids.call_args_list],
+                [(group, True) for group in ids],
+            )
+
+    def test_fragment_special_inputs_keep_python_semantics(self) -> None:
+        class CustomEncoding(str):
+            __slots__ = ()
+
+            @override
+            def encode(self, encoding: str = "utf-8", errors: str = "strict") -> bytes:
+                return b"original/encoder"
+
+        class CustomOperator:
+            def __bool__(self) -> bool:
+                return True
+
+        backend = Mock()
+        with patch.object(url_encoding, "_rust_url_fragments", backend):
+            self.assertEqual(encode_hash_component(CustomEncoding("value")), "original.2Fencoder")
+            self.assertEqual(encode_user_ids([2, 1], cast("bool", CustomOperator())), "dm/1,2")
+        backend.encode_narrow_hash_component.assert_not_called()
+        backend.encode_narrow_user_ids.assert_not_called()
+        for value in ("\ud800", "a\udfff", "🙂\ud800\udfff"):
+            with self.assertRaises(UnicodeEncodeError) as error:
+                encode_hash_component(value)
+            with (
+                patch.object(url_encoding, "_rust_url_fragments", None),
+                self.assertRaises(UnicodeEncodeError) as reference,
+            ):
+                encode_hash_component(value)
+            self.assertEqual(error.exception.args, reference.exception.args)
 
     def test_encode_channel(self) -> None:
         # We have more tests for this function in `test_topic_link_utils.py`
