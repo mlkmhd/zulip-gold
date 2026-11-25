@@ -169,3 +169,134 @@ class PushTextPayloadRustTest(ZulipTestCase):
                 self.assertEqual(orjson.dumps(payloads()), expected_bytes)
         self.assertEqual(reject_quote.call_count, 2)
         self.assertEqual(reject_truncate.call_count, 2)
+
+
+class MobileOrderedListRustTest(SimpleTestCase):
+    def test_native_matches_python_for_preprocessed_rows(self) -> None:
+        render = getattr(extension(), "format_mobile_ordered_list", None)
+        if not callable(render):
+            self.skipTest("Rust extension does not support mobile ordered lists")
+
+        whitespace = (
+            "\u001c\u001d\u001e\u001f\t\n\r\u0085\u00a0\u1680\u2003\u2028\u202f\u205f\u3000"
+        )
+        cases = [
+            [],
+            [""],
+            ["  ", "foo", f"{whitespace}سلام \u200b\n🙂{whitespace}", "a\u001f b"],
+            [" \n  2. nested\n\n  3. nested elsewhere "],
+        ]
+        for depth in (0, 1, 2, 23):
+            for start in (-(2**63), -9, -1, 0, 1, 12345, 2**63 - 5):
+                indent = "\n" + "  " * depth if depth else ""
+                for rows in cases:
+                    with self.subTest(depth=depth, start=start, rows=rows):
+                        self.assertEqual(
+                            render(rows, start, depth),
+                            "\n".join(
+                                f"{indent}{number}. {row.strip()}"
+                                for number, row in enumerate(rows, start)
+                            ),
+                        )
+        self.assertEqual(render(["last"], 2**63 - 1, 0), f"{2**63 - 1}. last")
+
+        class TextSubclass(str):
+            __slots__ = ()
+
+        for args in (
+            (("tuple",), 1, 0),
+            (["foo", "bar"], 2**63 - 1, 0),
+            (["foo"], -(2**63) - 1, 0),
+            (["foo"], 1, -1),
+            (["foo"], 1, 257),
+            (["foo"], True, 0),
+            (["foo"], 1, False),
+            (["\ud800"], 1, 0),
+            ([TextSubclass("foo")], 1, 0),
+        ):
+            self.assertIsNone(render(*args))
+
+    def test_real_nested_preview_uses_native_without_receiving_spoiler_body(self) -> None:
+        backend = extension()
+        render = getattr(backend, "format_mobile_ordered_list", None)
+        enabled = environ.get("ZULIP_RUST_MOBILE_ORDERED_LIST") == "1"
+        self.assertEqual(native_push_text.get_ordered_list_formatter() is not None, enabled)
+        if not callable(render):
+            self.skipTest("Rust extension does not support mobile ordered lists")
+
+        content = (
+            '<ol start="-2"><li>first<ol start="7"><li>inner<ol start="-1"><li>deep</li></ol>'
+            '</li><li><span class="user-mention">@Fixture</span></li></ol></li>'
+            '<li><div class="spoiler-block"><div class="spoiler-header">Title</div>'
+            '<div class="spoiler-content">synthetic hidden body</div></div></li></ol>'
+        )
+        expected = "-2. first\n  7. inner\n    -1. deep\n\n  8. @Fixture\n-1. Title (…)"
+        with patch.object(native_push_text, "_ordered_list_backend", None):
+            self.assertEqual(get_mobile_push_content(content), expected)
+
+        with patch.object(backend, "format_mobile_ordered_list", wraps=render) as used:
+            self.assertEqual(get_mobile_push_content(content), expected)
+            self.assertEqual(
+                [(call.args[1], call.args[2]) for call in used.call_args_list],
+                [(-1, 2), (7, 1), (-2, 0)] if enabled else [],
+            )
+            self.assertNotIn("synthetic hidden body", str(used.call_args_list))
+
+        self.assertEqual(
+            get_mobile_push_content("<ol><li><blockquote><p>quoted</p></blockquote></li></ol>"),
+            "1. > quoted",
+        )
+
+    def test_decline_and_missing_export_render_each_child_once(self) -> None:
+        content = (
+            '<ol start="-3"><li><span class="emoji emoji-1f642"></span></li><li>later</li></ol>'
+        )
+        rejected = Mock(return_value=None)
+        for backend in (
+            None,
+            SimpleNamespace(),
+            SimpleNamespace(format_mobile_ordered_list=rejected),
+        ):
+            with (
+                patch.object(native_push_text, "_ordered_list_backend", backend),
+                patch(
+                    "zerver.lib.push_notifications.hex_codepoint_to_emoji", return_value="🙂"
+                ) as emoji,
+            ):
+                self.assertEqual(get_mobile_push_content(content), "-3. 🙂\n-2. later")
+                emoji.assert_called_once_with("1f642")
+        rejected.assert_called_once_with(["🙂", "later"], -3, 0)
+
+    def test_unrepresentable_range_and_invalid_start_keep_python_path(self) -> None:
+        candidate = Mock(side_effect=AssertionError("unexpected native list"))
+        with patch.object(
+            native_push_text,
+            "_ordered_list_backend",
+            SimpleNamespace(format_mobile_ordered_list=candidate),
+        ):
+            for start in (-(2**63) - 1, 2**63 - 1, 2**100):
+                content = f'<ol start="{start}"><li>first</li><li>second</li></ol>'
+                self.assertEqual(
+                    get_mobile_push_content(content), f"{start}. first\n{start + 1}. second"
+                )
+            with self.assertRaisesRegex(ValueError, "invalid literal for int"):
+                get_mobile_push_content('<ol start="not-a-number"><li>first</li></ol>')
+        candidate.assert_not_called()
+
+        start = -(2**100)
+        nested = (
+            f'<ol start="4"><li>outer<ol start="{start}"><li>inner</li><li>end</li></ol></li></ol>'
+        )
+        accepted_outer = Mock(return_value=None)
+        with patch.object(
+            native_push_text,
+            "_ordered_list_backend",
+            SimpleNamespace(format_mobile_ordered_list=accepted_outer),
+        ):
+            self.assertEqual(
+                get_mobile_push_content(nested),
+                f"4. outer\n  {start}. inner\n\n  {start + 1}. end",
+            )
+        accepted_outer.assert_called_once_with(
+            [f"outer\n  {start}. inner\n\n  {start + 1}. end"], 4, 0
+        )

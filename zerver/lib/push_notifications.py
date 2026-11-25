@@ -918,7 +918,33 @@ def get_mobile_push_content(rendered_content: str) -> str:
         nested_levels = sum(1 for ancestor in ol.iterancestors("ol"))
         indent = ("\n" + "  " * nested_levels) if nested_levels else ""
 
-        for li in ol:
+        native = native_push_text.get_ordered_list_formatter()
+        children = iter(ol)
+        # Outside the native bounds, keep the original streaming path.
+        if (
+            native is not None
+            and nested_levels <= 256
+            and counter >= -(1 << 63)
+            and counter + max(0, len(ol) - 1) < 1 << 63
+        ):
+            processed_rows = []
+            for li in children:
+                text = process(li)
+                processed_rows.append(text)
+                if type(text) is not str:
+                    # Preserve strip's ordering for noncanonical values.
+                    break
+            else:
+                rendered = native(processed_rows, counter, nested_levels)
+                if rendered is not None:
+                    return rendered
+
+            # A decline must not traverse any of these children again.
+            for text in processed_rows:
+                items.append(indent + str(counter) + ". " + text.strip())
+                counter += 1
+
+        for li in children:
             items.append(indent + str(counter) + ". " + process(li).strip())
             counter += 1
 
