@@ -60,10 +60,8 @@ _rewrite_analytics_client_series = getattr(
 
 
 try:
-    _rust_chart_order = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_ANALYTICS_CHART_ORDER") == "1"
-        else None
+    _rust_chart_order = load_native_contract(
+        "ZULIP_RUST_ANALYTICS_CHART_ORDER", "ANALYTICS_CHART_ORDER_API"
     )
 except ImportError:
     _rust_chart_order = None

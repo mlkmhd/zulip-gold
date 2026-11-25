@@ -5740,20 +5740,19 @@ env -u ZULIP_RUST_ANALYTICS_CLIENT_SERIES ./tools/test-backend analytics.tests.t
 
 ### Order prepared analytics chart labels through Rust
 
-Set `ZULIP_RUST_ANALYTICS_CHART_ORDER=1` before starting Django to
-order labels by totals or combine realm and user label rankings.
-Rust receives only already computed series and returns their existing
-label objects. Queries, chart selection and client aliases stay
-unchanged. This switch is independent of the client series switch.
+On Ubuntu 24.04 x86-64 a wheel exporting `ANALYTICS_CHART_ORDER_API = 1`
+orders already computed chart labels without a flag. Rust preserves
+ties by the original Unicode code-point order, including isolated
+surrogates, and retains the first Python key object for shared labels.
+Queries, authorization, client aliases and other chart stages remain
+independent.
 
-The switch defaults to off. Missing extension methods or unsupported
-inputs keep Python's original ordering and error behavior. Test both
-modes with synthetic arrays:
+Unsupported inputs, sums outside the native integer range, and old or
+absent wheels keep the previous behavior. The earlier explicit
+`ZULIP_RUST_ANALYTICS_CHART_ORDER=1` option remains available.
 
 ```bash
-for enabled in 0 1; do
-    ZULIP_RUST_ANALYTICS_CHART_ORDER=$enabled ./tools/test-backend analytics.tests.test_chart_order_rust
-done
+env -u ZULIP_RUST_ANALYTICS_CHART_ORDER ./tools/test-backend analytics.tests.test_chart_order_rust
 ```
 
 ### Parse supplied timezone alias text through Rust

@@ -8,6 +8,7 @@ from django.test import SimpleTestCase
 from typing_extensions import override
 
 from analytics.views import stats
+from zerver.lib.native_backend import supports_default_rust_backend
 
 
 class AnalyticsChartOrderRustTest(TestCase):
@@ -35,7 +36,6 @@ class AnalyticsChartOrderRustTest(TestCase):
         self.assertEqual(clients({}, user), [user_a, "b", "d", "e", "f", "g"])
         self.assertIs(clients({}, user)[0], user_a)
         for invalid in (
-            {"\ud800": [1]},
             {"a": [True]},
             {"a": [2**63 - 1, 1, -1]},
             {"a": [2**90]},
@@ -44,10 +44,35 @@ class AnalyticsChartOrderRustTest(TestCase):
             self.assertIsNone(totals(invalid))
             self.assertIsNone(clients({}, invalid))
 
+    def test_order_keeps_every_surrogate_and_the_original_key(self) -> None:
+        try:
+            module = import_module("_zulip_backend")
+        except ImportError:
+            self.skipTest("Rust chart ordering is not available")
+        if getattr(module, "ANALYTICS_CHART_ORDER_API", None) != 1:
+            self.skipTest("Wheel predates surrogate-safe chart ordering")
+        for point in range(0xD800, 0xE000):
+            realm = ("realm:" + chr(point)).removeprefix("realm:")
+            user = ("user:" + chr(point)).removeprefix("user:")
+            # One-character string storage may be shared, so use decorated
+            # values when checking that the first equal key is preserved.
+            realm = "chart-" + realm
+            user = "chart-" + user
+            everyone = {realm: [1], "chart-\ud7ff": [1], "chart-\ue000": [1], "chart-😀": [1]}
+            own = {user: [9], "personal": [2]}
+            expected = sorted(everyone, reverse=True)
+            self.assertEqual(module.order_analytics_chart_totals(everyone), expected)
+            ranked = module.order_analytics_chart_clients(everyone, own)
+            self.assertEqual(ranked, [realm, expected[0], "personal", expected[1], expected[3]])
+            self.assertIs(ranked[0], realm)
+
 
 class AnalyticsChartOrderIntegrationTest(SimpleTestCase):
-    def test_actual_chart_order_wrappers_and_flag(self) -> None:
-        enabled = os.environ.get("ZULIP_RUST_ANALYTICS_CHART_ORDER") == "1"
+    def test_actual_chart_order_wrappers_and_startup_contract(self) -> None:
+        enabled = os.environ.get("ZULIP_RUST_ANALYTICS_CHART_ORDER") == "1" or (
+            supports_default_rust_backend()
+            and getattr(stats._rust_chart_order, "ANALYTICS_CHART_ORDER_API", None) == 1
+        )
         totals = stats._order_analytics_chart_totals
         clients = stats._order_analytics_chart_clients
         if enabled:
