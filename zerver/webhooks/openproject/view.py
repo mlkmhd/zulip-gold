@@ -1,11 +1,9 @@
-import os
-from importlib import import_module
-
 import regex as re
 from django.http import HttpRequest, HttpResponse
 
 from zerver.decorator import webhook_view
 from zerver.lib.exceptions import UnsupportedWebhookEventTypeError
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.response import json_success
 from zerver.lib.typed_endpoint import JsonBodyPayload, typed_endpoint
 from zerver.lib.validator import WildValue, check_string
@@ -33,10 +31,8 @@ TIME_ENTRY_MESSAGE_TEMPLATE = "**{user}** logged {duration_message}{parent_messa
 
 
 try:
-    _rust_openproject_duration_display = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_OPENPROJECT_DURATION_DISPLAY") == "1"
-        else None
+    _rust_openproject_duration_display = load_native_contract(
+        "ZULIP_RUST_OPENPROJECT_DURATION_DISPLAY", "OPENPROJECT_DURATION_DISPLAY_API"
     )
 except ImportError:
     _rust_openproject_duration_display = None

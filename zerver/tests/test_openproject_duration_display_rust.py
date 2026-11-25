@@ -3,6 +3,7 @@ from importlib import import_module
 from unittest import TestCase
 from unittest.mock import call, patch
 
+from zerver.lib.native_backend import supports_default_rust_backend
 from zerver.webhooks.openproject import view
 
 
@@ -20,18 +21,37 @@ class OpenProjectDurationDisplayRustTest(TestCase):
         self.assertEqual(part(-(2**63), "متن"), "-9223372036854775808 متن")
         self.assertIsNone(part(2**63, "days"))
         self.assertIsNone(part(True, "day"))
-        self.assertIsNone(part(1, "\ud800"))
         self.assertEqual(join(["1 day", "2 minutes"]), "1 day and 2 minutes")
         self.assertEqual(join(["", "متن\n", "🤝"]), ", متن\n and 🤝")
         self.assertIsNone(join([]))
         self.assertIsNone(join(["one"]))
         self.assertIsNone(join(("one", "two")))
-        self.assertIsNone(join(["one", "\ud800"]))
+
+    def test_all_surrogate_code_points_in_prepared_duration_parts(self) -> None:
+        try:
+            module = import_module("_zulip_backend")
+        except ImportError:
+            self.skipTest("Wheel is absent")
+        if getattr(module, "OPENPROJECT_DURATION_DISPLAY_API", None) != 1:
+            self.skipTest("Wheel predates surrogate-safe OpenProject display")
+        for code in range(0xD800, 0xE000):
+            label = f"مدت{chr(code)}\0😀"
+            self.assertEqual(module.format_openproject_duration_part(2, label), f"2 {label}")
+            self.assertEqual(
+                module.join_openproject_duration_parts(["1 day", label, "1 second"]),
+                f"1 day, {label} and 1 second",
+            )
 
     def test_real_host_parser_and_duration_display_dispatch(self) -> None:
         part = view._rust_format_openproject_duration_part
         join = view._rust_join_openproject_duration_parts
-        enabled = os.environ.get("ZULIP_RUST_OPENPROJECT_DURATION_DISPLAY") == "1"
+        enabled = os.environ.get("ZULIP_RUST_OPENPROJECT_DURATION_DISPLAY") == "1" or (
+            supports_default_rust_backend()
+            and getattr(
+                view._rust_openproject_duration_display, "OPENPROJECT_DURATION_DISPLAY_API", None
+            )
+            == 1
+        )
         self.assertEqual(callable(part), enabled)
         self.assertEqual(callable(join), enabled)
         with (

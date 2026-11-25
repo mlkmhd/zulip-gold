@@ -325,7 +325,8 @@ mod _zulip_backend {
         module.add("SONARQUBE_DISPLAY_API", 1)?;
         module.add("ACTIVITY_DATE_DISPLAY_API", 1)?;
         module.add("GIT_COMMIT_SUMMARY_API", 1)?;
-        module.add("JOTFORM_VALUE_DISPLAY_API", 1)
+        module.add("JOTFORM_VALUE_DISPLAY_API", 1)?;
+        module.add("OPENPROJECT_DURATION_DISPLAY_API", 1)
     }
 
     #[pymodule_export]

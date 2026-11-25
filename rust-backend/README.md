@@ -6884,11 +6884,11 @@ data import, routing or storage.
 
 ### Opt-in OpenProject duration wording
 
-`ZULIP_RUST_OPENPROJECT_DURATION_DISPLAY=1` optionally formats
-prepared duration counts and joins the display parts. Python retains the
-existing parser, field order, integer conversions, and singular/plural unit
-selection. The switch defaults off; absent, older or declining extensions
-use the original formatting. Webhook inputs and delivery are unchanged.
+On Ubuntu 24.04 x86-64 a wheel exporting `OPENPROJECT_DURATION_DISPLAY_API = 1`
+formats and joins prepared duration words without a flag. All string code
+points survive. Python still selects and parses the ISO duration, handles
+validation and delivery. Older or absent wheels and unsupported inputs retain
+the original behavior; `ZULIP_RUST_OPENPROJECT_DURATION_DISPLAY=1` remains optional.
 
 ### Opt-in integration catalog display
 
