@@ -64,10 +64,25 @@ class EmailPlainPrefixRustTest(SimpleTestCase):
         class TextSubclass(str):
             __slots__ = ()
 
-        for unusual in ("\ud800", None, b"text", TextSubclass("synthetic")):
+        for unusual in (None, b"text", TextSubclass("synthetic")):
             self.assertIsNone(native.quote_prepared_email_plaintext(unusual))
             self.assertIsNone(native.prepend_prepared_email_plaintext_sender(unusual, "A"))
             self.assertIsNone(native.prepend_prepared_email_plaintext_sender("A", unusual))
+
+    def test_plaintext_decoration_retains_every_surrogate(self) -> None:
+        native = extension()
+        if getattr(native, "EMAIL_PLAINTEXT_SURROGATES", None) != 1:
+            self.skipTest("Wheel predates the surrogate-safe plaintext decorator")
+        for point in range(0xD800, 0xE000):
+            cp = chr(point)
+            sender = "sender " + cp + "\ud800\udc00"
+            plain = f"\r\n{cp}\u2028😀\n\ud800\udc00\n"
+            quoted = "\n".join("> " + line for line in plain.split("\n"))
+            self.assertEqual(native.quote_prepared_email_plaintext(plain), quoted)
+            self.assertEqual(
+                native.prepend_prepared_email_plaintext_sender(quoted, sender),
+                sender + ":\n" + quoted,
+            )
 
 
 class EmailPlainPrefixDjangoDispatchRustTest(SimpleTestCase):
