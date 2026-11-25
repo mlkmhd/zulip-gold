@@ -1,4 +1,3 @@
-import os
 from importlib import import_module
 from unittest import TestCase
 from unittest.mock import MagicMock, Mock, patch
@@ -38,16 +37,20 @@ class CommitDisplayRustTest(TestCase):
             __slots__ = ()
 
         self.assertIsNone(project(Derived("x"), "first_line"))
-        self.assertIsNone(project("sha", "\ud800"))
         self.assertIsNone(rank([Derived("x")], 2))
-        self.assertIsNone(rank(["\ud800"], 2))
         self.assertIsNone(rank(["a"], -1))
         self.assertIsNone(rank(["a"], True))
 
+        if getattr(module, "COMMIT_DISPLAY_API", None) == 1:
+            surrogate_points = list(map(chr, range(0xD800, 0xE000)))
+            special = "".join(surrogate_points)
+            subject = special + "\r"
+            self.assertEqual(project(special, subject + "\nignored"), (special[:11], subject))
+            names = ["\ud7ff", "\ue000", "🙂", "a", *surrogate_points]
+            self.assertEqual(rank(names, len(names)), [(name, 1) for name in sorted(names)])
+
     def test_existing_display_row_keeps_field_order_and_template(self) -> None:
         original = git._rust_project_commit_display_row
-        if os.environ.get("ZULIP_RUST_COMMIT_DISPLAY") != "1":
-            self.assertIsNone(original)
         spy = Mock(wraps=original) if original is not None else None
         commit = MagicMock()
         sha = "🙂" * 12
@@ -78,8 +81,6 @@ class CommitDisplayRustTest(TestCase):
 
     def test_ranking_uses_already_extracted_names_and_keeps_first_identity(self) -> None:
         original = git._rust_rank_commit_display_names
-        if os.environ.get("ZULIP_RUST_COMMIT_DISPLAY") != "1":
-            self.assertIsNone(original)
         spy = Mock(wraps=original) if original is not None else None
         first = "a:synthetic name".removeprefix("a:")
         repeated = "b:synthetic name".removeprefix("b:")

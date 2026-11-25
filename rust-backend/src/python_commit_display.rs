@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes};
 use pyo3::prelude::*;
 use pyo3::types::{PyInt, PyList, PyString};
 
@@ -15,14 +16,20 @@ pub(crate) fn project_commit_display_row<'py>(
 ) -> Option<Row<'py>> {
     let sha = sha.cast_exact::<PyString>().ok()?;
     let message = message.cast_exact::<PyString>().ok()?;
-    let sha_text = sha.to_str().ok()?;
-    let message_text = message.to_str().ok()?;
-    let short = match sha_text.char_indices().nth(11) {
-        Some((index, _)) => PyString::new(py, &sha_text[..index]),
+    let sha_text = python_string_bytes(sha)?;
+    let message_text = python_string_bytes(message)?;
+    // The first byte of each encoded code point is not a continuation byte.
+    let short = match sha_text
+        .iter()
+        .enumerate()
+        .filter(|(_, byte)| **byte & 0xc0 != 0x80)
+        .nth(11)
+    {
+        Some((index, _)) => python_string_from_bytes(py, &sha_text[..index])?,
         None => sha.clone(),
     };
-    let subject = match message_text.split_once('\n') {
-        Some((subject, _)) => PyString::new(py, subject),
+    let subject = match message_text.iter().position(|&byte| byte == b'\n') {
+        Some(index) => python_string_from_bytes(py, &message_text[..index])?,
         None => message.clone(),
     };
     Some((short, subject))
@@ -42,15 +49,15 @@ pub(crate) fn rank_commit_display_names<'py>(
         .ok()?
         .extract::<usize>()
         .ok()?;
-    let mut entries: HashMap<String, (Bound<'py, PyString>, usize)> = HashMap::new();
+    let mut entries: HashMap<Vec<u8>, (Bound<'py, PyString>, usize)> = HashMap::new();
     for name in names.iter() {
         let name = name.cast_into_exact::<PyString>().ok()?;
-        let key = name.to_str().ok()?;
-        entries.entry(key.to_owned()).or_insert((name, 0)).1 += 1;
+        let key = python_string_bytes(&name)?.into_owned();
+        entries.entry(key).or_insert((name, 0)).1 += 1;
     }
     let mut order = entries.into_iter().collect::<Vec<_>>();
-    // UTF-8 order matches Python scalar order; unsupported surrogates
-    // have already declined. Equal display names share one first key.
+    // Surrogate-pass UTF-8 byte order matches Python code-point order.
+    // Equal display names keep the first Python string.
     order.sort_unstable_by(|(a, (_, ca)), (b, (_, cb))| cb.cmp(ca).then_with(|| a.cmp(b)));
     let mut other = 0;
     if order.len() > limit {

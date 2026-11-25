@@ -1,7 +1,5 @@
-import os
 import string
 from collections import defaultdict
-from importlib import import_module
 from typing import Any
 
 from zerver.lib.markdown.fenced_code import get_unused_fence
@@ -9,11 +7,7 @@ from zerver.lib.native_backend import load_native_contract
 from zerver.lib.validator import WildValue
 
 try:
-    _rust_commit_display = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_COMMIT_DISPLAY") == "1"
-        else None
-    )
+    _rust_commit_display = load_native_contract("ZULIP_RUST_COMMIT_DISPLAY", "COMMIT_DISPLAY_API")
 except ImportError:
     _rust_commit_display = None
 
