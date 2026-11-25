@@ -5,15 +5,23 @@ set -eu
 . "$(dirname "$0")"/lib/git-tools.bash
 
 usage() {
-    echo "Usage: $0 <ZULIP_VERSION>" >&2
+    echo "Usage: $0 [--rust-wheel-dir DIR] <ZULIP_VERSION>" >&2
     exit 1
 }
 
-args="$(getopt -o '' -l 'help' -n "$0" -- "$@")"
+rust_wheel_dir=
+args="$(getopt -o '' -l 'help,rust-wheel-dir:' -n "$0" -- "$@")"
 eval "set -- $args"
 
 while true; do
     case "$1" in
+        --rust-wheel-dir)
+            if [ -z "$2" ]; then
+                usage
+            fi
+            rust_wheel_dir="$2"
+            shift 2
+            ;;
         --)
             shift
             break
@@ -40,7 +48,7 @@ OUTPUT_DIR=${OUTPUT_DIR:-$(mktemp -d)}
 TARBALL=$OUTPUT_DIR/$prefix.tar
 BASEDIR=$(pwd)
 
-git archive -o "$TARBALL" "--prefix=$prefix/" HEAD
+git archive -o "$TARBALL" "--prefix=$prefix/" "$GITID"
 
 cd "$OUTPUT_DIR"
 tar -xf "$TARBALL"
@@ -74,6 +82,14 @@ else
 fi
 mv zulip-git-version "$OUTPUT_DIR/$prefix/"
 
+# A staged wheel belongs to the archived commit, not to the builder's venv.
+echo "$GITID" >"$OUTPUT_DIR/$prefix/build_id"
+release_wheel_entries=()
+if [ -n "$rust_wheel_dir" ]; then
+    python3 scripts/lib/select_native_wheel.py "$OUTPUT_DIR/$prefix" "$rust_wheel_dir"
+    release_wheel_entries=("$prefix/rust-wheels")
+fi
+
 cd "$OUTPUT_DIR/$prefix"
 
 env -u PYTHONDEVMODE -u PYTHONWARNINGS uv sync --frozen --no-managed-python
@@ -104,14 +120,13 @@ EOF
 # We don't need duplicate copies of emoji with hashed paths, and they would break Markdown
 find prod-static/serve/generated/emoji/images/emoji/ -regex '.*\.[0-9a-f]+\.png' -delete
 
-echo "$GITID" >build_id
 echo "$version" >version
 
 cd "$OUTPUT_DIR"
 
 # We don't include starlight_help/dist_no_relative_links since that is only useful for zulip.com
 # and zulip.com doesn't use tarballs for deployment.
-tar --append -f "$TARBALL" "$prefix/prod-static" "$prefix/build_id" "$prefix/version" "$prefix/zulip-git-version" "$prefix/locale" "$prefix/staticfiles.json" "$prefix/webpack-stats-production.json" "$prefix/starlight_help/dist"
+tar --append -f "$TARBALL" "$prefix/prod-static" "$prefix/build_id" "$prefix/version" "$prefix/zulip-git-version" "$prefix/locale" "$prefix/staticfiles.json" "$prefix/webpack-stats-production.json" "$prefix/starlight_help/dist" "${release_wheel_entries[@]}"
 
 rm -rf "$prefix"
 

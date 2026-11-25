@@ -1,8 +1,11 @@
 """Verify a native wheel staged in an already trusted Zulip deployment."""
 
+import argparse
 import hashlib
 import json
+import platform
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -11,6 +14,15 @@ SHA256 = re.compile(r"[0-9a-f]{64}")
 WHEEL = re.compile(
     r"zulip_backend-[0-9]+(?:\.[0-9]+)+-cp310-abi3-manylinux_2_34_(x86_64|aarch64)\.whl"
 )
+
+
+RELEASE_WHEEL_DIR = "rust-wheels"
+
+
+def supported_wheel_platform(distro: dict[str, str], machine: str) -> bool:
+    return (
+        distro.get("ID") == "ubuntu" and distro.get("VERSION_ID") == "24.04" and machine == "x86_64"
+    )
 
 
 def select_wheel(root: Path, wheel_dir: Path, machine: str) -> tuple[Path, str]:
@@ -52,3 +64,31 @@ def select_wheel(root: Path, wheel_dir: Path, machine: str) -> tuple[Path, str]:
     if digest.hexdigest() != entry["sha256"]:
         raise ValueError("Staged Rust wheel checksum mismatch")
     return path, entry["sha256"]
+
+
+def stage_release_wheel(root: Path, source: Path, machine: str) -> None:
+    path, sha256 = select_wheel(root, source, machine)
+    dest = root / RELEASE_WHEEL_DIR
+    dest.mkdir()
+    shutil.copyfile(path, dest / path.name)
+    manifest = {
+        "build_id": (root / "build_id").read_text().strip(),
+        "wheels": [{"file": path.name, "sha256": sha256}],
+    }
+    (dest / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    select_wheel(root, dest, machine)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Stage a verified native wheel in a release tree")
+    parser.add_argument("release_root", type=Path)
+    parser.add_argument("wheel_dir", type=Path)
+    args = parser.parse_args()
+    machine = platform.machine()
+    if not supported_wheel_platform(platform.freedesktop_os_release(), machine):
+        parser.error("staging Rust wheels requires Ubuntu 24.04 x86-64")
+    stage_release_wheel(args.release_root.resolve(), args.wheel_dir.absolute(), machine)
+
+
+if __name__ == "__main__":
+    main()
