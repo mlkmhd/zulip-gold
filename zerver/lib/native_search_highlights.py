@@ -1,24 +1,15 @@
-"""Optional formatting of search hits after Django has selected them."""
+"""Formatting of search hits after Django has selected them."""
 
 from collections.abc import Iterable
-from importlib import import_module
-from os import environ
 from typing import TypeAlias, cast
+
+from zerver.lib.native_backend import load_native_contract
 
 SearchHighlightRow: TypeAlias = tuple[
     int, str, str, Iterable[tuple[int, int]], Iterable[tuple[int, int]]
 ]
 
-try:
-    _backend = (
-        import_module("_zulip_backend")
-        if environ.get("ZULIP_RUST_SEARCH_HIGHLIGHTS") == "1"
-        else None
-    )
-except ModuleNotFoundError as error:
-    if error.name != "_zulip_backend":
-        raise
-    _backend = None
+_backend = load_native_contract("ZULIP_RUST_SEARCH_HIGHLIGHTS", "SEARCH_HIGHLIGHTS_API")
 
 
 def available() -> bool:

@@ -1,20 +1,22 @@
 //! Project the match ranges that Django's search query already selected.
 
+use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyInt, PyList, PyString, PyTuple};
 
-const START: &str = r#"<span class="highlight">"#;
-const END: &str = "</span>";
+const START: &[u8] = br#"<span class="highlight">"#;
+const END: &[u8] = b"</span>";
 
 fn highlight(
-    text: &str,
+    text: &[u8],
     spans: impl IntoIterator<Item = Option<(usize, usize)>>,
-) -> Option<String> {
-    let mut result = String::with_capacity(text.len());
+) -> Option<Vec<u8>> {
+    let mut result = Vec::with_capacity(text.len());
     // DB offsets describe Unicode code points, not UTF-8 bytes or graphemes.
     let mut boundaries = text
-        .char_indices()
-        .map(|(index, _)| index)
+        .iter()
+        .enumerate()
+        .filter_map(|(index, &byte)| (byte & 0xc0 != 0x80).then_some(index))
         .chain([text.len()]);
     let mut code_point = 0;
     let mut byte = boundaries.next()?;
@@ -33,23 +35,22 @@ fn highlight(
         code_point = offset.checked_add(length)?;
         // The Python reference evaluates tag state after the whole range.
         if let Some(delimiter) = text
-            .as_bytes()
             .get(prefix..byte)?
             .iter()
             .rfind(|&&value| matches!(value, b'<' | b'>'))
         {
             in_tag = *delimiter == b'<';
         }
-        result.push_str(text.get(prefix..begin)?);
+        result.extend_from_slice(text.get(prefix..begin)?);
         if !in_tag {
-            result.push_str(START);
+            result.extend_from_slice(START);
         }
-        result.push_str(text.get(begin..byte)?);
+        result.extend_from_slice(text.get(begin..byte)?);
         if !in_tag {
-            result.push_str(END);
+            result.extend_from_slice(END);
         }
     }
-    result.push_str(text.get(byte..)?);
+    result.extend_from_slice(text.get(byte..)?);
     Some(result)
 }
 
@@ -77,21 +78,20 @@ fn projected<'py>(
     positions: &Bound<'py, PyAny>,
 ) -> Option<Bound<'py, PyString>> {
     let text = text.cast_into_exact::<PyString>().ok()?;
-    // Keep the same whole-batch fallback for Python strings with surrogates.
-    let spelling = text.to_str().ok()?;
+    let spelling = python_string_bytes(&text)?;
     let rendered = if let Ok(spans) = positions.cast_exact::<PyList>() {
         if spans.is_empty() {
             return Some(text);
         }
-        highlight(spelling, spans.iter().map(span))?
+        highlight(&spelling, spans.iter().map(span))?
     } else {
         let spans = positions.cast_exact::<PyTuple>().ok()?;
         if spans.is_empty() {
             return Some(text);
         }
-        highlight(spelling, spans.iter().map(span))?
+        highlight(&spelling, spans.iter().map(span))?
     };
-    Some(PyString::new(text.py(), &rendered))
+    python_string_from_bytes(text.py(), &rendered)
 }
 
 #[pyfunction]
@@ -131,7 +131,14 @@ pub(crate) fn assemble_search_highlights<'py>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::highlight as highlight_bytes;
+
+    fn highlight(
+        text: &str,
+        spans: impl IntoIterator<Item = Option<(usize, usize)>>,
+    ) -> Option<String> {
+        String::from_utf8(highlight_bytes(text.as_bytes(), spans)?).ok()
+    }
 
     #[test]
     fn preserves_code_point_offsets_and_adjacent_boundaries() {

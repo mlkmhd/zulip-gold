@@ -1,5 +1,4 @@
 from importlib import import_module
-from os import environ
 from random import Random
 from types import ModuleType, SimpleNamespace
 from unittest import SkipTest
@@ -74,7 +73,15 @@ class SearchHighlightProjectionTest(SimpleTestCase):
         self.assertEqual(actual, expected)
         self.assertIs(actual[7]["match_content"], content)
         self.assertIs(actual[7][MATCH_TOPIC], topic)
-        self.assertIsNone(native([*rows, (9, "\ud800", topic, (), [])]))
+        if getattr(extension(), "SEARCH_HIGHLIGHTS_API", None) == 1:
+            special = "".join(map(chr, range(0xD800, 0xE000))) + "🙂"
+            html = f"<p>{special}</p>"
+            more = [*rows, (9, special, topic, (), []), (10, html, special, [(3, 99)], ((1, 5),))]
+            with patch.object(native_search_highlights, "_backend", None):
+                expected = get_search_fields_batch(more)
+            actual = native(more)
+            self.assertEqual(actual, expected)
+            self.assertIs(actual[9]["match_content"], special)
 
     def test_declines_keep_legacy_slices_and_old_wheels(self) -> None:
         rows: list[SearchHighlightRow] = [
@@ -88,7 +95,7 @@ class SearchHighlightProjectionTest(SimpleTestCase):
             self.assertIsNone(native_search_highlights.assemble(rows))
             self.assertIsNone(native_search_highlights.assemble([(1, "x", "y", [(True, 1)], ())]))
             self.assertIsNone(native_search_highlights.assemble([(1, "x", "y", [(2**100, 1)], ())]))
-            self.assertIsNone(native_search_highlights.assemble([(1, "\ud800", "y", [], ())]))
+
             with patch(
                 "zerver.views.message_fetch.highlight_string", wraps=python_highlight
             ) as old:
@@ -103,8 +110,7 @@ class SearchHighlightEndpointTest(ZulipTestCase):
     def test_both_routes_send_only_selected_rows_in_one_native_batch(self) -> None:
         backend = extension()
         native = backend.assemble_search_highlights
-        enabled = environ.get("ZULIP_RUST_SEARCH_HIGHLIGHTS") == "1"
-        self.assertEqual(native_search_highlights.available(), enabled)
+        enabled = native_search_highlights.available()
         reader = self.example_user("cordelia")
         self.login_user(reader)
         message_id = self.send_stream_message(
