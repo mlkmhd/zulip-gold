@@ -46,16 +46,26 @@ fn widget_parts(text: &str) -> (&str, impl Iterator<Item = &str>) {
         ""
     };
     let rows = lines
-        .map(|line| {
-            let line = line.trim_matches(py_space);
-            if let Some(rest) = line.strip_prefix(['-', '*']) {
-                rest.trim_start_matches(py_space)
-            } else {
-                line
-            }
-        })
+        .map(|line| strip_list_marker(line.trim_matches(py_space)))
         .filter(|line| !line.is_empty());
     (heading, rows)
+}
+
+pub(crate) fn strip_list_marker(line: &str) -> &str {
+    let line = line.trim_start_matches(py_space);
+    if let Some(rest) = line.strip_prefix(['-', '*']) {
+        rest.trim_start_matches(py_space)
+    } else {
+        line
+    }
+}
+
+pub(crate) fn split_task_row(line: &str) -> (&str, &str) {
+    let (task, description) = line.split_once(": ").unwrap_or((line, ""));
+    (
+        task.trim_matches(py_space),
+        description.trim_matches(py_space),
+    )
 }
 
 /// A title and the ordered poll options.
@@ -74,11 +84,8 @@ pub fn todo_parts(text: &str) -> TodoParts {
     let (title, tasks) = widget_parts(text);
     let tasks = tasks
         .map(|line| {
-            let (task, description) = line.split_once(": ").unwrap_or((line, ""));
-            (
-                task.trim_matches(py_space).to_owned(),
-                description.trim_matches(py_space).to_owned(),
-            )
+            let (task, description) = split_task_row(line);
+            (task.to_owned(), description.to_owned())
         })
         .collect();
     (title.to_owned(), tasks)
@@ -92,15 +99,30 @@ pub enum WidgetShorthand {
     Todo(TodoParts),
 }
 
-/// Parse a leading poll or todo command and its text, without Python or Django.
-pub fn parse_shorthand(text: &str) -> WidgetShorthand {
+#[derive(Clone, Copy)]
+pub(crate) enum WidgetCommand {
+    Poll,
+    Todo,
+}
+
+pub(crate) fn split_widget_command(text: &str) -> (Option<WidgetCommand>, &str) {
     // The first token is empty on leading whitespace, and whitespace after
     // a recognized command is part of the text handed to splitlines().
     let (command, rest) = text.split_at(text.find(py_space).unwrap_or(text.len()));
-    match command {
-        "/poll" => WidgetShorthand::Poll(poll_parts(rest)),
-        "/todo" => WidgetShorthand::Todo(todo_parts(rest)),
-        _ => WidgetShorthand::NotWidget,
+    let command = match command {
+        "/poll" => Some(WidgetCommand::Poll),
+        "/todo" => Some(WidgetCommand::Todo),
+        _ => None,
+    };
+    (command, rest)
+}
+
+/// Parse a leading poll or todo command and its text, without Python or Django.
+pub fn parse_shorthand(text: &str) -> WidgetShorthand {
+    match split_widget_command(text) {
+        (Some(WidgetCommand::Poll), rest) => WidgetShorthand::Poll(poll_parts(rest)),
+        (Some(WidgetCommand::Todo), rest) => WidgetShorthand::Todo(todo_parts(rest)),
+        (None, _) => WidgetShorthand::NotWidget,
     }
 }
 

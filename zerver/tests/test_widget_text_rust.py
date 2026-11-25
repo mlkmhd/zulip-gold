@@ -40,9 +40,56 @@ class WidgetTextRustTest(TestCase):
         class Derived(str):
             __slots__ = ()
 
-        for invalid in (None, b"abc", Derived("title")):
+        self.assertEqual(poll(Derived("title")), ("title", []))
+        self.assertEqual(todo(Derived("title")), ("title", []))
+        for invalid in (None, b"abc"):
             self.assertIsNone(poll(invalid))
             self.assertIsNone(todo(invalid))
+
+    def test_native_subclass_callbacks_and_dynamic_rows(self) -> None:
+        try:
+            module = import_module("_zulip_backend")
+        except ImportError:
+            self.skipTest("Rust widget text extraction is not available")
+
+        calls = []
+
+        class Title(str):
+            __slots__ = ()
+
+            @override
+            def strip(self, chars: str | None = None, /) -> str:
+                calls.append("title.strip")
+                return "unmodified title"
+
+        class Row(str):
+            __slots__ = ()
+
+            @override
+            def encode(self, encoding: str = "utf-8", errors: str = "strict") -> bytes:
+                raise AssertionError("a str subclass must not intercept native encoding")
+
+            @override
+            def strip(self, chars: str | None = None, /) -> str:
+                calls.append("row.strip")
+                return Row(" \t - \ud800: description  ")
+
+        class Derived(str):
+            __slots__ = ()
+
+            @override
+            def splitlines(self, keepends: bool = False) -> list[str]:
+                calls.append("splitlines")
+                return [Title("title"), Row("option")]
+
+        text = Derived("ignored")
+        for fn, expected in (
+            (module.extract_poll_widget_text, ("unmodified title", ["\ud800: description  "])),
+            (module.extract_todo_widget_text, ("unmodified title", [("\ud800", "description")])),
+        ):
+            calls.clear()
+            self.assertEqual(fn(text), expected)
+            self.assertEqual(calls, ["splitlines", "title.strip", "row.strip"])
 
 
 class WidgetTextIntegrationTest(SimpleTestCase):
@@ -312,6 +359,39 @@ class WidgetShorthandRustTest(SimpleTestCase):
                     self.assertEqual(widget.get_widget_data(value), expected)
                 with self.assertRaises(TypeError):
                     widget.get_widget_data(Mock(spec=str))
+
+    def test_enabled_subclass_command_uses_native_classification_and_python_callbacks(self) -> None:
+        if os.environ.get("ZULIP_RUST_WIDGET_SHORTHAND") != "1":
+            return
+        classifier = widget._classify_widget_subclass
+        assert classifier is not None
+        calls = []
+
+        class Substituted(str):
+            __slots__ = ()
+
+            @override
+            def replace(self, old: str, new: str, /, count: SupportsIndex = -1) -> str:
+                calls.append((old, new, count))
+                return "callback title\n- callback item"
+
+            @override
+            def encode(self, encoding: str = "utf-8", errors: str = "strict") -> bytes:
+                raise AssertionError("a str subclass must not intercept native encoding")
+
+        # Block the old classifier, not the old text parser used independently.
+        with patch.object(
+            widget,
+            "re",
+            Mock(wraps=widget.re, split=Mock(side_effect=AssertionError("old classifier"))),
+        ):
+            self.assertEqual(
+                widget.get_widget_data(Substituted("/poll original")),
+                ("poll", {"question": "callback title", "options": ["callback item"]}),
+            )
+            self.assertEqual(widget.get_widget_data(Substituted("/polling")), (None, None))
+            self.assertEqual(widget.get_widget_data(Substituted("/poll\ud800")), (None, None))
+        self.assertEqual(calls, [("/poll", "", 1)])
 
     def test_post_save_still_prefers_explicit_widget_content(self) -> None:
         send_request = Mock(spec=SendMessageRequest)

@@ -28,6 +28,7 @@ except ImportError:
     _rust_widget_shorthand = None
 
 _parse_widget_shorthand = getattr(_rust_widget_shorthand, "parse_widget_shorthand", None)
+_classify_widget_subclass = getattr(_rust_widget_shorthand, "classify_widget_subclass", None)
 
 
 @dataclass
@@ -48,11 +49,24 @@ class TodoData:
     tasks: list[TodoTaskData]
 
 
+def _widget_payload(content: str, widget_type: str) -> tuple[str, dict[str, Any]]:
+    remaining_content = content.replace(f"/{widget_type}", "", 1)
+    extra_data = get_extra_data_from_widget_type(remaining_content, widget_type)
+    return widget_type, asdict(extra_data)
+
+
 def get_widget_data(content: str) -> tuple[str | None, Any]:
     if _parse_widget_shorthand is not None:
         native = _parse_widget_shorthand(content)
         if native is not None:
             return native
+        if _classify_widget_subclass is not None:
+            classification = _classify_widget_subclass(content)
+            if classification is not None:
+                (widget_type,) = classification
+                if widget_type is None:
+                    return None, None
+                return _widget_payload(content, widget_type)
 
     valid_widget_types = ["poll", "todo"]
     tokens = re.split(r"\s+|\n+", content)
@@ -61,9 +75,7 @@ def get_widget_data(content: str) -> tuple[str | None, Any]:
     if tokens[0].startswith("/"):
         widget_type = tokens[0].removeprefix("/")
         if widget_type in valid_widget_types:
-            remaining_content = content.replace(tokens[0], "", 1)
-            extra_data = get_extra_data_from_widget_type(remaining_content, widget_type)
-            return widget_type, asdict(extra_data)
+            return _widget_payload(content, widget_type)
 
     return None, None
 

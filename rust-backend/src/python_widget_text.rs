@@ -2,11 +2,14 @@
 
 use std::borrow::Cow;
 
-use pyo3::exceptions::{PyUnicodeEncodeError, PyValueError};
+use pyo3::exceptions::{PyTypeError, PyUnicodeEncodeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyDict, PyString};
+use pyo3::types::{PyBytes, PyDict, PyIterator, PyMemoryView, PyString};
 
-use crate::widget_text::{PollParts, WidgetShorthand, parse_shorthand, poll_parts, todo_parts};
+use crate::widget_text::{
+    PollParts, WidgetCommand, WidgetShorthand, parse_shorthand, poll_parts, split_task_row,
+    split_widget_command, strip_list_marker, todo_parts,
+};
 
 const SURROGATE_ESCAPE: char = '\u{f0000}';
 const SURROGATE_BASE: u32 = 0xd800;
@@ -38,8 +41,11 @@ impl<'a> WidgetText<'a> {
         // characters so they cannot be mistaken for any widget delimiter.
         // The parser only cuts at delimiters, so an escape pair stays intact.
         // Escape literal occurrences of the prefix as well.
+        // Use the builtin descriptor rather than a subclass's encode method.
         let encoded = value
-            .call_method1("encode", ("utf-32-le", "surrogatepass"))?
+            .py()
+            .get_type::<PyString>()
+            .call_method1("encode", (value, "utf-32-le", "surrogatepass"))?
             .cast_into::<PyBytes>()?;
         let mut text = String::new();
         for chunk in encoded.as_bytes().chunks_exact(4) {
@@ -113,35 +119,117 @@ impl<'a> WidgetText<'a> {
 
 type PollOutput<'py> = (Bound<'py, PyString>, Vec<Bound<'py, PyString>>);
 type TodoRow<'py> = (Bound<'py, PyString>, Bound<'py, PyString>);
-type TodoOutput<'py> = (Bound<'py, PyString>, Vec<TodoRow<'py>>);
+type PollExtraction<'py> = (Bound<'py, PyAny>, Vec<Bound<'py, PyString>>);
+type TodoExtraction<'py> = (Bound<'py, PyAny>, Vec<TodoRow<'py>>);
+
+// A str subclass may implement splitlines, or return str subclasses that
+// implement strip. Dispatch those Python methods once, but apply the same
+// Rust grammar to the resulting text as for exact strings.
+fn subclass_lines<'py>(
+    py: Python<'py>,
+    value: &Bound<'py, PyString>,
+) -> PyResult<(Bound<'py, PyAny>, Bound<'py, PyIterator>)> {
+    let lines = value.call_method0("splitlines")?;
+    let title = if lines.is_truthy()? && lines.get_item(0)?.is_truthy()? {
+        lines.call_method1("pop", (0,))?.call_method0("strip")?
+    } else {
+        PyString::new(py, "").into_any()
+    };
+    Ok((title, lines.try_iter()?))
+}
+
+fn stripped_subclass_line<'py>(line: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyString>> {
+    let stripped = line.call_method0("strip")?;
+    if let Ok(text) = stripped.cast::<PyString>() {
+        return Ok(text.clone());
+    }
+    if PyMemoryView::from(&stripped).is_ok() {
+        return Err(PyTypeError::new_err(
+            "cannot use a string pattern on a bytes-like object",
+        ));
+    }
+    let type_name = stripped.get_type().name()?;
+    Err(PyTypeError::new_err(format!(
+        "expected string or bytes-like object, got '{}'",
+        type_name.to_str()?,
+    )))
+}
 
 #[pyfunction]
 pub(crate) fn extract_poll_widget_text<'py>(
     py: Python<'py>,
     value: &Bound<'py, PyAny>,
-) -> PyResult<Option<PollOutput<'py>>> {
-    let Ok(value) = value.cast_exact::<PyString>() else {
+) -> PyResult<Option<PollExtraction<'py>>> {
+    let Ok(value) = value.cast::<PyString>() else {
         return Ok(None);
     };
-    let text = WidgetText::new(value)?;
-    Ok(Some(text.poll(py, poll_parts(&text.text))?))
+    if value.is_exact_instance_of::<PyString>() {
+        let text = WidgetText::new(value)?;
+        let (title, options) = text.poll(py, poll_parts(&text.text))?;
+        return Ok(Some((title.into_any(), options)));
+    }
+    let (title, lines) = subclass_lines(py, value)?;
+    let mut options = Vec::new();
+    for line in lines {
+        let line = stripped_subclass_line(&line?)?;
+        let text = WidgetText::new(&line)?;
+        let option = strip_list_marker(&text.text);
+        if !option.is_empty() {
+            options.push(text.result(py, option)?);
+        }
+    }
+    Ok(Some((title, options)))
 }
 
 #[pyfunction]
 pub(crate) fn extract_todo_widget_text<'py>(
     py: Python<'py>,
     value: &Bound<'py, PyAny>,
-) -> PyResult<Option<TodoOutput<'py>>> {
-    let Ok(value) = value.cast_exact::<PyString>() else {
+) -> PyResult<Option<TodoExtraction<'py>>> {
+    let Ok(value) = value.cast::<PyString>() else {
         return Ok(None);
     };
+    if value.is_exact_instance_of::<PyString>() {
+        let text = WidgetText::new(value)?;
+        let (title, rows) = todo_parts(&text.text);
+        let rows = rows
+            .into_iter()
+            .map(|row| text.todo_row(py, row))
+            .collect::<PyResult<Vec<_>>>()?;
+        return Ok(Some((text.result(py, &title)?.into_any(), rows)));
+    }
+    let (title, lines) = subclass_lines(py, value)?;
+    let mut tasks = Vec::new();
+    for line in lines {
+        let line = stripped_subclass_line(&line?)?;
+        let text = WidgetText::new(&line)?;
+        let row = strip_list_marker(&text.text);
+        if !row.is_empty() {
+            let (task, desc) = split_task_row(row);
+            tasks.push((text.result(py, task)?, text.result(py, desc)?));
+        }
+    }
+    Ok(Some((title, tasks)))
+}
+
+/// Classify a str subclass without invoking its replace override, which
+/// the Python adapter will invoke once along with dataclass serialization.
+#[pyfunction]
+pub(crate) fn classify_widget_subclass(
+    value: &Bound<'_, PyAny>,
+) -> PyResult<Option<(Option<&'static str>,)>> {
+    let Ok(value) = value.cast::<PyString>() else {
+        return Ok(None);
+    };
+    if value.is_exact_instance_of::<PyString>() {
+        return Ok(None);
+    }
     let text = WidgetText::new(value)?;
-    let (title, rows) = todo_parts(&text.text);
-    let rows = rows
-        .into_iter()
-        .map(|row| text.todo_row(py, row))
-        .collect::<PyResult<Vec<_>>>()?;
-    Ok(Some((text.result(py, &title)?, rows)))
+    let (kind, _) = split_widget_command(&text.text);
+    Ok(Some((kind.map(|kind| match kind {
+        WidgetCommand::Poll => "poll",
+        WidgetCommand::Todo => "todo",
+    }),)))
 }
 
 type ShorthandPayload<'py> = (Option<&'static str>, Option<Bound<'py, PyDict>>);

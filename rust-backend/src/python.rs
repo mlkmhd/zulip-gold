@@ -417,7 +417,8 @@ mod _zulip_backend {
 
     #[pymodule_export]
     use crate::python_widget_text::{
-        extract_poll_widget_text, extract_todo_widget_text, parse_widget_shorthand,
+        classify_widget_subclass, extract_poll_widget_text, extract_todo_widget_text,
+        parse_widget_shorthand,
     };
 
     #[pymodule_export]
