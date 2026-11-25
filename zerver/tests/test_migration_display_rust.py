@@ -1,4 +1,3 @@
-import os
 from importlib import import_module
 from io import StringIO
 from types import SimpleNamespace
@@ -29,22 +28,25 @@ class MigrationDisplayRustTest(TestCase):
         class Derived(str):
             __slots__ = ()
 
-        for value in (b"text", Derived("test"), "\ud800"):
+        for value in (b"text", Derived("test")):
             self.assertIsNone(strip(value))
         for args in (
             ("!", "test", 0),
             ("X", Derived("test"), 0),
-            ("X", "\ud800", 0),
             ("-", "test", -1),
             ("X", "test", True),
             (" ", "test", 2**100),
         ):
             self.assertIsNone(row(*args))
 
+        if getattr(module, "MIGRATION_DISPLAY_API", None) == 1:
+            surrogates = "".join(map(chr, range(0xD800, 0xE000))) + "🙂"
+            self.assertIs(strip(surrogates), surrogates)
+            self.assertEqual(strip(surrogates + "\x1b[31m\ud800A"), surrogates + "\ud800A")
+            self.assertEqual(row("X", surrogates, 1), f"[X] {surrogates} (1 squashed migrations)")
+
     def test_real_buffered_output_path_changes_only_sgr_cosmetics(self) -> None:
         native = migration_status._rust_strip_migration_display_sgr
-        if os.environ.get("ZULIP_RUST_MIGRATION_DISPLAY") != "1":
-            self.assertIsNone(native)
         spy = Mock(wraps=native) if native is not None else None
         value = "الف\x1b[0;31m漢\x1b[m]\x1b[;m🐚\x1b[2J\x1b[۳m\n"
 
@@ -69,8 +71,6 @@ class MigrationDisplayRustTest(TestCase):
 
     def test_graph_selection_remains_python_and_only_decorated_rows_are_formatted(self) -> None:
         native = migration_status._rust_format_migration_display_row
-        if os.environ.get("ZULIP_RUST_MIGRATION_DISPLAY") != "1":
-            self.assertIsNone(native)
         spy = Mock(wraps=native) if native is not None else None
         recorded = ("prepared", "001_recorded")
         substituted = ("prepared", "002_جانشین")

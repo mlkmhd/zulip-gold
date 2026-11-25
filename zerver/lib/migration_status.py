@@ -8,11 +8,11 @@ from django.db import connection
 from django.db.migrations.loader import MigrationLoader
 from django.db.migrations.recorder import MigrationRecorder
 
+from zerver.lib.native_backend import load_native_contract
+
 try:
-    _rust_migration_display = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_MIGRATION_DISPLAY") == "1"
-        else None
+    _rust_migration_display = load_native_contract(
+        "ZULIP_RUST_MIGRATION_DISPLAY", "MIGRATION_DISPLAY_API"
     )
 except ImportError:
     _rust_migration_display = None
