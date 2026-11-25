@@ -2,6 +2,7 @@
 
 use std::borrow::Cow;
 
+use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes};
 use pyo3::prelude::*;
 use pyo3::types::PyString;
 
@@ -37,12 +38,40 @@ pub(crate) fn normalize_description_text<'py>(
     value: &Bound<'py, PyAny>,
 ) -> Option<Bound<'py, PyString>> {
     let value = value.cast_exact::<PyString>().ok()?;
-    let text = value.to_str().ok()?;
-    Some(match normalize(text) {
-        // A one-word split and join keeps the original Python string.
-        Cow::Borrowed(word) if word.len() == text.len() => value.clone(),
-        normalized => PyString::new(py, &normalized),
-    })
+    if let Ok(text) = value.to_str() {
+        return Some(match normalize(text) {
+            // A one-word split and join keeps the original Python string.
+            Cow::Borrowed(word) if word.len() == text.len() => value.clone(),
+            normalized => PyString::new(py, &normalized),
+        });
+    }
+
+    // Surrogate-pass bytes are non-whitespace and are copied verbatim.
+    let text = python_string_bytes(value)?;
+    let mut output = Vec::with_capacity(text.len());
+    let mut separator = false;
+    for chunk in text.utf8_chunks() {
+        for ch in chunk.valid().chars() {
+            if python_space(ch) {
+                separator = !output.is_empty();
+            } else {
+                if std::mem::take(&mut separator) {
+                    output.push(b' ');
+                }
+                output.extend_from_slice(ch.encode_utf8(&mut [0; 4]).as_bytes());
+            }
+        }
+        if !chunk.invalid().is_empty() {
+            if std::mem::take(&mut separator) {
+                output.push(b' ');
+            }
+            output.extend_from_slice(chunk.invalid());
+        }
+    }
+    if output.as_slice() == text.as_ref() {
+        return Some(value.clone());
+    }
+    python_string_from_bytes(py, &output)
 }
 
 #[cfg(test)]

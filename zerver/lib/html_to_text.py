@@ -1,17 +1,14 @@
-import os
 from collections.abc import Mapping
-from importlib import import_module
 
 from bs4 import BeautifulSoup
 from django.utils.html import escape
 
 from zerver.lib.cache import cache_with_key, open_graph_description_cache_key
+from zerver.lib.native_backend import load_native_contract
 
 try:
-    _rust_description_text = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_DESCRIPTION_TEXT") == "1"
-        else None
+    _rust_description_text = load_native_contract(
+        "ZULIP_RUST_DESCRIPTION_TEXT", "DESCRIPTION_TEXT_API"
     )
 except ImportError:
     _rust_description_text = None

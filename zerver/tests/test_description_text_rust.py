@@ -10,12 +10,14 @@ from django.utils.safestring import SafeString
 from typing_extensions import override
 
 from zerver.lib import html_to_text
+from zerver.lib.native_backend import supports_default_rust_backend
 
 
 class DescriptionTextRustTest(TestCase):
     def test_exact_python_whitespace_and_identity(self) -> None:
         try:
-            normalize = import_module("_zulip_backend").normalize_description_text
+            module = import_module("_zulip_backend")
+            normalize = module.normalize_description_text
         except (ImportError, AttributeError):
             self.skipTest("Rust description text normalization is unavailable")
 
@@ -33,13 +35,30 @@ class DescriptionTextRustTest(TestCase):
         class Derived(str):
             __slots__ = ()
 
-        for unsupported in (None, b"word", Derived("word"), "x \ud800 y"):
+        for unsupported in (None, b"word", Derived("word")):
             self.assertIsNone(normalize(unsupported))
+
+        if getattr(module, "DESCRIPTION_TEXT_API", None) == 1:
+            surrogates = "".join(map(chr, range(0xD800, 0xE000)))
+            self.assertIs(normalize(surrogates), surrogates)
+            prepared = "\u2000 " + "\x1f\U0001f600\u2028".join(surrogates) + "\u3000"
+            self.assertEqual(normalize(prepared), " ".join(prepared.split()))
+            self.assertEqual(normalize("\ud800\t\udfff"), "\ud800 \udfff")
 
 
 class DescriptionTextIntegrationTest(SimpleTestCase):
-    def test_actual_description_extraction_and_flag(self) -> None:
-        enabled = os.environ.get("ZULIP_RUST_DESCRIPTION_TEXT") == "1"
+    def test_actual_description_extraction_and_native_selection(self) -> None:
+        try:
+            backend = import_module("_zulip_backend")
+        except ImportError:
+            backend = None
+        enabled = backend is not None and (
+            os.environ.get("ZULIP_RUST_DESCRIPTION_TEXT") == "1"
+            or (
+                supports_default_rust_backend()
+                and getattr(backend, "DESCRIPTION_TEXT_API", None) == 1
+            )
+        )
         method = html_to_text._rust_normalize_description_text
         if enabled:
             self.assertIsNotNone(method)
