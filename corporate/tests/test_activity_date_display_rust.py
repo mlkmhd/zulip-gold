@@ -9,6 +9,7 @@ from django.utils.translation import override as language_override
 from typing_extensions import override
 
 from corporate.lib import activity
+from zerver.lib.native_backend import supports_default_rust_backend
 
 
 class ActivityDateDisplayRustTest(TestCase):
@@ -33,7 +34,11 @@ class ActivityDateDisplayRustTest(TestCase):
     def test_real_date_cells_use_original_wall_time_and_fixed_notation(self) -> None:
         day = activity._rust_format_activity_display_day
         minute = activity._rust_format_activity_display_minute
-        enabled = os.environ.get("ZULIP_RUST_ACTIVITY_DATE_DISPLAY") == "1"
+        enabled = os.environ.get("ZULIP_RUST_ACTIVITY_DATE_DISPLAY") == "1" or (
+            supports_default_rust_backend()
+            and getattr(activity._rust_activity_date_display, "ACTIVITY_DATE_DISPLAY_API", None)
+            == 1
+        )
         self.assertEqual(callable(day), enabled)
         self.assertEqual(callable(minute), enabled)
         instant = datetime(
@@ -62,6 +67,30 @@ class ActivityDateDisplayRustTest(TestCase):
             activity.format_optional_datetime(datetime.max.replace(tzinfo=timezone.utc)),
             "9999-12-31 23:59",
         )
+
+    def test_leap_year_and_boundary_labels_match_calendar_wall_time(self) -> None:
+        try:
+            native = import_module("_zulip_backend")
+            format_date = native.format_activity_display_day
+            format_minute = native.format_activity_display_minute
+        except (ImportError, AttributeError):
+            self.skipTest("Rust activity date display is unavailable")
+        moments = [
+            datetime.min.replace(tzinfo=timezone.utc),
+            datetime.max.replace(tzinfo=timezone.utc),
+            datetime(100, 3, 1, tzinfo=timezone.utc),
+            datetime(400, 2, 29, tzinfo=timezone.utc),
+        ]
+        zone = timezone(timedelta(hours=-10))
+        leap_year_start = datetime(2000, 1, 1, 12, 3, 58, 999999, tzinfo=zone)
+        moments.extend(leap_year_start + timedelta(days=offset) for offset in range(366))
+        for value in moments:
+            fields = (value.year, value.month, value.day)
+            self.assertEqual(format_date(*fields), value.date().isoformat())
+            self.assertEqual(
+                format_minute(*fields, value.hour, value.minute),
+                value.replace(tzinfo=None).isoformat(" ", "minutes"),
+            )
 
     def test_custom_objects_keep_original_dispatch_and_single_preparation(self) -> None:
         calls: list[object] = []

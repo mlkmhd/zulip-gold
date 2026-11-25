@@ -1,11 +1,9 @@
-import os
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date as calendar_date
 from datetime import datetime
 from decimal import Decimal
-from importlib import import_module
 from typing import Any
 
 from django.conf import settings
@@ -20,6 +18,7 @@ from psycopg2.sql import Composable
 
 from corporate.models.licenses import LicenseLedger
 from corporate.models.plans import CustomerPlan
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.pysa import mark_sanitized
 from zerver.models import Realm
 from zilencer.models import (
@@ -99,10 +98,8 @@ def dictfetchall(cursor: CursorWrapper) -> list[dict[str, Any]]:
 
 
 try:
-    _rust_activity_date_display = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_ACTIVITY_DATE_DISPLAY") == "1"
-        else None
+    _rust_activity_date_display = load_native_contract(
+        "ZULIP_RUST_ACTIVITY_DATE_DISPLAY", "ACTIVITY_DATE_DISPLAY_API"
     )
 except ImportError:
     _rust_activity_date_display = None

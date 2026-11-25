@@ -6900,11 +6900,12 @@ off; an absent, older, declining or incompatible extension uses Python.
 
 ### Opt-in activity date cell display
 
-`ZULIP_RUST_ACTIVITY_DATE_DISPLAY=1` optionally spells the fixed
-calendar day or calendar minute after Python performs its original date
-operations. It does not choose a timezone, convert time, or change how
-missing values display. It defaults off, with Python fallback for older,
-absent or declining extensions and custom date types.
+On Ubuntu 24.04 x86-64, a wheel exporting `ACTIVITY_DATE_DISPLAY_API = 1`
+formats prepared activity date and minute labels without a flag. Calendar
+fields, wall time, timezone removal, missing values and overridden
+`isoformat` behavior are unchanged. Querying, view permissions, totals and
+HTML rendering remain unchanged. Old or absent wheels and unsupported input
+retain the original formatting; `ZULIP_RUST_ACTIVITY_DATE_DISPLAY=1` remains optional.
 
 ### Opt-in Mattermost display name preparation
 
