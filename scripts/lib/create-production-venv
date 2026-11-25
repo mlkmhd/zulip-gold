@@ -3,6 +3,8 @@ import argparse
 import os
 import platform
 import sys
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 ZULIP_PATH = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if ZULIP_PATH not in sys.path:
@@ -13,10 +15,27 @@ from scripts.lib.zulip_tools import os_families, run
 
 parser = argparse.ArgumentParser(description="Create a production virtualenv with caching")
 parser.add_argument("deploy_path")
+parser.add_argument(
+    "--rust-wheel-dir", type=Path, help="Install a staged native wheel from this directory"
+)
 args = parser.parse_args()
+distro_info = platform.freedesktop_os_release()
+wheel = None
+if args.rust_wheel_dir is not None:
+    from scripts.lib.select_native_wheel import select_wheel
+
+    if (
+        distro_info["ID"] != "ubuntu"
+        or distro_info["VERSION_ID"] != "24.04"
+        or platform.machine() != "x86_64"
+    ):
+        parser.error("staged Rust wheels are only supported on Ubuntu 24.04 x86-64")
+    root = Path(args.deploy_path).resolve()
+    if root != Path(ZULIP_PATH).resolve():
+        parser.error("native wheel must be installed into the invoking checkout")
+    wheel = select_wheel(root, args.rust_wheel_dir.absolute(), platform.machine())
 
 # install dependencies for setting up the virtualenv
-distro_info = platform.freedesktop_os_release()
 vendor = distro_info["ID"]
 os_version = distro_info["VERSION_ID"]
 VENV_DEPENDENCIES = get_venv_dependencies(vendor, os_version)
@@ -34,3 +53,25 @@ run(
     ["uv", "sync", "--frozen", "--no-managed-python", "--only-group=prod"],
     env={k: v for k, v in os.environ.items() if k not in {"PYTHONDEVMODE", "PYTHONWARNINGS"}},
 )
+
+if wheel is not None:
+    path, sha256 = wheel
+    venv = Path(os.environ.get("UV_PROJECT_ENVIRONMENT") or ".venv")
+    with TemporaryDirectory(prefix="zulip-native-wheel-") as directory:
+        requirements = Path(directory) / "wheel-requirements.txt"
+        requirements.write_text(f"zulip-backend @ {path.as_uri()} --hash=sha256:{sha256}\n")
+        run(
+            [
+                "uv",
+                "pip",
+                "install",
+                "--offline",
+                "--no-index",
+                "--no-deps",
+                "--require-hashes",
+                "--python",
+                str(venv.absolute() / "bin/python"),
+                "--requirements",
+                str(requirements),
+            ]
+        )
