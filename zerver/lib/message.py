@@ -30,6 +30,7 @@ from zerver.lib.exceptions import JsonableError, MissingAuthenticationError
 from zerver.lib.markdown import MessageRenderingResult
 from zerver.lib.mention import MentionData, sender_can_mention_group, silent_mention_syntax_for_user
 from zerver.lib.message_cache import MessageDict, extract_message_dict, stringify_message_dict
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.native_unread import aggregate as native_aggregate_unread
 from zerver.lib.native_unread import format_details as native_format_unread_details
 from zerver.lib.partial import partial
@@ -234,16 +235,7 @@ except ModuleNotFoundError as error:
     _rust_import_body = None
 
 
-try:
-    _rust_display_mentions = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_DISPLAY_MENTIONS") == "1"
-        else None
-    )
-except ModuleNotFoundError as error:
-    if error.name != "_zulip_backend":
-        raise
-    _rust_display_mentions = None
+_rust_display_mentions = load_native_contract("ZULIP_RUST_DISPLAY_MENTIONS", "DISPLAY_MENTION_API")
 
 
 def truncate_content(content: str, max_length: int, truncation_message: str) -> str:

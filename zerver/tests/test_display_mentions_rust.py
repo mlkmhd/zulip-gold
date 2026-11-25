@@ -10,6 +10,7 @@ from django.test import SimpleTestCase
 from zerver.lib import message, reminders
 from zerver.lib.mention import silent_mention_syntax_for_user
 from zerver.lib.message_cache import MessageDict
+from zerver.lib.native_backend import supports_default_rust_backend
 from zerver.lib.types import UserDisplayRecipient
 from zerver.models import Message, Realm, Recipient, UserProfile
 
@@ -50,15 +51,33 @@ class DisplayMentionsRustTest(TestCase):
         class Derived(str):
             __slots__ = ()
 
-        for invalid in ([], (one,), [one, 5], [one, Derived("plain")], [one, "\ud800"]):
+        for invalid in ([], (one,), [one, 5], [one, Derived("plain")]):
             self.assertIsNone(plan(invalid, False))
         self.assertIsNone(plan([one], 1))
+
+    def test_joins_and_sorts_all_surrogate_code_points(self) -> None:
+        native = extension()
+        if getattr(native, "DISPLAY_MENTION_API", None) != 1:
+            self.skipTest("Wheel predates the surrogate-safe display mention contract")
+        for point in range(0xD800, 0xE000):
+            item = chr(point)
+            values = ["\uf000", item, "😀", "\ud7ff", "\ud800\udc00"]
+            self.assertIs(native.plan_display_mentions([item], True)[1], item)
+            for sort in (False, True):
+                expected = sorted(values) if sort else values
+                actual = native.plan_display_mentions(values, sort)
+                self.assertIsNotNone(actual)
+                assert actual is not None
+                self.assertEqual(actual, (", ".join(expected[:-1]) + ",", expected[-1]))
+                self.assertIs(actual[1], expected[-1])
 
 
 class DisplayMentionsDjangoDispatchRustTest(SimpleTestCase):
     def test_sorted_builder_keeps_exact_locale_and_builds_each_mention_once(self) -> None:
         native = extension()
-        enabled = environ.get("ZULIP_RUST_DISPLAY_MENTIONS") == "1"
+        enabled = environ.get("ZULIP_RUST_DISPLAY_MENTIONS") == "1" or (
+            supports_default_rust_backend() and getattr(native, "DISPLAY_MENTION_API", None) == 1
+        )
         self.assertIs(message._rust_display_mentions, native if enabled else None)
         users: list[UserProfile | UserDisplayRecipient] = [
             UserProfile(id=30, full_name="😀"),
@@ -90,7 +109,9 @@ class DisplayMentionsDjangoDispatchRustTest(SimpleTestCase):
 
     def test_read_only_reminder_formatting_uses_presorted_strings(self) -> None:
         native = extension()
-        enabled = environ.get("ZULIP_RUST_DISPLAY_MENTIONS") == "1"
+        enabled = environ.get("ZULIP_RUST_DISPLAY_MENTIONS") == "1" or (
+            supports_default_rust_backend() and getattr(native, "DISPLAY_MENTION_API", None) == 1
+        )
         realm = Realm(string_id="synthetic")
         sender = UserProfile(realm=realm, id=60, full_name="Synthetic author")
         viewer = UserProfile(realm=realm, id=61, full_name="Synthetic viewer")

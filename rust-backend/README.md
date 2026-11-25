@@ -5677,19 +5677,19 @@ done
 
 ### Plan display text for prepared silent mentions through Rust
 
-Set `ZULIP_RUST_DISPLAY_MENTIONS=1` before starting Django to plan the
-order and comma joining of already constructed silent mention strings.
-The presorted caller keeps its supplied order. Python still selects
-users, builds mention syntax, and renders the locale's joining template.
+On Ubuntu 24.04 x86-64, a wheel with `DISPLAY_MENTION_API = 1` orders
+and joins already constructed silent mention strings without a flag.
+The presorted caller keeps its supplied order. Rust preserves Python
+code-point order, including isolated surrogates, and retains the
+original final string. Python still selects users, constructs mention
+syntax, and renders the locale's joining template.
 
-The switch defaults to off. An absent or older extension, an empty list,
-or unsupported text retains the Python path. Test both modes without
-sending messages:
+Missing or older wheels and unsupported Python inputs keep the old
+behavior. `ZULIP_RUST_DISPLAY_MENTIONS=1` still opts into earlier wheels.
+Test with the matching wheel in an isolated Django database:
 
 ```bash
-for enabled in 0 1; do
-    ZULIP_RUST_DISPLAY_MENTIONS=$enabled ./tools/test-backend zerver.tests.test_display_mentions_rust
-done
+env -u ZULIP_RUST_DISPLAY_MENTIONS ./tools/test-backend zerver.tests.test_display_mentions_rust
 ```
 
 ### Parse poll and todo commands through Rust
