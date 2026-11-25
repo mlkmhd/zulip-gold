@@ -1,18 +1,9 @@
-import os
 import re
 from collections.abc import Mapping
-from importlib import import_module
 
-try:
-    _rust_reply_links = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_PLAIN_REPLY_LINKS") == "1"
-        else None
-    )
-except ModuleNotFoundError as error:
-    if error.name != "_zulip_backend":
-        raise
-    _rust_reply_links = None
+from zerver.lib.native_backend import load_native_contract
+
+_rust_reply_links = load_native_contract("ZULIP_RUST_PLAIN_REPLY_LINKS", "MOBILE_REPLY_LINKS_API")
 
 
 def needs_plain_reply_links(client_name: str | None) -> bool:

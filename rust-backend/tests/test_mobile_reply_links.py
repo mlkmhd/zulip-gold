@@ -8,13 +8,25 @@ from pathlib import Path
 from types import ModuleType
 from unittest.mock import patch
 
+from zerver.lib.native_backend import supports_default_rust_backend
 
-def load_reply_links(*, enabled: bool) -> ModuleType:
+
+def load_reply_links(*, enabled: bool | None) -> ModuleType:
     path = Path(__file__).resolve().parents[2] / "zerver/lib/markdown/reply_links.py"
     spec = importlib.util.spec_from_file_location("reply_links", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    with patch.dict(os.environ, {"ZULIP_RUST_PLAIN_REPLY_LINKS": str(int(enabled))}):
+    default_enabled = enabled is None and supports_default_rust_backend()
+    flag = "ZULIP_RUST_PLAIN_REPLY_LINKS"
+    with (
+        patch.dict(os.environ),
+        patch(
+            "zerver.lib.native_backend.supports_default_rust_backend", return_value=default_enabled
+        ),
+    ):
+        os.environ.pop(flag, None)
+        if enabled is not None:
+            os.environ[flag] = str(int(enabled))
         spec.loader.exec_module(module)
     return module
 
@@ -32,6 +44,23 @@ class MobileReplyLinksTest(unittest.TestCase):
         cls.reference = load_reply_links(enabled=False)
         cls.native = load_reply_links(enabled=True)
         assert cls.native._rust_reply_links is not None
+
+    def test_matching_wheel_uses_default_and_preserves_every_code_point(self) -> None:
+        extension = self.native._rust_reply_links
+        if getattr(extension, "MOBILE_REPLY_LINKS_API", None) != 1:
+            self.skipTest("Matching reply link contract is not available")
+        self.assertIsNone(self.reference._rust_reply_links)
+        if supports_default_rust_backend():
+            self.assertIs(load_reply_links(enabled=None)._rust_reply_links, extension)
+        surrogates = "".join(map(chr, range(0xD800, 0xE000)))
+        html = REPLY.replace("world", surrogates).replace("hello", "é\udfff")
+        expected = self.reference.render_plain_reply_links(html)
+        self.assertEqual(extension.render_mobile_plain_reply_links(html), expected)
+        self.assertEqual(
+            extension.mobile_plain_reply_link_fields({"content": html}, ("content",)),
+            {"content": expected},
+        )
+        self.assertIs(extension.mobile_client_needs_plain_reply_links("\ud800"), False)
 
     def test_client_names_are_exact(self) -> None:
         names = ["ZulipFlutter", "ZulipMobile", "ZulipAndroid", "ZulipiOS"]
@@ -78,6 +107,7 @@ class MobileReplyLinksTest(unittest.TestCase):
             REPLY,
             "&#91;",
             "🦊🇦🇿",
+            "\ud800\udfff",
             "\r\n",
             "$1",
             "&amp;",

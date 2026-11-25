@@ -3,39 +3,55 @@ use std::sync::LazyLock;
 
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString, PyTuple};
-use regex::Regex;
+use regex::bytes::Regex;
 
-const MARKER: &str = r#"class="message-reply-link""#;
+use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes};
+
+const MARKER: &[u8] = br#"class="message-reply-link""#;
 
 static LINK: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?s)<a class="message-reply-link" (href="[^"]*")>(.*?)</a>"#).unwrap()
+    Regex::new(r#"(?s-u)<a class="message-reply-link" (href="[^"]*")>(.*?)</a>"#).unwrap()
 });
 static LABEL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r#"(?s)\A<strong class="message-reply-sender" dir="auto">(.*?)</strong><span class="message-reply-excerpt" dir="auto">(.*?)</span>\z"#,
+        r#"(?s-u)\A<strong class="message-reply-sender" dir="auto">(.*?)</strong><span class="message-reply-excerpt" dir="auto">(.*?)</span>\z"#,
     )
     .unwrap()
 });
 
-fn is_mobile_client(client_name: &str) -> bool {
+fn is_mobile_client(client_name: &[u8]) -> bool {
     matches!(
         client_name,
-        "ZulipFlutter" | "ZulipMobile" | "ZulipAndroid" | "ZulipiOS"
+        b"ZulipFlutter" | b"ZulipMobile" | b"ZulipAndroid" | b"ZulipiOS"
     )
 }
 
-fn render(html: &str) -> Cow<'_, str> {
-    if !html.contains(MARKER) {
+fn has_marker(html: &[u8]) -> bool {
+    html.windows(MARKER.len()).any(|part| part == MARKER)
+}
+
+fn render(html: &[u8]) -> Cow<'_, [u8]> {
+    if !has_marker(html) {
         return Cow::Borrowed(html);
     }
-    LINK.replace_all(html, |link: &regex::Captures<'_>| {
+    // All syntax delimiters are ASCII. Match them without decoding the
+    // already escaped HTML, which may contain Python surrogate code points.
+    LINK.replace_all(html, |link: &regex::bytes::Captures<'_>| {
         let href = &link[1];
         let label = &link[2];
+        let mut output = Vec::new();
+        output.extend_from_slice(b"<a ");
+        output.extend_from_slice(href);
+        output.push(b'>');
         if let Some(parts) = LABEL.captures(label) {
-            format!("<a {href}>{} · {}</a>", &parts[1], &parts[2])
+            output.extend_from_slice(&parts[1]);
+            output.extend_from_slice(" · ".as_bytes());
+            output.extend_from_slice(&parts[2]);
         } else {
-            format!("<a {href}>{label}</a>")
+            output.extend_from_slice(label);
         }
+        output.extend_from_slice(b"</a>");
+        output
     })
 }
 
@@ -47,9 +63,9 @@ pub(crate) fn mobile_client_needs_plain_reply_links(
     let Some(client_name) = client_name else {
         return Some(false);
     };
-    Some(is_mobile_client(
-        client_name.cast_exact::<PyString>().ok()?.to_str().ok()?,
-    ))
+    Some(is_mobile_client(&python_string_bytes(
+        client_name.cast_exact::<PyString>().ok()?,
+    )?))
 }
 
 #[pyfunction]
@@ -58,10 +74,11 @@ pub(crate) fn render_mobile_plain_reply_links<'py>(
     html: &Bound<'py, PyAny>,
 ) -> Option<Bound<'py, PyString>> {
     let html = html.cast_exact::<PyString>().ok()?;
-    Some(match render(html.to_str().ok()?) {
-        Cow::Borrowed(_) => html.clone(),
-        Cow::Owned(result) => PyString::new(py, &result),
-    })
+    let bytes = python_string_bytes(html)?;
+    match render(&bytes) {
+        Cow::Borrowed(_) => Some(html.clone()),
+        Cow::Owned(result) => python_string_from_bytes(py, &result),
+    }
 }
 
 #[pyfunction]
@@ -96,14 +113,19 @@ pub(crate) fn mobile_plain_reply_link_fields<'py>(
         let Some(html) = value
             .cast_exact::<PyString>()
             .ok()
-            .and_then(|string| string.to_str().ok())
+            .and_then(python_string_bytes)
         else {
             return Ok(None);
         };
-        if html.contains(MARKER) {
-            match render(html) {
+        if has_marker(&html) {
+            match render(&html) {
                 Cow::Borrowed(_) => result.set_item(field, value)?,
-                Cow::Owned(rendered) => result.set_item(field, rendered)?,
+                Cow::Owned(rendered) => {
+                    let Some(rendered) = python_string_from_bytes(py, &rendered) else {
+                        return Ok(None);
+                    };
+                    result.set_item(field, rendered)?;
+                }
             }
         }
     }
@@ -117,10 +139,10 @@ mod tests {
     #[test]
     fn plain_mobile_clients_are_exact() {
         for client in ["ZulipFlutter", "ZulipMobile", "ZulipAndroid", "ZulipiOS"] {
-            assert!(is_mobile_client(client));
+            assert!(is_mobile_client(client.as_bytes()));
         }
         for client in ["", "zulipflutter", "ZulipFlutter/1.0", "ZulipDesktop"] {
-            assert!(!is_mobile_client(client));
+            assert!(!is_mobile_client(client.as_bytes()));
         }
     }
 
@@ -134,8 +156,8 @@ mod tests {
             r#"world</span></a><a href="/ordinary">Other</a></p>"#,
         );
         assert_eq!(
-            render(input),
-            "<p><a href=\"#topic&amp;near\">A &amp; B · <mark>سلام</mark>\nworld</a><a href=\"/ordinary\">Other</a></p>"
+            render(input.as_bytes()).as_ref(),
+            "<p><a href=\"#topic&amp;near\">A &amp; B · <mark>سلام</mark>\nworld</a><a href=\"/ordinary\">Other</a></p>".as_bytes()
         );
     }
 
@@ -147,13 +169,14 @@ mod tests {
             r#"<a class="message-reply-link" href="/two"></a>"#,
         );
         assert_eq!(
-            render(input),
+            render(input.as_bytes()).as_ref(),
             concat!(
                 r#"<a href="/one">plain</a>"#,
                 r#"<a href="/ignored" class="message-reply-link">leave intact</a>"#,
                 r#"<a href="/two"></a>"#,
             )
+            .as_bytes()
         );
-        assert!(matches!(render("<p>ordinary</p>"), Cow::Borrowed(_)));
+        assert!(matches!(render(b"<p>ordinary</p>"), Cow::Borrowed(_)));
     }
 }
