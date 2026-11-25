@@ -48,8 +48,11 @@ def environment(**options: Any) -> Environment:
     env.filters["slugify"] = slugify
     env.filters["pluralize"] = pluralize
     env.filters["display_list"] = display_list
-    if env.autoescape is False:
-        env.filters["plain_display_list"] = plain_display_list
+    # The browser preview also includes the digest's plaintext template.
+    # Keep the regular formatter in the HTML environment.
+    env.filters["plain_display_list"] = (
+        plain_display_list if env.autoescape is False else display_list
+    )
     env.filters["device_action"] = device_action
     env.filters["timesince"] = timesince
     env.filters["localize"] = localize

@@ -64,7 +64,7 @@ class PlainDisplayListIntegrationTest(SimpleTestCase):
         assert isinstance(html, Jinja2)
         self.assertIs(plaintext.env.filters["plain_display_list"], templates.plain_display_list)
         self.assertIs(html.env.filters["display_list"], templates.display_list)
-        self.assertNotIn("plain_display_list", html.env.filters)
+        self.assertIs(html.env.filters["plain_display_list"], templates.display_list)
 
         participants = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon"]
         channels = ["Synthetic room", "Second room"]
@@ -98,6 +98,10 @@ class PlainDisplayListIntegrationTest(SimpleTestCase):
                 )
         self.assertIn("Alpha, Beta, Gamma, Delta and 1 other.", result)
         self.assertIn("Synthetic room and Second room.", result)
+
+        context["new_channels"] = {"plain": ["Research & design", "Second room"]}
+        preview = render_to_string(template, context, using="Jinja2")
+        self.assertIn("Research &amp; design and Second room.", preview)
 
     def test_markup_and_subclasses_fall_back_with_original_identity(self) -> None:
         marked = Markup("<b>synthetic</b>")
