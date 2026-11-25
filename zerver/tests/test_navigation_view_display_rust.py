@@ -8,6 +8,8 @@ from django.test import RequestFactory
 from typing_extensions import override
 
 from zerver.lib import navigation_views as display
+from zerver.lib.native_backend import supports_default_rust_backend
+from zerver.lib.test_classes import ZulipTestCase
 from zerver.models import NavigationView, UserProfile
 from zerver.views import navigation_views
 
@@ -65,7 +67,11 @@ class NavigationViewDisplayRustTest(TestCase):
 
     def test_real_get_and_unchanged_bootstrap_display(self) -> None:
         native = display._render_navigation_view_display_rows
-        enabled = os.environ.get("ZULIP_RUST_NAVIGATION_VIEW_DISPLAY") == "1"
+        enabled = os.environ.get("ZULIP_RUST_NAVIGATION_VIEW_DISPLAY") == "1" or (
+            supports_default_rust_backend()
+            and getattr(display._rust_navigation_view_display, "NAVIGATION_VIEW_DISPLAY_API", None)
+            == 1
+        )
         self.assertEqual(callable(native), enabled)
         with (
             patch.object(NavigationView.objects, "filter", return_value=self.rows) as query,
@@ -127,3 +133,33 @@ class NavigationViewDisplayRustTest(TestCase):
             actual = display.get_navigation_views_for_user(self.user, rust_display_for_get=True)
         native.assert_not_called()
         self.assertEqual(actual, [{"fragment": "prepared", "is_pinned": False, "name": ""}])
+
+
+class NavigationViewNativeGetIsolationTest(ZulipTestCase):
+    def test_matching_wheel_renders_only_the_current_users_views(self) -> None:
+        if not supports_default_rust_backend() or os.environ.get(
+            "ZULIP_RUST_NAVIGATION_VIEW_DISPLAY"
+        ):
+            self.skipTest("No-flag startup is tested on Ubuntu 24.04 x86-64")
+        backend = display._rust_navigation_view_display
+        if getattr(backend, "NAVIGATION_VIEW_DISPLAY_API", None) != 1:
+            self.skipTest("Wheel predates the default navigation-view contract")
+
+        reader = self.example_user("hamlet")
+        other = self.example_user("cordelia")
+        own = NavigationView.objects.create(
+            user=reader, fragment="narrow/is/mentioned", is_pinned=False, name="نمای من"
+        )
+        NavigationView.objects.create(user=other, fragment="inbox", is_pinned=True)
+        native = display._render_navigation_view_display_rows
+        assert native is not None
+        self.login_user(reader)
+        with patch.object(display, "_render_navigation_view_display_rows", wraps=native) as render:
+            basic = self.api_get(reader, "/api/v1/navigation_views")
+            web = self.client_get("/json/navigation_views")
+        expected = [display.get_navigation_view_dict(own)]
+        self.assertEqual(self.assert_json_success(basic)["navigation_views"], expected)
+        self.assertEqual(self.assert_json_success(web)["navigation_views"], expected)
+        self.assertEqual(render.call_count, 2)
+        for invocation in render.call_args_list:
+            self.assertEqual(invocation.args, ([(own.fragment, own.is_pinned, own.name)],))

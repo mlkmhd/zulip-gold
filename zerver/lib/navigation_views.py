@@ -1,10 +1,9 @@
-import os
-from importlib import import_module
 from typing import TypedDict
 
 from django.utils.translation import gettext as _
 
 from zerver.lib.exceptions import ResourceNotFoundError
+from zerver.lib.native_backend import load_native_contract
 from zerver.models import NavigationView, UserProfile
 
 
@@ -31,10 +30,8 @@ def get_navigation_view_dict(navigation_view: NavigationView) -> NavigationViewD
 
 
 try:
-    _rust_navigation_view_display = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_NAVIGATION_VIEW_DISPLAY") == "1"
-        else None
+    _rust_navigation_view_display = load_native_contract(
+        "ZULIP_RUST_NAVIGATION_VIEW_DISPLAY", "NAVIGATION_VIEW_DISPLAY_API"
     )
 except ImportError:
     _rust_navigation_view_display = None

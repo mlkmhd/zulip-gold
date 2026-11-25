@@ -6839,13 +6839,14 @@ and serializes the response. Events, bootstrap and writes are unchanged.
 Older or absent wheels and unsupported rows retain the original result.
 `ZULIP_RUST_SAVED_SNIPPET_DISPLAY=1` remains an explicit opt-in.
 
-### Opt-in navigation view display rows
+### Render prepared navigation-view display rows through Rust
 
-`ZULIP_RUST_NAVIGATION_VIEW_DISPLAY=1` optionally assembles the existing navigation
-view dictionaries for the legacy Django GET after the same query. Fragment,
-pin and name values are untouched. The switch defaults off; an absent, older
-or declining extension falls back to Python. Bootstrap, events and writes
-retain their existing Python formatting.
+On Ubuntu 24.04 x86-64 a wheel exporting `NAVIGATION_VIEW_DISPLAY_API = 1`
+assembles navigation-view dictionaries for Django GET after the same
+user-filtered query. Fragment, pin and name values are untouched.
+An absent, older or declining extension falls back to Python.
+`ZULIP_RUST_NAVIGATION_VIEW_DISPLAY=1` remains an explicit opt-in.
+Bootstrap, events and writes retain their existing Python formatting.
 
 ### Opt-in Gong duration and topic display text
 
