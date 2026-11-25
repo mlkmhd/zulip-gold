@@ -63,6 +63,8 @@ ZULIP_RUST_ALERT_WORDS=1 ./tools/test-backend zerver.tests.test_alert_words zerv
 `ZULIP_RUST_USER_STATUS=1` selects Rust for status response fields and the
 rules for missing values and clearing an emoji in the user status API.
 Django still handles permissions, emoji lookup, and database writes.
+On Ubuntu 24.04 x86-64 a compatible wheel also enables formatting on
+reads without opting into native write preparation.
 
 ```sh
 ZULIP_RUST_USER_STATUS=0 ./tools/test-backend zerver.tests.test_user_status
@@ -5917,27 +5919,27 @@ If Rust stops, remove the route include and reload nginx to restore
 Django. There is no automatic failover. Live ingress and production load
 were not tested and deployment routing is unchanged.
 
-### Batch visible statuses for registration
+### Format visible user status reads through Rust
 
-With the existing default-off `ZULIP_RUST_USER_STATUS=1`, initial
-registration can format its visible user statuses in one Rust call.
-Django applies the same organization, active-account and audience
-filters first. Rust reads only the selected user IDs, presence-enabled
-booleans and status fields. The single-user GET and status updates do
-not change.
+On Ubuntu 24.04 x86-64, a wheel advertising `USER_STATUS_READ_API = 1`
+uses Rust for the single-user GET and for batching status fields during
+registration. Django still applies the same organization, active-account,
+and audience filters first. Rust receives only selected user IDs,
+presence-enabled flags, and status fields. Writes and write validation
+are unchanged unless the earlier explicit `ZULIP_RUST_USER_STATUS=1`
+option is used.
 
-An older extension still uses the established single-row formatter.
+Without the compatible wheel, the unset flag leaves the old path.
 A declined batch formats the same rows one at a time without rerunning
-the authorization or database query. The unset flag still uses Python.
+the authorization or database query. The explicit option still allows
+older wheels that supply the earlier formatter.
 
-In a disposable Django database with the extension on `PYTHONPATH`:
+With the matching wheel installed and a disposable Django database:
 
 ```sh
-for enabled in 0 1; do
-    ZULIP_RUST_USER_STATUS=$enabled ./tools/test-backend \
-        zerver.tests.test_user_status.UserStatusTest \
-        zerver.tests.test_user_status_batch_rust.UserStatusBatchRustTest
-done
+env -u ZULIP_RUST_USER_STATUS ./tools/test-backend \
+    zerver.tests.test_user_status.UserStatusTest \
+    zerver.tests.test_user_status_batch_rust.UserStatusBatchRustTest
 ```
 
 For 256 already-selected synthetic rows, status formatting through

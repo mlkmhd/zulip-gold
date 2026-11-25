@@ -15,6 +15,7 @@ from django.utils.timezone import now as timezone_now
 
 from zerver.actions.users import change_user_is_active
 from zerver.lib import native_user_status_replay, user_status
+from zerver.lib.native_backend import supports_default_rust_backend
 from zerver.lib.test_classes import ZulipTestCase
 from zerver.lib.test_helpers import stub_event_queue_user_events
 from zerver.models import UserProfile, UserStatus
@@ -38,6 +39,48 @@ def extension() -> ModuleType:
 
 
 class UserStatusBatchRustTest(ZulipTestCase):
+    def test_matching_wheel_formats_reads_without_a_flag(self) -> None:
+        if not supports_default_rust_backend() or environ.get("ZULIP_RUST_USER_STATUS"):
+            self.skipTest("No-flag startup is tested on Ubuntu 24.04 x86-64")
+        backend = extension()
+        if getattr(backend, "USER_STATUS_READ_API", None) != 1:
+            self.skipTest("Wheel predates the default status formatter contract")
+        self.assertIs(user_status._rust_user_status, backend)
+        self.assertEqual(user_status._prepare_status_update.__module__, user_status.__name__)
+        owner = self.example_user("hamlet")
+        UserStatus.objects.create(
+            user_profile=owner,
+            client=get_client("website"),
+            timestamp=timezone_now(),
+            status_text="وضعیت آزمایشی",
+            emoji_name="car",
+            emoji_code="1f697",
+            reaction_type=UserStatus.UNICODE_EMOJI,
+        )
+
+        queue = EventQueueData(queue_id="native-status-read-queue", idle_queue_timeout_secs=600)
+        with (
+            patch.object(backend, "format_user_status", wraps=backend.format_user_status) as single,
+            patch.object(
+                backend, "format_visible_user_statuses", wraps=backend.format_visible_user_statuses
+            ) as batch,
+            patch("zerver.lib.events.request_event_queue", return_value=queue),
+            patch("zerver.lib.events.get_user_events", return_value=[]),
+        ):
+            status_result = self.api_get(owner, f"/api/v1/users/{owner.id}/status")
+            register_result = self.api_post(
+                owner, "/api/v1/register", {"event_types": orjson.dumps(["user_status"]).decode()}
+            )
+
+        status = self.assert_json_success(status_result)["status"]
+        self.assertEqual(status["status_text"], "وضعیت آزمایشی")
+        self.assertEqual(status["emoji_code"], "1f697")
+        self.assertEqual(
+            self.assert_json_success(register_result)["user_status"][str(owner.id)], status
+        )
+        single.assert_called_once()
+        batch.assert_called_once()
+
     def test_seeded_batches_and_exact_decline(self) -> None:
         backend = extension()
         rng = Random(815624)

@@ -2,6 +2,7 @@ import os
 from collections.abc import Iterable
 from dataclasses import dataclass
 from importlib import import_module
+from types import ModuleType
 from typing import Literal, TypedDict, cast
 
 from django.db.models import Q
@@ -10,13 +11,29 @@ from django.utils.translation import gettext as _
 
 from zerver.lib.emoji import check_emoji_request, get_emoji_data
 from zerver.lib.exceptions import JsonableError
+from zerver.lib.native_backend import supports_default_rust_backend
 from zerver.lib.native_user_status_persistence import update_existing_status
 from zerver.lib.users import check_user_can_access_all_users, get_accessible_user_ids
 from zerver.models import Realm, UserProfile, UserStatus
 
-_rust_user_status = (
-    import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_USER_STATUS") == "1" else None
-)
+_explicit_native_status = os.environ.get("ZULIP_RUST_USER_STATUS") == "1"
+
+
+def _load_status_formatter() -> ModuleType | None:
+    if _explicit_native_status:
+        return import_module("_zulip_backend")
+    if not supports_default_rust_backend():
+        return None
+    try:
+        backend = import_module("_zulip_backend")
+    except ImportError:
+        return None
+    if getattr(backend, "USER_STATUS_READ_API", None) == 1:
+        return backend
+    return None
+
+
+_rust_user_status = _load_status_formatter()
 
 
 class UserInfoDict(TypedDict, total=False):
@@ -206,7 +223,7 @@ def _prepare_status_update(
     return emoji_code, emoji_type, None
 
 
-if _rust_user_status is not None:
+if _explicit_native_status and _rust_user_status is not None:
     _prepare_status_update = _rust_user_status.prepare_status_update
 
 
