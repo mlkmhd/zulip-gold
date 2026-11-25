@@ -10,6 +10,7 @@ from django.test import RequestFactory, SimpleTestCase
 from analytics.lib.counts import CountStat
 from analytics.lib.time_utils import time_range
 from analytics.views import stats
+from zerver.lib.native_backend import supports_default_rust_backend
 from zerver.lib.timestamp import TimeZoneNotUTCError
 from zerver.models import Realm, UserProfile
 
@@ -50,7 +51,10 @@ class AnalyticsTimeBucketsRustTest(TestCase):
 
 class AnalyticsTimeBucketsIntegrationTest(SimpleTestCase):
     def test_actual_chart_read_uses_prepared_buckets_only(self) -> None:
-        enabled = os.environ.get("ZULIP_RUST_ANALYTICS_TIME_BUCKETS") == "1"
+        enabled = os.environ.get("ZULIP_RUST_ANALYTICS_TIME_BUCKETS") == "1" or (
+            supports_default_rust_backend()
+            and getattr(stats._rust_time_buckets, "ANALYTICS_TIME_BUCKETS_API", None) == 1
+        )
         helper = stats._plan_analytics_time_buckets
         if enabled:
             self.assertIsNotNone(helper)

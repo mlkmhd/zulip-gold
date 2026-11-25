@@ -309,7 +309,8 @@ mod _zulip_backend {
         module.add("DIGEST_TOPIC_RANK_API", 1)?;
         module.add("ANALYTICS_CLIENT_SERIES_API", 1)?;
         module.add("ANALYTICS_CHART_ORDER_API", 1)?;
-        module.add("ANALYTICS_SUBGROUP_PROJECTION_API", 1)
+        module.add("ANALYTICS_SUBGROUP_PROJECTION_API", 1)?;
+        module.add("ANALYTICS_TIME_BUCKETS_API", 1)
     }
 
     #[pymodule_export]

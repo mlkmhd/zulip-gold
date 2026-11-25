@@ -71,10 +71,8 @@ _order_analytics_chart_clients = getattr(_rust_chart_order, "order_analytics_cha
 
 
 try:
-    _rust_time_buckets = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_ANALYTICS_TIME_BUCKETS") == "1"
-        else None
+    _rust_time_buckets = load_native_contract(
+        "ZULIP_RUST_ANALYTICS_TIME_BUCKETS", "ANALYTICS_TIME_BUCKETS_API"
     )
 except ImportError:
     _rust_time_buckets = None

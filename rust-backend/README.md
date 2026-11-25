@@ -5791,20 +5791,17 @@ done
 
 ### Plan prepared analytics chart time buckets through Rust
 
-Set `ZULIP_RUST_ANALYTICS_TIME_BUCKETS=1` before starting Django to
-plan hourly or daily buckets from already selected built-in UTC dates
-in chart reads. Python retains range selection, datetime creation and
-fallbacks. The shared Python generator and database population command
-are unchanged.
+On Ubuntu 24.04 x86-64 a wheel exporting `ANALYTICS_TIME_BUCKETS_API = 1`
+plans hourly and daily buckets from selected built-in UTC dates without
+a flag. Django still selects the range and creates datetime objects.
+The shared time-range generator and database population are unchanged.
 
-The switch defaults to off. A missing extension method, unsupported
-input, or overflow keeps Python's original time range and exceptions.
-Test both modes with synthetic boundaries:
+Unsupported values, older or missing wheels, and arithmetic outside
+the native contract keep the original result or exception.
+`ZULIP_RUST_ANALYTICS_TIME_BUCKETS=1` remains an explicit option.
 
 ```bash
-for enabled in 0 1; do
-    ZULIP_RUST_ANALYTICS_TIME_BUCKETS=$enabled ./tools/test-backend analytics.tests.test_time_buckets_rust
-done
+env -u ZULIP_RUST_ANALYTICS_TIME_BUCKETS ./tools/test-backend analytics.tests.test_time_buckets_rust
 ```
 
 ### Join prepared Slack import text pieces through Rust
