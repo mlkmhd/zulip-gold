@@ -3,7 +3,6 @@
 import logging
 import os
 from functools import lru_cache
-from importlib import import_module
 from typing import Any
 
 import orjson
@@ -12,15 +11,12 @@ from django.http import HttpRequest
 from django.utils import translation
 from django.utils.translation.trans_real import parse_accept_lang_header
 
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.request import RequestNotes
 from zerver.models import Realm
 
 try:
-    _rust_locale_catalog = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_LOCALE_CATALOG") == "1"
-        else None
-    )
+    _rust_locale_catalog = load_native_contract("ZULIP_RUST_LOCALE_CATALOG", "LOCALE_CATALOG_API")
 except ImportError:
     _rust_locale_catalog = None
 

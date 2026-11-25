@@ -6,6 +6,7 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 
 from zerver.lib import i18n
+from zerver.lib.native_backend import supports_default_rust_backend
 
 
 class LocaleCatalogRustTest(TestCase):
@@ -33,7 +34,6 @@ class LocaleCatalogRustTest(TestCase):
         self.assertEqual(project([], "en", 5), [])
         self.assertEqual(lookup([], "missing"), (None,))
         self.assertIsNone(lookup([{"code": "en", "name": "Missing locale"}], "en"))
-        self.assertIsNone(lookup(rows, "\ud800"))
         self.assertIsNone(project(rows, "en", True))
         for percentage in (True, 5.0, 2**90, None):
             self.assertIsNone(
@@ -48,10 +48,29 @@ class LocaleCatalogRustTest(TestCase):
         self.assertIsNone(lookup([row_with_custom_key], "en"))
         self.assertIsNone(project([row_with_custom_key], "en", 5))
 
+    def test_exact_catalog_strings_retain_every_surrogate(self) -> None:
+        try:
+            module = import_module("_zulip_backend")
+        except ImportError:
+            self.skipTest("Rust locale catalog projection is not available")
+        if getattr(module, "LOCALE_CATALOG_API", None) != 1:
+            self.skipTest("Wheel predates the surrogate-safe locale contract")
+        for point in range(0xD800, 0xE000):
+            key = "locale-" + chr(point)
+            label = "Label " + chr(point)
+            rows = [{"code": key, "locale": "alias-" + chr(point), "name": label}]
+            self.assertIs(module.lookup_catalog_display_name(rows, key)[0], label)
+            self.assertIs(module.lookup_catalog_display_name(rows, rows[0]["locale"])[0], label)
+            self.assertEqual(module.lookup_catalog_display_name(rows, key + "missing"), (None,))
+            self.assertIs(module.project_catalog_language_codes(rows, key, 5)[0], key)
+
 
 class LocaleCatalogIntegrationTest(SimpleTestCase):
-    def test_real_wrappers_follow_flag_and_reuse_single_catalog(self) -> None:
-        enabled = os.environ.get("ZULIP_RUST_LOCALE_CATALOG") == "1"
+    def test_real_wrappers_follow_startup_contract_and_reuse_single_catalog(self) -> None:
+        enabled = os.environ.get("ZULIP_RUST_LOCALE_CATALOG") == "1" or (
+            supports_default_rust_backend()
+            and getattr(i18n._rust_locale_catalog, "LOCALE_CATALOG_API", None) == 1
+        )
         lookup = i18n._lookup_catalog_display_name
         project = i18n._project_catalog_language_codes
         if enabled:
@@ -96,6 +115,27 @@ class LocaleCatalogIntegrationTest(SimpleTestCase):
                 assert called_project is not None
                 called_lookup.assert_called_once_with(rows, code)
                 called_project.assert_called_once_with(rows, "en", 5)
+
+    def test_compiled_language_catalog_preserves_names_and_availability(self) -> None:
+        if not supports_default_rust_backend() or os.environ.get("ZULIP_RUST_LOCALE_CATALOG"):
+            self.skipTest("No-flag startup is tested on Ubuntu 24.04 x86-64")
+        try:
+            backend = import_module("_zulip_backend")
+        except ImportError:
+            self.skipTest("Rust locale catalog projection is not available")
+        if getattr(backend, "LOCALE_CATALOG_API", None) != 1:
+            self.skipTest("Wheel predates the default locale contract")
+        self.assertIs(i18n._rust_locale_catalog, backend)
+        rows = i18n.get_language_list()
+        codes = {row["code"] for row in rows} | {row["locale"] for row in rows}
+        with (
+            patch.object(i18n, "_lookup_catalog_display_name", None),
+            patch.object(i18n, "_project_catalog_language_codes", None),
+        ):
+            expected_names = {code: i18n.get_language_name(code) for code in codes}
+            expected_visible = i18n.get_available_language_codes()
+        self.assertEqual({code: i18n.get_language_name(code) for code in codes}, expected_names)
+        self.assertEqual(i18n.get_available_language_codes(), expected_visible)
 
     def test_lookup_miss_and_declined_lookup_keep_logging(self) -> None:
         rows = [{"code": "fa", "locale": "fa_IR", "name": "Persian"}]

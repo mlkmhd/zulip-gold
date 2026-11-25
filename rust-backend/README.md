@@ -5713,19 +5713,18 @@ env -u ZULIP_RUST_WIDGET_TEXT -u ZULIP_RUST_WIDGET_SHORTHAND \
 
 ### Read prepared language catalog metadata through Rust
 
-Set `ZULIP_RUST_LOCALE_CATALOG=1` before starting Django to look up a
-display name or collect available language codes from an already loaded
-catalog. Python still loads the catalog, applies the availability
-threshold, logs missing names, and owns request language selection.
+On Ubuntu 24.04 x86-64 a wheel exporting `LOCALE_CATALOG_API = 1`
+uses Rust to look up a display name or collect available language codes
+from the loaded catalog without a flag. It preserves exact code spelling
+and order, including isolated surrogate values, and leaves logging of
+unknown names, translations, and request language selection in Django.
 
-The switch defaults to off. A missing extension or symbol, or an
-unsupported input, keeps the original Python lookup or projection.
-Test both modes in an isolated environment:
+An absent or older wheel or unconventional entries retain the existing
+behavior. `ZULIP_RUST_LOCALE_CATALOG=1` still enables the earlier opt-in.
+With the matching wheel and the generated language catalog:
 
 ```bash
-for enabled in 0 1; do
-    ZULIP_RUST_LOCALE_CATALOG=$enabled ./tools/test-backend zerver.tests.test_locale_catalog_rust
-done
+env -u ZULIP_RUST_LOCALE_CATALOG ./tools/test-backend zerver.tests.test_locale_catalog_rust
 ```
 
 ### Format prepared analytics client chart series through Rust
