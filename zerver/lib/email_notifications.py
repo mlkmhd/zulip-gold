@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from email.headerregistry import Address
 from email.utils import format_datetime as email_format_datetime
-from importlib import import_module
 from typing import Any, cast
 
 import lxml.html
@@ -30,6 +29,7 @@ from zerver.lib.display_recipient import get_display_recipient
 from zerver.lib.markdown.fenced_code import FENCE_RE
 from zerver.lib.message import bulk_access_messages
 from zerver.lib.message_cache import MessageDict
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.notification_data import get_mentioned_user_group
 from zerver.lib.queue import queue_event_on_commit
 from zerver.lib.send_email import FromAddress, send_future_email
@@ -70,16 +70,9 @@ class MessageListPayload:
 
 logger = logging.getLogger(__name__)
 
-try:
-    _rust_email_plain_prefix = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_EMAIL_PLAIN_PREFIX") == "1"
-        else None
-    )
-except ModuleNotFoundError as error:
-    if error.name != "_zulip_backend":
-        raise
-    _rust_email_plain_prefix = None
+_rust_email_plain_prefix = load_native_contract(
+    "ZULIP_RUST_EMAIL_PLAIN_PREFIX", "EMAIL_PLAIN_PREFIX_API"
+)
 
 
 def relative_to_full_url(fragment: lxml.html.HtmlElement, base_url: str) -> None:

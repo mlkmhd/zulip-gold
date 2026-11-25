@@ -13,6 +13,7 @@ from typing_extensions import override
 
 from zerver.lib import email_notifications
 from zerver.lib.email_notifications import MessageListPayload, build_message_list
+from zerver.lib.native_backend import supports_default_rust_backend
 from zerver.models import Message, Realm, Recipient, UserProfile
 
 
@@ -108,7 +109,9 @@ class EmailPlainPrefixDjangoDispatchRustTest(SimpleTestCase):
 
     def test_real_builder_only_passes_processed_plaintext_and_keeps_html(self) -> None:
         native = extension()
-        enabled = environ.get("ZULIP_RUST_EMAIL_PLAIN_PREFIX") == "1"
+        enabled = environ.get("ZULIP_RUST_EMAIL_PLAIN_PREFIX") == "1" or (
+            supports_default_rust_backend() and getattr(native, "EMAIL_PLAIN_PREFIX_API", None) == 1
+        )
         self.assertIs(email_notifications._rust_email_plain_prefix, native if enabled else None)
         opener = "```spoiler title"
         closure = "```"
