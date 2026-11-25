@@ -118,3 +118,8 @@ class MarkdownCodeBlockTest(TestCase):
                 self.render("  first\n\n\n  second\nnormal"),
                 "<pre><code>first\n\n\nsecond\n</code></pre>\n<p>normal</p>",
             )
+
+    def test_custom_escape_stays_on_reference_code_block_path(self) -> None:
+        with mock.patch("markdown.util.code_escape", return_value="custom-escaped") as escape:
+            self.assertEqual(self.render("  stock <&>"), "<pre><code>custom-escaped\n</code></pre>")
+        escape.assert_called_once_with("stock <&>")

@@ -355,6 +355,7 @@ mod _zulip_backend {
         module.add("MARKDOWN_HORIZONTAL_RULES_API", 1)?;
         module.add("MARKDOWN_PARAGRAPHS_API", 1)?;
         module.add("MARKDOWN_BLOCKQUOTES_API", 1)?;
+        module.add("MARKDOWN_CODE_BLOCKS_API", 1)?;
         module.add("DISPLAY_RECIPIENT_ORDER_API", 1)
     }
 
