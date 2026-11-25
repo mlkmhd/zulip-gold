@@ -16,7 +16,7 @@ from zerver.models import Draft, UserProfile
 @draft_endpoint
 def fetch_drafts(request: HttpRequest, user_profile: UserProfile) -> HttpResponse:
     user_drafts = Draft.objects.filter(user_profile=user_profile).order_by("last_edit_time")
-    draft_dicts = [draft.to_dict() for draft in user_drafts]
+    draft_dicts = [draft.to_dict(rust_display_for_get=True) for draft in user_drafts]
     return json_success(request, data={"count": user_drafts.count(), "drafts": draft_dicts})
 
 

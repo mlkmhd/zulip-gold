@@ -6937,3 +6937,14 @@ formatted condition, policy and custom-detail values with comma and space.
 Python still validates, chooses and formats the individual values and
 retains message and webhook behavior. The switch defaults off, with Python
 fallback for absent, older, declining or unsupported extensions.
+
+
+### Assemble prepared draft GET display fields in Rust
+
+On Ubuntu 24.04 x86-64 with a wheel exporting `DRAFT_GET_DISPLAY_API = 1`,
+Django's draft GET uses Rust for the final response dictionaries without
+a flag. The existing owner-filtered query, synchronization preference,
+recipient lookup, timestamp conversion and response envelope are unchanged.
+The new default does not affect bootstrap, writes or events. It falls back
+with older or absent wheels and does not override the existing explicit
+`ZULIP_RUST_DRAFT_SERIALIZATION=1` path.

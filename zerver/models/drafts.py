@@ -6,6 +6,7 @@ from django.db import models
 from typing_extensions import override
 
 from zerver.lib.display_recipient import get_display_recipient, get_recipient_ids
+from zerver.lib.native_backend import load_native_contract
 from zerver.models.constants import MAX_TOPIC_NAME_LENGTH
 from zerver.models.recipients import Recipient
 from zerver.models.users import UserProfile
@@ -15,6 +16,12 @@ _rust_draft_serialization = (
     if os.environ.get("ZULIP_RUST_DRAFT_SERIALIZATION") == "1"
     else None
 )
+
+
+_rust_draft_get_display = load_native_contract(
+    "ZULIP_RUST_DRAFT_GET_DISPLAY", "DRAFT_GET_DISPLAY_API"
+)
+_render_prepared_draft = getattr(_rust_draft_get_display, "render_prepared_draft", None)
 
 
 class Draft(models.Model):
@@ -32,7 +39,7 @@ class Draft(models.Model):
     def __str__(self) -> str:
         return f"{self.user_profile.email} / {self.id} / {self.last_edit_time}"
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, rust_display_for_get: bool = False) -> dict[str, Any]:
         if _rust_draft_serialization is not None:
             channel_id = None
             dm_members = None
@@ -55,11 +62,21 @@ class Draft(models.Model):
             )
 
         to, recipient_type_str = get_recipient_ids(self.recipient, self.user_profile_id)
+        draft_id = self.id
+        topic = self.topic
+        content = self.content
+        timestamp = int(self.last_edit_time.timestamp())
+        if rust_display_for_get and callable(_render_prepared_draft):
+            row = _render_prepared_draft(
+                (draft_id, recipient_type_str, to, topic, content, timestamp)
+            )
+            if type(row) is dict:
+                return row
         return {
-            "id": self.id,
+            "id": draft_id,
             "type": recipient_type_str,
             "to": to,
-            "topic": self.topic,
-            "content": self.content,
-            "timestamp": int(self.last_edit_time.timestamp()),
+            "topic": topic,
+            "content": content,
+            "timestamp": timestamp,
         }

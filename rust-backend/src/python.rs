@@ -313,7 +313,8 @@ mod _zulip_backend {
         module.add("ANALYTICS_TIME_BUCKETS_API", 1)?;
         module.add("ANALYTICS_CHART_TIMESTAMP_API", 1)?;
         module.add("SAVED_SNIPPET_DISPLAY_API", 1)?;
-        module.add("NAVIGATION_VIEW_DISPLAY_API", 1)
+        module.add("NAVIGATION_VIEW_DISPLAY_API", 1)?;
+        module.add("DRAFT_GET_DISPLAY_API", 1)
     }
 
     #[pymodule_export]
@@ -538,6 +539,9 @@ mod _zulip_backend {
 
     #[pymodule_export]
     use crate::python_navigation_view_display::render_navigation_view_display_rows;
+
+    #[pymodule_export]
+    use crate::python_draft_display::render_prepared_draft;
 
     #[pymodule_export]
     use crate::python_gong_display::{format_gong_duration_display, join_gong_topic_display};

@@ -311,6 +311,9 @@ mod python_saved_snippet_display;
 mod python_navigation_view_display;
 
 #[cfg(feature = "python")]
+mod python_draft_display;
+
+#[cfg(feature = "python")]
 mod python_gong_display;
 
 #[cfg(feature = "python")]
