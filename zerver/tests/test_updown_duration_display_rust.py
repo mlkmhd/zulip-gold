@@ -1,8 +1,11 @@
+import os
 from importlib import import_module
+from random import Random
 from typing import Any
 from unittest import TestCase
 from unittest.mock import patch
 
+from zerver.lib.native_backend import supports_default_rust_backend
 from zerver.lib.validator import wrap_wild_value
 from zerver.webhooks.updown import view
 
@@ -29,6 +32,28 @@ class UpdownDurationDisplayRustTest(TestCase):
         for invalid in (None, "1", 1.0, True, Derived(1), -(2**63) - 1, 2**63):
             self.assertIsNone(format_duration(invalid))
 
+    def test_signed_seconds_match_at_boundaries_and_across_i64(self) -> None:
+        try:
+            native = import_module("_zulip_backend").format_updown_duration_display
+        except (ImportError, AttributeError):
+            self.skipTest("Rust Updown duration display is not available")
+
+        random = Random(834219)
+        minimum, maximum = -(2**63), 2**63 - 1
+        samples = [
+            multiplier * unit + offset
+            for unit in (1, 60, 3600, 86400)
+            for multiplier in (-100, -2, -1, 0, 1, 2, 100)
+            for offset in (-2, -1, 0, 1, 2)
+        ]
+        samples += [minimum, minimum + 1, maximum - 1, maximum]
+        samples += [random.randint(minimum, maximum) for _ in range(4096)]
+        with patch.object(view, "_rust_format_updown_duration_display", None):
+            for value in samples:
+                self.assertEqual(
+                    native(value), view.get_time_string_based_on_duration(value), value
+                )
+
     def test_existing_presentation_exact_for_signed_seconds(self) -> None:
         samples = [
             (0, ""),
@@ -47,6 +72,11 @@ class UpdownDurationDisplayRustTest(TestCase):
 
     def test_existing_formatter_passes_exact_seconds_only(self) -> None:
         native = view._rust_format_updown_duration_display
+        enabled = os.environ.get("ZULIP_RUST_UPDOWN_DURATION_DISPLAY") == "1" or (
+            supports_default_rust_backend()
+            and getattr(view._rust_updown_duration, "UPDOWN_DURATION_DISPLAY_API", None) == 1
+        )
+        self.assertEqual(callable(native), enabled)
         if native is not None:
             with patch.object(view, "_rust_format_updown_duration_display", wraps=native) as spy:
                 self.assertEqual(

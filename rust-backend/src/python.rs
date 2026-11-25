@@ -320,7 +320,8 @@ mod _zulip_backend {
         module.add("GONG_DISPLAY_API", 1)?;
         module.add("NEWRELIC_DISPLAY_LIST_API", 1)?;
         module.add("REDMINE_DISPLAY_API", 1)?;
-        module.add("GIT_DISPLAY_PEOPLE_API", 1)
+        module.add("GIT_DISPLAY_PEOPLE_API", 1)?;
+        module.add("UPDOWN_DURATION_DISPLAY_API", 1)
     }
 
     #[pymodule_export]
