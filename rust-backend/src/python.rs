@@ -306,7 +306,8 @@ mod _zulip_backend {
         module.add("ONBOARDING_TEXT_API", 1)?;
         module.add("LOCALE_CATALOG_API", 1)?;
         module.add("EMAIL_PLAINTEXT_SURROGATES", 1)?;
-        module.add("DIGEST_TOPIC_RANK_API", 1)
+        module.add("DIGEST_TOPIC_RANK_API", 1)?;
+        module.add("ANALYTICS_CLIENT_SERIES_API", 1)
     }
 
     #[pymodule_export]

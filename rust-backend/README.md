@@ -5725,19 +5725,17 @@ env -u ZULIP_RUST_LOCALE_CATALOG ./tools/test-backend zerver.tests.test_locale_c
 
 ### Format prepared analytics client chart series through Rust
 
-Set `ZULIP_RUST_ANALYTICS_CLIENT_SERIES=1` before starting Django to
-rename and sum already computed client chart arrays. The helper keeps
-first-seen order and copies arrays before returning them. Python still
-selects the statistic, queries values, and controls visibility.
+On Ubuntu 24.04 x86-64 a wheel exporting `ANALYTICS_CLIENT_SERIES_API = 1`
+renames and sums already computed client chart arrays without a flag.
+It keeps first-seen order, copies arrays before returning them, and does
+not alter the selected statistic, queries, visibility, or other charts.
 
-The switch defaults to off. An absent or older extension, unsupported
-input, or a sum outside Rust's integer range uses the original Python
-implementation. Test both modes with synthetic chart arrays:
+Older or absent wheels, unsupported inputs, and sums outside Rust's
+integer range retain the original behavior. The explicit
+`ZULIP_RUST_ANALYTICS_CLIENT_SERIES=1` option remains available.
 
 ```bash
-for enabled in 0 1; do
-    ZULIP_RUST_ANALYTICS_CLIENT_SERIES=$enabled ./tools/test-backend analytics.tests.test_client_series_rust
-done
+env -u ZULIP_RUST_ANALYTICS_CLIENT_SERIES ./tools/test-backend analytics.tests.test_client_series_rust
 ```
 
 ### Order prepared analytics chart labels through Rust

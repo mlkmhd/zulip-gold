@@ -10,6 +10,7 @@ from typing_extensions import override
 from analytics.lib.counts import COUNT_STATS
 from analytics.models import RealmCount
 from analytics.views import stats
+from zerver.lib.native_backend import supports_default_rust_backend
 
 
 class ClientSeriesRustTest(TestCase):
@@ -66,7 +67,10 @@ class ClientSeriesRustTest(TestCase):
 
 class ClientSeriesIntegrationTest(SimpleTestCase):
     def test_existing_chart_path_only_rewrites_selected_client_arrays(self) -> None:
-        enabled = os.environ.get("ZULIP_RUST_ANALYTICS_CLIENT_SERIES") == "1"
+        enabled = os.environ.get("ZULIP_RUST_ANALYTICS_CLIENT_SERIES") == "1" or (
+            supports_default_rust_backend()
+            and getattr(stats._rust_client_series, "ANALYTICS_CLIENT_SERIES_API", None) == 1
+        )
         helper = stats._rewrite_analytics_client_series
         if enabled:
             self.assertIsNotNone(helper)

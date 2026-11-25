@@ -33,6 +33,7 @@ from zerver.decorator import (
 )
 from zerver.lib.exceptions import JsonableError
 from zerver.lib.i18n import get_and_set_request_language, get_language_translation_data
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.response import json_success
 from zerver.lib.streams import access_stream_by_id
 from zerver.lib.timestamp import convert_to_UTC
@@ -47,10 +48,8 @@ MAX_TIME_FOR_FULL_ANALYTICS_GENERATION = timedelta(days=1, minutes=30)
 
 
 try:
-    _rust_client_series = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_ANALYTICS_CLIENT_SERIES") == "1"
-        else None
+    _rust_client_series = load_native_contract(
+        "ZULIP_RUST_ANALYTICS_CLIENT_SERIES", "ANALYTICS_CLIENT_SERIES_API"
     )
 except ImportError:
     _rust_client_series = None
