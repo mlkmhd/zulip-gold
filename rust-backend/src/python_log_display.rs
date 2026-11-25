@@ -1,5 +1,6 @@
 //! Two literal presentation steps over data already prepared by Python.
 
+use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyString};
 
@@ -8,11 +9,18 @@ pub(crate) fn log_level_display_prefix<'py>(
     level_name: &Bound<'py, PyAny>,
 ) -> Option<Bound<'py, PyString>> {
     let level_name = level_name.cast_exact::<PyString>().ok()?;
-    let text = level_name.to_str().ok()?;
-    Some(match text.char_indices().nth(4) {
-        Some((end, _)) => PyString::new(level_name.py(), &text[..end]),
-        None => level_name.clone(),
-    })
+    let text = python_string_bytes(level_name)?;
+    // Each non-continuation byte starts one Python code point, including
+    // a lone surrogate encoded with surrogatepass.
+    match text
+        .iter()
+        .enumerate()
+        .filter(|(_, byte)| **byte & 0xc0 != 0x80)
+        .nth(4)
+    {
+        Some((end, _)) => python_string_from_bytes(level_name.py(), &text[..end]),
+        None => Some(level_name.clone()),
+    }
 }
 
 #[pyfunction]

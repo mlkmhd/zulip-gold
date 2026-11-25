@@ -1,5 +1,4 @@
 import logging
-import os
 from importlib import import_module
 from typing import SupportsIndex
 from unittest import TestCase
@@ -27,7 +26,14 @@ class LogDisplayRustTest(TestCase):
         class Derived(str):
             __slots__ = ()
 
-        for invalid in (Derived("test"), "\ud800abcd", b"test", 0, None):
+        if getattr(module, "LOG_DISPLAY_API", None) == 1:
+            surrogates = range(0xD800, 0xE000)
+            for ch in map(chr, surrogates):
+                prepared = f"é{ch}🙂a{ch}bc"
+                self.assertEqual(prefix(prepared), prepared[:4])
+            short_surrogate = "prefix:\ud800🙂\udfff".removeprefix("prefix:")
+            self.assertIs(prefix(short_surrogate), short_surrogate)
+        for invalid in (Derived("test"), b"test", 0, None):
             self.assertIsNone(prefix(invalid))
         self.assertEqual(
             template(True),
@@ -42,8 +48,6 @@ class LogDisplayRustTest(TestCase):
 
     def test_abbreviation_keeps_the_original_eager_slice_and_level_map(self) -> None:
         native = logging_util._rust_log_level_display_prefix
-        if os.environ.get("ZULIP_RUST_LOG_DISPLAY") != "1":
-            self.assertIsNone(native)
         spy = Mock(wraps=native) if native is not None else None
         short = "آ🙂"
         visits: list[str] = []
@@ -72,8 +76,6 @@ class LogDisplayRustTest(TestCase):
 
     def test_standard_formatter_only_changes_the_literal_template_computation(self) -> None:
         native = logging_util._rust_standard_log_display_format
-        if os.environ.get("ZULIP_RUST_LOG_DISPLAY") != "1":
-            self.assertIsNone(native)
         for include_pid in (False, True):
             spy = Mock(wraps=native) if native is not None else None
             record = logging.LogRecord(

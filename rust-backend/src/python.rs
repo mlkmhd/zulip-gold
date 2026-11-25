@@ -336,6 +336,7 @@ mod _zulip_backend {
         module.add("TIMEZONE_ALIAS_SOURCE_API", 1)?;
         module.add("TIME_DISPLAY_API", 1)?;
         module.add("DESCRIPTION_TEXT_API", 1)?;
+        module.add("LOG_DISPLAY_API", 1)?;
         module.add("DISPLAY_RECIPIENT_ORDER_API", 1)
     }
 

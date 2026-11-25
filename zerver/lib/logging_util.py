@@ -1,13 +1,11 @@
 # System documented in https://zulip.readthedocs.io/en/latest/subsystems/logging.html
 import hashlib
 import logging
-import os
 import threading
 import traceback
 from collections.abc import Iterable
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
-from importlib import import_module
 from logging import Logger
 from logging.handlers import WatchedFileHandler
 
@@ -18,10 +16,10 @@ from django.http import HttpRequest
 from django.utils.timezone import now as timezone_now
 from typing_extensions import override
 
+from zerver.lib.native_backend import load_native_contract
+
 try:
-    _rust_log_display = (
-        import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_LOG_DISPLAY") == "1" else None
-    )
+    _rust_log_display = load_native_contract("ZULIP_RUST_LOG_DISPLAY", "LOG_DISPLAY_API")
 except ImportError:
     _rust_log_display = None
 
