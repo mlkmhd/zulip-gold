@@ -1,8 +1,6 @@
 import contextlib
-import os
 import re
 from datetime import datetime, timezone
-from importlib import import_module
 from itertools import zip_longest
 from typing import Any, Literal, TypeAlias, TypedDict, cast
 
@@ -10,6 +8,7 @@ import regex
 from django.core.exceptions import ValidationError
 from requests.utils import requote_uri
 
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.timestamp import datetime_to_global_time
 from zerver.lib.types import Validator
 from zerver.lib.validator import (
@@ -30,10 +29,8 @@ SlackFieldsT: TypeAlias = dict[str, Any]
 
 
 try:
-    _rust_slack_import_pieces = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_SLACK_IMPORT_PIECES") == "1"
-        else None
+    _rust_slack_import_pieces = load_native_contract(
+        "ZULIP_RUST_SLACK_IMPORT_PIECES", "SLACK_IMPORT_PIECES_API"
     )
 except ImportError:
     _rust_slack_import_pieces = None
@@ -44,10 +41,8 @@ _rust_join_slack_import_pieces = getattr(
 
 
 try:
-    _rust_slack_field_display = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_SLACK_FIELD_DISPLAY") == "1"
-        else None
+    _rust_slack_field_display = load_native_contract(
+        "ZULIP_RUST_SLACK_FIELD_DISPLAY", "SLACK_FIELD_DISPLAY_API"
     )
 except ImportError:
     _rust_slack_field_display = None

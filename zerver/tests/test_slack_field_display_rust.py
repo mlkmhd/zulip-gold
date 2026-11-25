@@ -1,4 +1,3 @@
-import os
 from importlib import import_module
 from unittest import TestCase
 from unittest.mock import Mock, patch
@@ -29,14 +28,14 @@ class SlackFieldDisplayRustTest(TestCase):
         )
         self.assertIsNone(table(["not cleaned\n"]))
         self.assertIsNone(table(["not | cleaned"]))
-        self.assertIsNone(table(["\ud800"]))
-        self.assertIsNone(join(["ok", "\ud800"]))
+        if getattr(native, "SLACK_FIELD_DISPLAY_API", None) == 1:
+            special = "".join(map(chr, range(0xD800, 0xE000))) + "🙂"
+            self.assertEqual(table([special]), f"| | |\n|-|-|\n| {special} |  |\n")
+            self.assertEqual(join(["ok", special]), f"ok\n{special}")
         self.assertIsNone(join((first,)))
 
     def test_section_cleanup_and_single_field_bypass_are_python_owned(self) -> None:
         native = converter._rust_assemble_prepared_slack_section_table
-        if os.environ.get("ZULIP_RUST_SLACK_FIELD_DISPLAY") != "1":
-            self.assertIsNone(native)
         spy = Mock(wraps=native) if native is not None else None
         block = {
             "type": "section",
@@ -60,8 +59,6 @@ class SlackFieldDisplayRustTest(TestCase):
 
     def test_attachment_only_joins_original_preformatted_rows(self) -> None:
         native = converter._rust_join_prepared_slack_attachment_fields
-        if os.environ.get("ZULIP_RUST_SLACK_FIELD_DISPLAY") != "1":
-            self.assertIsNone(native)
         spy = Mock(wraps=native) if native is not None else None
         with patch.object(converter, "_rust_join_prepared_slack_attachment_fields", spy):
             actual = converter.render_attachment(

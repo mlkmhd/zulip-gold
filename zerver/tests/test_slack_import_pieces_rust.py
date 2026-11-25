@@ -1,4 +1,3 @@
-import os
 from importlib import import_module
 from unittest import TestCase
 from unittest.mock import call, patch
@@ -13,7 +12,8 @@ from zerver.lib.validator import wrap_wild_value
 class SlackImportPiecesRustTest(TestCase):
     def test_trim_drop_join_and_identity(self) -> None:
         try:
-            join = import_module("_zulip_backend").join_slack_import_pieces
+            backend = import_module("_zulip_backend")
+            join = backend.join_slack_import_pieces
         except (ImportError, AttributeError):
             self.skipTest("Rust Slack piece assembly is unavailable")
 
@@ -25,18 +25,20 @@ class SlackImportPiecesRustTest(TestCase):
         self.assertEqual(join(["\r", " "], "\n"), "")
         self.assertIsNone(join(["a", "b"], "|"))
         self.assertIsNone(join(("a", "b"), "\n"))
-        self.assertIsNone(join(["a", "\ud800"], "\n"))
+        if getattr(backend, "SLACK_IMPORT_PIECES_API", None) == 1:
+            special = "".join(map(chr, range(0xD800, 0xE000))) + "🙂"
+            self.assertIs(join([" ", special], "\n"), special)
+            values = ["\u2028" + special + "\u3000", "\u3000", "\u2002\udfff"]
+            for separator in ("\n", "\n\n"):
+                expected = separator.join(piece.strip() for piece in values if piece.strip())
+                self.assertEqual(join(values, separator), expected)
 
 
 class SlackImportPiecesIntegrationTest(SimpleTestCase):
-    def test_actual_prepared_join_sites_and_flag(self) -> None:
+    def test_actual_prepared_join_sites_and_native_selection(self) -> None:
         converter = slack_message_conversion
-        enabled = os.environ.get("ZULIP_RUST_SLACK_IMPORT_PIECES") == "1"
         method = converter._rust_join_slack_import_pieces
-        if enabled:
-            self.assertIsNotNone(method)
-        else:
-            self.assertIsNone(method)
+        enabled = method is not None
         native_spy = (
             patch.object(converter, "_rust_join_slack_import_pieces", wraps=method)
             if enabled
