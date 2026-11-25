@@ -5,6 +5,7 @@ pub mod draft_text;
 pub mod draft_timestamp;
 pub mod stream_color;
 pub mod user_status;
+pub mod widget_text;
 
 #[cfg(feature = "python")]
 mod attachment_access;
