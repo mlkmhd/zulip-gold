@@ -1,3 +1,4 @@
+import os
 from importlib import import_module
 from random import Random
 from types import ModuleType, SimpleNamespace
@@ -10,6 +11,7 @@ from django.utils.timezone import now as timezone_now
 
 from zerver.actions.realm_settings import do_set_realm_property
 from zerver.lib import native_topic_history
+from zerver.lib.native_backend import supports_default_rust_backend
 from zerver.lib.test_classes import ZulipTestCase
 from zerver.lib.topic import generate_topic_history_from_db_rows
 from zerver.models import Message, Stream, UserMessage
@@ -30,6 +32,31 @@ def extension() -> ModuleType:
 
 
 class TopicHistoryRustTest(ZulipTestCase):
+    def test_matching_wheel_formats_topic_history_without_flag(self) -> None:
+        if not supports_default_rust_backend() or os.environ.get("ZULIP_RUST_TOPIC_HISTORY"):
+            self.skipTest("No-flag startup is tested on Ubuntu 24.04 x86-64")
+        backend = extension()
+        if getattr(backend, "VISIBLE_TOPIC_HISTORY_API", None) != 1:
+            self.skipTest("Wheel predates the default topic history contract")
+        self.assertIs(native_topic_history._backend, backend)
+        reader = self.example_user("hamlet")
+        public = self.make_stream("Default native topic projection", is_web_public=True)
+        self.subscribe(reader, public.name)
+        message_id = self.send_stream_message(reader, public.name, topic_name="Native Topic")
+        with patch.object(
+            backend, "format_visible_topic_history", wraps=backend.format_visible_topic_history
+        ) as native:
+            result = self.api_get(
+                reader,
+                f"/api/v1/users/me/{public.id}/topics",
+                {"allow_empty_topic_name": "true"},
+            )
+        self.assertEqual(
+            self.assert_json_success(result)["topics"],
+            [{"name": "Native Topic", "max_id": message_id}],
+        )
+        native.assert_called_once()
+
     def test_ordinary_rows_case_order_and_legacy_shape(self) -> None:
         backend = extension()
         rng = Random(780319)

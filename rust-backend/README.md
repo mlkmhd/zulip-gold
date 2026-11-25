@@ -5483,30 +5483,27 @@ were not tested; deployment routing remains unchanged.
 
 ### Format visible topic history inside Django
 
-Set `ZULIP_RUST_TOPIC_HISTORY=1` to reuse the Rust topic-history
-formatter after Django admits the request and runs its existing query.
-Basic, signed web sessions, and web-public spectators still use their
-existing Django authorization, site and organization settings, and
-channel-history rules. Only the visible topics and their newest message
-IDs reach the formatter.
+On Ubuntu 24.04 x86-64, wheels exporting `VISIBLE_TOPIC_HISTORY_API = 1`
+use the Rust formatter by default after Django admits the request and runs
+its existing query. Basic, signed web sessions, and web-public spectators
+still use the same authorization, site and organization settings, and
+channel-history rules. Only already-visible topics and newest message IDs
+reach Rust.
 
-The shared formatter keeps the newest spelling of each case-insensitive
-topic and substitutes the legacy empty-topic label only after grouping.
-This preserves a distinct literal "general chat" topic. Non-ASCII
-casing uses the running Python interpreter. Unsupported row types or
-non-unique or non-descending IDs, older wheels, and an unset flag retain
-the original Python path. The option is off by default and does not
-route the JSON alias to the independent listener.
+The formatter keeps the newest spelling of each case-insensitive topic
+and substitutes the legacy empty label only after grouping. This preserves
+a distinct literal "general chat" topic. Non-ASCII casing uses the Python
+interpreter's rules. Unsupported rows, older wheels and installations
+without a wheel keep the previous behavior. The explicit
+`ZULIP_RUST_TOPIC_HISTORY=1` opt-in remains available. This does not route the
+JSON alias to the independent listener.
 
-With the extension on `PYTHONPATH` and a disposable Django test
-database:
+With the matching extension installed and a disposable Django database:
 
 ```sh
-for enabled in 0 1; do
-    ZULIP_RUST_TOPIC_HISTORY=$enabled ./tools/test-backend \
-        zerver.tests.test_message_topics.TopicHistoryTest \
-        zerver.tests.test_topic_history_rust.TopicHistoryRustTest
-done
+env -u ZULIP_RUST_TOPIC_HISTORY ./tools/test-backend \
+    zerver.tests.test_message_topics.TopicHistoryTest \
+    zerver.tests.test_topic_history_rust.TopicHistoryRustTest
 ```
 
 For 256 synthetic rows already read from the database, the formatting

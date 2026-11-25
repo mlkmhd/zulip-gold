@@ -1,26 +1,15 @@
 import json
 import os
-import platform
 import re
 from dataclasses import asdict, dataclass
 from importlib import import_module
 from typing import Any
 
 from zerver.lib.message import SendMessageRequest
+from zerver.lib.native_backend import supports_default_rust_backend
 from zerver.models import Message, SubMessage
 
-
-def _platform_supports_default_rust_widgets() -> bool:
-    if platform.system() != "Linux" or platform.machine() != "x86_64":
-        return False
-    try:
-        distro = platform.freedesktop_os_release()
-    except OSError:
-        return False
-    return distro.get("ID") == "ubuntu" and distro.get("VERSION_ID") == "24.04"
-
-
-_scoped_rust_widgets = _platform_supports_default_rust_widgets()
+_scoped_rust_widgets = supports_default_rust_backend()
 _widget_text_requested = os.environ.get("ZULIP_RUST_WIDGET_TEXT") == "1"
 _widget_shorthand_requested = os.environ.get("ZULIP_RUST_WIDGET_SHORTHAND") == "1"
 try:
