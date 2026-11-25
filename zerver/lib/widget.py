@@ -1,5 +1,6 @@
 import json
 import os
+import platform
 import re
 from dataclasses import asdict, dataclass
 from importlib import import_module
@@ -8,25 +9,40 @@ from typing import Any
 from zerver.lib.message import SendMessageRequest
 from zerver.models import Message, SubMessage
 
-try:
-    _rust_widget_text = (
-        import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_WIDGET_TEXT") == "1" else None
-    )
-except ImportError:
-    _rust_widget_text = None
 
-_extract_poll_widget_text = getattr(_rust_widget_text, "extract_poll_widget_text", None)
-_extract_todo_widget_text = getattr(_rust_widget_text, "extract_todo_widget_text", None)
+def _platform_supports_default_rust_widgets() -> bool:
+    if platform.system() != "Linux" or platform.machine() != "x86_64":
+        return False
+    try:
+        distro = platform.freedesktop_os_release()
+    except OSError:
+        return False
+    return distro.get("ID") == "ubuntu" and distro.get("VERSION_ID") == "24.04"
 
+
+_scoped_rust_widgets = _platform_supports_default_rust_widgets()
+_widget_text_requested = os.environ.get("ZULIP_RUST_WIDGET_TEXT") == "1"
+_widget_shorthand_requested = os.environ.get("ZULIP_RUST_WIDGET_SHORTHAND") == "1"
 try:
-    _rust_widget_shorthand = (
+    _rust_widgets = (
         import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_WIDGET_SHORTHAND") == "1"
+        if _scoped_rust_widgets or _widget_text_requested or _widget_shorthand_requested
         else None
     )
 except ImportError:
-    _rust_widget_shorthand = None
+    _rust_widgets = None
 
+# Only a wheel with the complete string and subclass contract can enable both paths.
+_default_rust_widgets = (
+    _scoped_rust_widgets and getattr(_rust_widgets, "WIDGET_PARSER_API", None) == 1
+)
+_rust_widget_text = _rust_widgets if _default_rust_widgets or _widget_text_requested else None
+_rust_widget_shorthand = (
+    _rust_widgets if _default_rust_widgets or _widget_shorthand_requested else None
+)
+
+_extract_poll_widget_text = getattr(_rust_widget_text, "extract_poll_widget_text", None)
+_extract_todo_widget_text = getattr(_rust_widget_text, "extract_todo_widget_text", None)
 _parse_widget_shorthand = getattr(_rust_widget_shorthand, "parse_widget_shorthand", None)
 _classify_widget_subclass = getattr(_rust_widget_shorthand, "classify_widget_subclass", None)
 

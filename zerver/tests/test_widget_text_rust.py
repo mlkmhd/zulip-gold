@@ -1,5 +1,6 @@
 import json
 import os
+import platform
 from importlib import import_module
 from typing import SupportsIndex
 from unittest import TestCase
@@ -93,8 +94,8 @@ class WidgetTextRustTest(TestCase):
 
 
 class WidgetTextIntegrationTest(SimpleTestCase):
-    def test_real_selected_parsers_follow_startup_flag(self) -> None:
-        enabled = os.environ.get("ZULIP_RUST_WIDGET_TEXT") == "1"
+    def test_real_selected_parsers_follow_startup_contract(self) -> None:
+        enabled = widget._default_rust_widgets or os.environ.get("ZULIP_RUST_WIDGET_TEXT") == "1"
         poll = widget._extract_poll_widget_text
         todo = widget._extract_todo_widget_text
         if enabled:
@@ -195,8 +196,10 @@ class WidgetTextIntegrationTest(SimpleTestCase):
 
 
 class WidgetShorthandRustTest(SimpleTestCase):
-    def test_exact_dispatch_under_startup_flag(self) -> None:
-        enabled = os.environ.get("ZULIP_RUST_WIDGET_SHORTHAND") == "1"
+    def test_exact_dispatch_under_startup_contract(self) -> None:
+        enabled = (
+            widget._default_rust_widgets or os.environ.get("ZULIP_RUST_WIDGET_SHORTHAND") == "1"
+        )
         native = widget._parse_widget_shorthand
         self.assertEqual(callable(native), enabled)
         examples = [
@@ -246,6 +249,37 @@ class WidgetShorthandRustTest(SimpleTestCase):
             self.assertEqual(native("/other"), (None, None))
             self.assertIsNone(native(b"/todo"))
             self.assertEqual(native("/poll\ud800"), (None, None))
+
+    def test_scoped_wheel_handles_both_parsers_without_flags(self) -> None:
+        if os.environ.get("ZULIP_RUST_WIDGET_TEXT") or os.environ.get(
+            "ZULIP_RUST_WIDGET_SHORTHAND"
+        ):
+            self.skipTest("This test exercises startup with no feature flags")
+        if platform.system() != "Linux":
+            self.skipTest("Automatic Rust widget parsing targets Linux")
+        distro = platform.freedesktop_os_release()
+        if distro.get("ID") != "ubuntu" or distro.get("VERSION_ID") != "24.04":
+            self.skipTest("Automatic Rust widget parsing targets Ubuntu 24.04")
+        if platform.machine() != "x86_64":
+            self.skipTest("Automatic Rust widget parsing targets x86-64")
+        try:
+            rust = import_module("_zulip_backend")
+        except ImportError:
+            self.skipTest("No native wheel")
+        if getattr(rust, "WIDGET_PARSER_API", None) != 1:
+            self.skipTest("Wheel predates the complete widget contract")
+        self.assertIs(widget._parse_widget_shorthand, rust.parse_widget_shorthand)
+        self.assertIs(widget._extract_poll_widget_text, rust.extract_poll_widget_text)
+        self.assertIs(widget._extract_todo_widget_text, rust.extract_todo_widget_text)
+        with patch.object(widget, "re", None):
+            self.assertEqual(
+                widget.get_widget_data("/poll question\n- yes"),
+                ("poll", {"question": "question", "options": ["yes"]}),
+            )
+            self.assertEqual(
+                widget.parse_todo_extra_data("list\n- first: details"),
+                widget.TodoData("list", [widget.TodoTaskData("first", "details")]),
+            )
 
     def test_native_result_preserves_surrogates_and_private_use_characters(self) -> None:
         try:
@@ -361,7 +395,10 @@ class WidgetShorthandRustTest(SimpleTestCase):
                     widget.get_widget_data(Mock(spec=str))
 
     def test_enabled_subclass_command_uses_native_classification_and_python_callbacks(self) -> None:
-        if os.environ.get("ZULIP_RUST_WIDGET_SHORTHAND") != "1":
+        if (
+            not widget._default_rust_widgets
+            and os.environ.get("ZULIP_RUST_WIDGET_SHORTHAND") != "1"
+        ):
             return
         classifier = widget._classify_widget_subclass
         assert classifier is not None

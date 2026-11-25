@@ -294,6 +294,11 @@ pub(crate) fn serialize_inline_plan(result: markdown_native_inline::State) -> Na
 mod _zulip_backend {
     use super::*;
 
+    #[pymodule_init]
+    fn export_capabilities(module: &Bound<'_, PyModule>) -> PyResult<()> {
+        module.add("WIDGET_PARSER_API", 1)
+    }
+
     #[pymodule_export]
     use crate::python_inline_checkpoint::MarkdownInlineCheckpoint;
 

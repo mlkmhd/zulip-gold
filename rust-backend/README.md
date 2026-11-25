@@ -5694,21 +5694,25 @@ for enabled in 0 1; do
 done
 ```
 
-### Extract selected poll and todo text through Rust
+### Parse poll and todo commands through Rust
 
-Set `ZULIP_RUST_WIDGET_TEXT=1` before starting Django to extract titles
-and ordered rows from already selected poll and todo plaintext.
-Python still selects the widget type, creates and serializes its
-dataclasses, validates inputs, and handles persistence and delivery.
+On Ubuntu 24.04 x86-64, a wheel exporting `WIDGET_PARSER_API = 1`
+makes Rust the default for `/poll` and `/todo`. It recognizes commands and
+extracts titles, options, tasks, and descriptions. Python still handles
+validation, dataclass serialization where needed, persistence, and delivery.
+The native parser preserves Unicode surrogates and Python string subclass
+callbacks.
 
-The switch defaults to off. A missing extension or symbol, a string
-subclass, or a string with lone surrogates keeps the original Python
-parser. Test both modes without sending messages or saving widgets:
+Install the wheel bundled with the release or staged for the same Git
+commit. An absent or older wheel does not enable the default. The
+`ZULIP_RUST_WIDGET_TEXT` and `ZULIP_RUST_WIDGET_SHORTHAND` switches still
+support the earlier explicit opt-ins on installations without the default.
+
+Test with the matching wheel installed and no widget flags:
 
 ```bash
-for enabled in 0 1; do
-    ZULIP_RUST_WIDGET_TEXT=$enabled ./tools/test-backend zerver.tests.test_widget_text_rust
-done
+env -u ZULIP_RUST_WIDGET_TEXT -u ZULIP_RUST_WIDGET_SHORTHAND \
+    ./tools/test-backend zerver.tests.test_widget_text_rust zerver.tests.test_widgets
 ```
 
 ### Read prepared language catalog metadata through Rust
