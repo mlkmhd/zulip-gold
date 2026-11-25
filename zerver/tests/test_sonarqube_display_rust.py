@@ -1,3 +1,4 @@
+import os
 from importlib import import_module
 from typing import SupportsIndex
 from unittest import TestCase
@@ -5,6 +6,7 @@ from unittest.mock import patch
 
 from typing_extensions import override
 
+from zerver.lib.native_backend import supports_default_rust_backend
 from zerver.lib.validator import WildValue, wrap_wild_value
 from zerver.webhooks.sonarqube import view
 
@@ -57,10 +59,24 @@ class SonarqubeDisplayRustTest(TestCase):
         self.assertEqual(metric(""), "")
         self.assertEqual(join(["", "آ\r😀", "", "tail\n"]), "\nآ\r😀\n\ntail\n")
         self.assertEqual(join([]), "")
-        for label in (Derived("text"), "\ud800", b"bits", 1):
+        for label in (Derived("text"), b"bits", 1):
             self.assertIsNone(metric(label))
-        for rows in ((single,), [Derived("a")], ["\ud800", "b"], [2]):
+        for rows in ((single,), [Derived("a")], [2]):
             self.assertIsNone(join(rows))
+
+    def test_all_surrogate_code_points_preserve_labels_and_condition_lines(self) -> None:
+        try:
+            module = import_module("_zulip_backend")
+        except ImportError:
+            self.skipTest("Wheel is absent")
+        if getattr(module, "SONARQUBE_DISPLAY_API", None) != 1:
+            self.skipTest("Wheel predates surrogate-safe SonarQube display")
+        for code in range(0xD800, 0xE000):
+            label = f"متن{chr(code)}\0😀"
+            self.assertIs(module.format_sonarqube_metric_label(label), label)
+            self.assertEqual(module.format_sonarqube_metric_label(f"_{label}__"), f" {label}  ")
+            self.assertIs(module.join_sonarqube_condition_lines([label]), label)
+            self.assertEqual(module.join_sonarqube_condition_lines(["", label, ""]), f"\n{label}\n")
 
     def test_existing_condition_selection_rendering_and_order(self) -> None:
         want = (
@@ -73,6 +89,12 @@ class SonarqubeDisplayRustTest(TestCase):
     def test_real_callsite_native_dispatch_uses_only_prepared_values(self) -> None:
         metric = view._rust_format_sonarqube_metric_label
         join = view._rust_join_sonarqube_condition_lines
+        enabled = os.environ.get("ZULIP_RUST_SONARQUBE_DISPLAY") == "1" or (
+            supports_default_rust_backend()
+            and getattr(view._rust_sonarqube_display, "SONARQUBE_DISPLAY_API", None) == 1
+        )
+        self.assertEqual(callable(metric), enabled)
+        self.assertEqual(callable(join), enabled)
         expected_rows = [
             "*  demo  متن : **other** 2 should be less than or equal to 4.",
             "* another 😀: **elevated**.",

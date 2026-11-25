@@ -1,10 +1,8 @@
 # Webhooks for external integrations.
-import os
-from importlib import import_module
-
 from django.http import HttpRequest, HttpResponse
 
 from zerver.decorator import webhook_view
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.response import json_success
 from zerver.lib.typed_endpoint import JsonBodyPayload, typed_endpoint
 from zerver.lib.validator import WildValue, check_none_or, check_string
@@ -12,10 +10,8 @@ from zerver.lib.webhooks.common import check_send_webhook_message
 from zerver.models import UserProfile
 
 try:
-    _rust_sonarqube_display = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_SONARQUBE_DISPLAY") == "1"
-        else None
+    _rust_sonarqube_display = load_native_contract(
+        "ZULIP_RUST_SONARQUBE_DISPLAY", "SONARQUBE_DISPLAY_API"
     )
 except ImportError:
     _rust_sonarqube_display = None

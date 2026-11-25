@@ -6796,13 +6796,12 @@ timestamp processing, routing and delivery. Unsupported values and
 older or absent wheels retain the original behavior; the explicit
 `ZULIP_RUST_UPDOWN_DURATION_DISPLAY=1` remains available.
 
-`ZULIP_RUST_SONARQUBE_DISPLAY=1` optionally replaces underscores with spaces
-in prepared SonarQube metric labels and joins already formatted condition
-lines with newlines. Django still validates values, selects and formats
-conditions, and controls URLs, routing and delivery. The helpers are off by
-default; a missing or older extension, unsupported input, or a native
-decline preserves the original Python behavior. This does not change
-independent Rust API coverage.
+On Ubuntu 24.04 x86-64 a wheel exporting `SONARQUBE_DISPLAY_API = 1`
+formats prepared metric labels and joins condition lines without a flag.
+All Python string code points and unchanged-value identity survive.
+Django still validates fields, selects conditions and controls routing,
+links and delivery. Older or absent wheels and unsupported inputs use the
+original behavior; explicit `ZULIP_RUST_SONARQUBE_DISPLAY=1` remains available.
 
 `ZULIP_RUST_GIT_COMMIT_SUMMARY_TEXT=1` optionally finishes already-rendered
 Git commit display rows with the literal omission suffix selected by Django
