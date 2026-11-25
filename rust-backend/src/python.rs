@@ -344,6 +344,9 @@ mod _zulip_backend {
     use crate::python_own_profile::assemble_own_profile;
 
     #[pymodule_export]
+    use crate::python_thumbnail_display_rank::rank_thumbnail_display;
+
+    #[pymodule_export]
     use crate::python_thumbnail_status::{
         thumbnail_has_stored_variant, thumbnail_missing_indexes, thumbnail_status_complete,
         thumbnail_transcode_indexes,

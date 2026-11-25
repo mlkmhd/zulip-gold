@@ -1,16 +1,19 @@
 import re
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from importlib import import_module
 from io import BytesIO, StringIO
+from os import environ
+from random import Random
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import orjson
 import pyvips
 from django.conf import settings
 from django.http import HttpRequest, StreamingHttpResponse
 from django.test import override_settings
+from typing_extensions import override
 
 from zerver.lib import native_thumbnail_status
 from zerver.lib.test_classes import ZulipTestCase
@@ -43,6 +46,7 @@ from zerver.lib.upload import (
     store_message_attachment,
 )
 from zerver.models import Attachment, ImageAttachment
+from zerver.views import upload
 from zerver.views.upload import closest_thumbnail_format, stored_thumbnail_variant
 from zerver.worker.thumbnail import ensure_thumbnails
 
@@ -1214,6 +1218,153 @@ class TestThumbnailRetrieval(ZulipTestCase):
             else [None, None, None]
         )
         self.assertEqual(results, expected)
+
+    def test_native_display_rank_matches_stable_python_order(self) -> None:
+        try:
+            backend = import_module("_zulip_backend")
+        except ModuleNotFoundError as error:
+            if error.name != "_zulip_backend":
+                raise
+            return
+        rank = getattr(backend, "rank_thumbnail_display", None)
+        if not callable(rank):
+            return
+
+        rng = Random(149271)
+        for length in range(1, 11):
+            for _ in range(40):
+                grades = [
+                    (
+                        bool(rng.randrange(2)),
+                        bool(rng.randrange(2)),
+                        rng.choice([-0.0, 0.0, -1.0, -0.1, -0.3, -0.8, -0.9000000000000001]),
+                        rng.randrange(5),
+                        rng.randrange(3),
+                    )
+                    for _ in range(length)
+                ]
+                self.assertEqual(rank(grades), min(range(length), key=grades.__getitem__))
+        tie = (False, False, -0.0, 3, 9)
+        self.assertEqual(rank([tie, (False, False, 0.0, 3, 9)]), 0)
+        for rejected in (
+            [],
+            [tie, (False, False, float("nan"), 3, 9)],
+            [tie, (False, False, float("inf"), 3, 9)],
+            [tie, (False, False, 0.0, 2**63, 9)],
+            [tie, (False, False, 0.0, 3, 2**63)],
+            [tie, (0, False, 0.0, 3, 9)],
+        ):
+            self.assertIsNone(rank(rejected))
+
+    def test_display_rank_fallback_keeps_grades_and_comparison_order(self) -> None:
+        requested = BaseThumbnailFormat("webp", 100, 75, False)
+        rows = [
+            StoredThumbnailFormat("webp", 100, 75, False, f"image/fixture-{i}", 100, 75, size)
+            for i, size in enumerate((20, 10, 1))
+        ]
+        request = HttpRequest()
+        with (
+            patch.object(upload, "_thumbnail_display_rank_backend", None),
+            self.assertRaises(ValueError) as baseline_empty,
+        ):
+            closest_thumbnail_format(requested, request, [])
+        decline = Mock(return_value=None)
+        malformed = Mock(return_value=100)
+        for backend in (
+            None,
+            SimpleNamespace(),
+            SimpleNamespace(rank_thumbnail_display=decline),
+            SimpleNamespace(rank_thumbnail_display=malformed),
+        ):
+            with (
+                patch.object(upload, "_thumbnail_display_rank_backend", backend),
+                patch.object(
+                    request, "accepted_type", return_value=SimpleNamespace(quality=0.5)
+                ) as accepts,
+            ):
+                self.assertIs(closest_thumbnail_format(requested, request, rows), rows[-1])
+                self.assertEqual(
+                    [call.args[0] for call in accepts.call_args_list],
+                    [row.content_type for row in rows],
+                )
+                with self.assertRaises(ValueError) as actual_empty:
+                    closest_thumbnail_format(requested, request, [])
+                self.assertEqual(str(actual_empty.exception), str(baseline_empty.exception))
+        decline.assert_called_once()
+        malformed.assert_called_once()
+
+        order: list[str] = []
+
+        class OrderedSize(int):
+            @override
+            def __lt__(self, other: int, /) -> bool:
+                order.append("compare")
+                return super().__lt__(other)
+
+        def accepted_type(content_type: str) -> SimpleNamespace:
+            order.append(content_type)
+            return SimpleNamespace(quality=0.5)
+
+        rows[1] = replace(rows[1], byte_size=OrderedSize(10))
+        for backend in (
+            None,
+            SimpleNamespace(
+                rank_thumbnail_display=Mock(
+                    side_effect=AssertionError("exotic grades should remain in Python")
+                )
+            ),
+        ):
+            order.clear()
+            with (
+                patch.object(upload, "_thumbnail_display_rank_backend", backend),
+                patch.object(request, "accepted_type", side_effect=accepted_type),
+            ):
+                self.assertIs(closest_thumbnail_format(requested, request, rows), rows[-1])
+                self.assertEqual(
+                    order[:4], ["image/fixture-0", "image/fixture-1", "compare", "image/fixture-2"]
+                )
+
+    def test_native_display_rank_serves_existing_bytes_without_regeneration(self) -> None:
+        self.login("hamlet")
+        small = ThumbnailFormat("webp", 40, 40, False)
+        middle = ThumbnailFormat("webp", 100, 100, False)
+        large = ThumbnailFormat("webp", 180, 180, False)
+        with self.thumbnail_formats(small, middle, large):
+            path_id = self.upload_and_thumbnail_image("img.png")
+
+        def fetch(size: str) -> tuple[bytes, str]:
+            reply = self.client_get(f"/user_uploads/thumbnail/{path_id}/{size}")
+            self.assertEqual(reply.status_code, 200)
+            assert reply.streaming
+            return b"".join(cast(StreamingHttpResponse, reply)), reply["Content-Type"]
+
+        expected = fetch(str(middle))
+        self.assertTrue(expected[0])
+        self.assertEqual(expected[1], "image/webp")
+        enabled = environ.get("ZULIP_RUST_THUMBNAIL_DISPLAY_RANK") == "1"
+        backend = upload._thumbnail_display_rank_backend
+        self.assertEqual(backend is not None, enabled)
+        rank = getattr(backend, "rank_thumbnail_display", None)
+        witness = Mock(wraps=rank)
+        bridge = SimpleNamespace(rank_thumbnail_display=witness) if enabled else None
+        with (
+            self.thumbnail_formats(small, middle, large),
+            patch.object(upload, "_thumbnail_display_rank_backend", bridge),
+            patch(
+                "zerver.views.upload.ensure_thumbnails", side_effect=AssertionError("regeneration")
+            ) as generate,
+        ):
+            self.assertEqual(fetch("96x96.webp"), expected)
+            generate.assert_not_called()
+        if enabled:
+            assert callable(rank)
+            witness.assert_called_once()
+            self.assert_length(witness.call_args.args[0], 3)
+            index = rank(witness.call_args.args[0])
+            assert type(index) is int
+            self.assertEqual(witness.call_args.args[0][index][3], 4)
+        else:
+            witness.assert_not_called()
 
     def test_closest_format(self) -> None:
         self.login_user(self.example_user("hamlet"))

@@ -378,6 +378,8 @@ mod python_schedule_replay;
 #[cfg(feature = "python")]
 mod python_search_highlights;
 #[cfg(feature = "python")]
+mod python_thumbnail_display_rank;
+#[cfg(feature = "python")]
 mod python_thumbnail_status;
 #[cfg(feature = "python")]
 mod python_user_directory;

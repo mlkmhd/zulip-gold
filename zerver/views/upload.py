@@ -2,6 +2,9 @@ import base64
 import binascii
 import os
 from datetime import timedelta
+from importlib import import_module
+from itertools import chain
+from operator import itemgetter
 from urllib.parse import quote, urlsplit
 
 from django.conf import settings
@@ -49,6 +52,17 @@ from zerver.lib.upload.local import assert_is_local_storage_path
 from zerver.lib.upload.s3 import get_signed_upload_url
 from zerver.models import Attachment, ImageAttachment, Realm, UserProfile
 from zerver.worker.thumbnail import ensure_thumbnails
+
+try:
+    _thumbnail_display_rank_backend = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_THUMBNAIL_DISPLAY_RANK") == "1"
+        else None
+    )
+except ModuleNotFoundError as error:
+    if error.name != "_zulip_backend":
+        raise
+    _thumbnail_display_rank_backend = None
 
 
 def patch_disposition_header(response: HttpResponse, filename: str, is_attachment: bool) -> None:
@@ -247,7 +261,27 @@ def closest_thumbnail_format(
             possible_format.byte_size,
         )
 
-    return min(rendered_formats, key=grade_format)
+    rank = getattr(_thumbnail_display_rank_backend, "rank_thumbnail_display", None)
+    if not callable(rank) or type(rendered_formats) is not list or not rendered_formats:
+        return min(rendered_formats, key=grade_format)
+
+    # Keep the objects and their already computed grades together when using
+    # Python too. At the first exotic grade, resume Python's streaming min
+    # before evaluating the next candidate; earlier comparisons are builtins.
+    pending = ((grade_format(candidate), candidate) for candidate in rendered_formats)
+    prepared = []
+    for grade, candidate in pending:
+        prepared.append((grade, candidate))
+        if not all(
+            type(value) is expected
+            for value, expected in zip(grade, (bool, bool, float, int, int), strict=True)
+        ):
+            return min(chain(prepared, pending), key=itemgetter(0))[1]
+
+    index = rank([grade for grade, _ in prepared])
+    if type(index) is int and 0 <= index < len(prepared):
+        return prepared[index][1]
+    return min(prepared, key=itemgetter(0))[1]
 
 
 def stored_thumbnail_variant(
