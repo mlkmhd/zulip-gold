@@ -1,12 +1,20 @@
 //! Fixed display strings over components already prepared by Python.
 
+use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes};
 use pyo3::prelude::*;
 use pyo3::types::{PyInt, PyString};
 
 #[pyfunction]
-pub(crate) fn wrap_global_time_display(text: &Bound<'_, PyAny>) -> Option<String> {
-    let text = text.cast_exact::<PyString>().ok()?.to_str().ok()?;
-    Some(format!("<time:{text}>"))
+pub(crate) fn wrap_global_time_display<'py>(
+    text: &Bound<'py, PyAny>,
+) -> Option<Bound<'py, PyString>> {
+    let text = text.cast_exact::<PyString>().ok()?;
+    let bytes = python_string_bytes(text)?;
+    let mut output = Vec::with_capacity(bytes.len().checked_add(7)?);
+    output.extend_from_slice(b"<time:");
+    output.extend_from_slice(&bytes);
+    output.push(b'>');
+    python_string_from_bytes(text.py(), &output)
 }
 
 #[pyfunction]

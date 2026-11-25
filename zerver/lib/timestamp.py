@@ -1,17 +1,13 @@
-import os
 from datetime import datetime, timedelta, timezone
 from functools import cache
-from importlib import import_module
 
 import icu
 from django.utils.translation import get_language
 
+from zerver.lib.native_backend import load_native_contract
+
 try:
-    _rust_time_display = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_TIME_DISPLAY") == "1"
-        else None
-    )
+    _rust_time_display = load_native_contract("ZULIP_RUST_TIME_DISPLAY", "TIME_DISPLAY_API")
 except ImportError:
     _rust_time_display = None
 

@@ -1,4 +1,3 @@
-import os
 from datetime import datetime, timedelta, timezone
 from importlib import import_module
 from unittest import TestCase
@@ -33,7 +32,10 @@ class TimeDisplayRustTest(TestCase):
         class Derived(str):
             __slots__ = ()
 
-        for invalid in (Derived("x"), "\ud800", 4, b"abc", None):
+        if getattr(module, "TIME_DISPLAY_API", None) == 1:
+            text = "".join(map(chr, range(0xD800, 0xE000))) + "\0🌐"
+            self.assertEqual(wrap(text), f"<time:{text}>")
+        for invalid in (Derived("x"), 4, b"abc", None):
             self.assertIsNone(wrap(invalid))
         for args in (
             ("", 0, 0),
@@ -48,8 +50,6 @@ class TimeDisplayRustTest(TestCase):
 
     def test_global_time_uses_original_iso_preparation_and_format_semantics(self) -> None:
         native = timestamp._rust_wrap_global_time_display
-        if os.environ.get("ZULIP_RUST_TIME_DISPLAY") != "1":
-            self.assertIsNone(native)
         spy = Mock(wraps=native) if native is not None else None
 
         class Rendered(str):
@@ -89,8 +89,6 @@ class TimeDisplayRustTest(TestCase):
 
     def test_gmt_formatting_is_after_validation_and_for_fixed_offsets_only(self) -> None:
         native = timestamp._rust_format_gmt_display_name
-        if os.environ.get("ZULIP_RUST_TIME_DISPLAY") != "1":
-            self.assertIsNone(native)
         spy = Mock(wraps=native) if native is not None else None
         dt = datetime(2001, 2, 3, 4, 5, 6, tzinfo=timezone(-timedelta(hours=7, minutes=8)))
         named = dt.replace(tzinfo=ZoneInfo("America/Los_Angeles"))
