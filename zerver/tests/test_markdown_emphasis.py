@@ -1,4 +1,5 @@
 import random
+import re
 from unittest import TestCase, mock
 
 from markdown import Markdown, inlinepatterns
@@ -127,3 +128,7 @@ class MarkdownEmphasisTest(TestCase):
             engine.convert("***a*** **b** *c* ~~d~~"),
             "<p><strong><em>a</em></strong> <strong>b</strong> <em>c</em> <del>d</del></p>",
         )
+
+    def test_custom_pattern_keeps_the_reference_regex(self) -> None:
+        processor = emphasis.tag_pattern(r"([!])(.*)[!]", "em")
+        self.assertIsInstance(processor.getCompiledRegExp(), re.Pattern)

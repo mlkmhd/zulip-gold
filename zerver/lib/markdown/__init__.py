@@ -2817,13 +2817,9 @@ class ZulipMarkdown(markdown.Markdown):
         # Declare regexes for clean single line calls to .register().
         #
         # Custom strikethrough syntax: ~~foo~~
-        DEL_RE = r"(?<!~)(\~\~)([^~\n]+?)(\~\~)(?!~)"
         # Custom bold syntax: **foo** but not __foo__
         # str inside ** must start and end with a word character
         # it need for things like "const char *x = (char *)y"
-        EMPHASIS_RE = r"(\*)(?!\s+)([^\*^\n]+)(?<!\s)\*"
-        STRONG_RE = r"(\*\*)([^\n]+?)\2"
-        STRONG_EM_RE = r"(\*\*\*)(?!\s+)([^\*^\n]+)(?<!\s)\*\*\*"
         TEX_RE = r"\B(?<!\$)\$\$(?P<body>[^\n_$](\\\$|[^$\n])*)\$\$(?!\$)\B"
         TIMESTAMP_RE = r"<time:(?P<time>[^>]*?)>"
 
@@ -2832,7 +2828,11 @@ class ZulipMarkdown(markdown.Markdown):
         # space for us to add our own.
         reg = markdown.util.Registry[markdown.inlinepatterns.Pattern]()
         reg.register(BacktickInlineProcessor(markdown.inlinepatterns.BACKTICK_RE), "backtick", 105)
-        reg.register(emphasis.tag_pattern(STRONG_EM_RE, "strong,em"), "strong_em", 100)
+        reg.register(
+            emphasis.tag_pattern(emphasis.STOCK_PATTERNS["strong,em"], "strong,em"),
+            "strong_em",
+            100,
+        )
         reg.register(UserMentionPattern(mention.MENTIONS_RE, self), "usermention", 95)
         tex = Tex(TEX_RE, self)
         tex.compiled_re = tex_pattern(tex.compiled_re)
@@ -2861,9 +2861,11 @@ class ZulipMarkdown(markdown.Markdown):
             "entity",
             40,
         )
-        reg.register(emphasis.tag_pattern(STRONG_RE, "strong"), "strong", 35)
-        reg.register(emphasis.tag_pattern(EMPHASIS_RE, "em"), "emphasis", 30)
-        reg.register(emphasis.tag_pattern(DEL_RE, "del"), "del", 25)
+        reg.register(
+            emphasis.tag_pattern(emphasis.STOCK_PATTERNS["strong"], "strong"), "strong", 35
+        )
+        reg.register(emphasis.tag_pattern(emphasis.STOCK_PATTERNS["em"], "em"), "emphasis", 30)
+        reg.register(emphasis.tag_pattern(emphasis.STOCK_PATTERNS["del"], "del"), "del", 25)
         reg.register(
             markdown.inlinepatterns.SimpleTextInlineProcessor(
                 markdown.inlinepatterns.NOT_STRONG_RE

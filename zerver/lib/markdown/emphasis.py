@@ -1,16 +1,19 @@
-import os
 from dataclasses import dataclass
-from importlib import import_module
 from re import Match, Pattern
 from typing import cast
 
 from markdown import inlinepatterns
 
-_rust_emphasis = (
-    import_module("_zulip_backend")
-    if os.environ.get("ZULIP_RUST_MARKDOWN_EMPHASIS") == "1"
-    else None
-)
+from zerver.lib.native_backend import load_native_contract
+
+_rust_emphasis = load_native_contract("ZULIP_RUST_MARKDOWN_EMPHASIS", "MARKDOWN_EMPHASIS_API")
+
+STOCK_PATTERNS = {
+    "del": r"(?<!~)(\~\~)([^~\n]+?)(\~\~)(?!~)",
+    "em": r"(\*)(?!\s+)([^\*^\n]+)(?<!\s)\*",
+    "strong": r"(\*\*)([^\n]+?)\2",
+    "strong,em": r"(\*\*\*)(?!\s+)([^\*^\n]+)(?<!\s)\*\*\*",
+}
 
 
 @dataclass
@@ -40,6 +43,8 @@ class EmphasisPattern:
 
     def match(self, data: str) -> Match[str] | None:
         assert _rust_emphasis is not None
+        if type(data) is not str:
+            return self.fallback.match(data)
         result = _rust_emphasis.find_markdown_emphasis(data, self.kind)
         if result is None:
             return self.fallback.match(data)
@@ -59,6 +64,11 @@ def tag_pattern(pattern: str, tag: str) -> inlinepatterns.Pattern:
         if tag == "strong,em"
         else inlinepatterns.SimpleTagPattern(pattern, tag)
     )
-    if _rust_emphasis is not None:
+    if (
+        _rust_emphasis is not None
+        and type(pattern) is str
+        and type(tag) is str
+        and STOCK_PATTERNS.get(tag) == pattern
+    ):
         processor.compiled_re = cast(Pattern[str], EmphasisPattern(processor.compiled_re, tag))
     return processor
