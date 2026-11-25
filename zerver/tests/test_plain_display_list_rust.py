@@ -11,12 +11,14 @@ from django.utils.safestring import SafeString
 from markupsafe import Markup
 
 from zerver.lib import templates
+from zerver.lib.native_backend import supports_default_rust_backend
 
 
 class PlainDisplayListRustTest(TestCase):
     def test_exact_legacy_joining(self) -> None:
         try:
-            present = import_module("_zulip_backend").format_plain_display_list
+            backend = import_module("_zulip_backend")
+            present = backend.format_plain_display_list
         except (ImportError, AttributeError):
             self.skipTest("Rust plain display list helper is not available")
 
@@ -31,13 +33,19 @@ class PlainDisplayListRustTest(TestCase):
         self.assertEqual(present(["a", "b"], -2), " and 4 others")
         self.assertIs(type(present(["<&>", "b"], 1)), str)
 
+        if getattr(backend, "PLAIN_DISPLAY_LIST_API", None) == 1:
+            special = "".join(map(chr, range(0xD800, 0xE000))) + "🙂"
+            self.assertIs(present([special], 4), special)
+            values = [special, "plain", special[::-1]]
+            for limit in (-1, 0, 1, 2, 3, 4):
+                self.assertEqual(present(values, limit), templates.display_list(values, limit))
+
         for values, limit in (
             ([], 0),
             ([Markup("a")], 99),
             (["a", Markup("b")], 1),
             (["a", 9], 1),
             (("a", "b"), 1),
-            (["a", "\ud800"], 1),
             (["a", "b"], 2**100),
             (["a", "b"], -(2**63)),
             (["a", "b"], True),
@@ -47,7 +55,17 @@ class PlainDisplayListRustTest(TestCase):
 
 class PlainDisplayListIntegrationTest(SimpleTestCase):
     def test_real_plain_digest_uses_only_its_own_filter(self) -> None:
-        enabled = os.environ.get("ZULIP_RUST_PLAIN_DISPLAY_LIST") == "1"
+        try:
+            backend = import_module("_zulip_backend")
+        except ImportError:
+            backend = None
+        enabled = backend is not None and (
+            os.environ.get("ZULIP_RUST_PLAIN_DISPLAY_LIST") == "1"
+            or (
+                supports_default_rust_backend()
+                and getattr(backend, "PLAIN_DISPLAY_LIST_API", None) == 1
+            )
+        )
         helper = templates._rust_format_plain_display_list
         if enabled:
             self.assertIsNotNone(helper)

@@ -1,6 +1,8 @@
 //! List joining for already selected plain-text display only.
 
-use std::fmt::Write;
+use std::io::Write;
+
+use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes};
 
 use pyo3::prelude::*;
 use pyo3::types::{PyInt, PyList, PyString};
@@ -19,33 +21,36 @@ pub(crate) fn format_plain_display_list<'py>(
         .iter()
         .map(|value| value.cast_into_exact::<PyString>().ok())
         .collect::<Option<Vec<_>>>()?;
-    let refs = strings
-        .iter()
-        .map(|value| value.to_str().ok())
-        .collect::<Option<Vec<_>>>()?;
-    if refs.len() == 1 {
+    if strings.len() == 1 {
         return strings.into_iter().next();
     }
 
-    let length = i64::try_from(refs.len()).ok()?;
-    let output = if length <= limit {
+    let length = i64::try_from(strings.len()).ok()?;
+    let mut output = Vec::new();
+    let visible_end = if length <= limit {
         // Preserve the original empty-list IndexError via fallback.
-        let (last, previous) = refs.split_last()?;
-        let mut output = previous.join(", ");
-        output.push_str(" and ");
-        output.push_str(last);
-        output
+        length.checked_sub(1)?
+    } else if limit < 0 {
+        (length + limit).max(0)
     } else {
-        let end = if limit < 0 {
-            (length + limit).max(0)
-        } else {
-            limit
-        };
+        limit
+    };
+    for (index, value) in strings[..usize::try_from(visible_end).ok()?]
+        .iter()
+        .enumerate()
+    {
+        if index != 0 {
+            output.extend_from_slice(b", ");
+        }
+        output.extend_from_slice(&python_string_bytes(value)?);
+    }
+    if length <= limit {
+        output.extend_from_slice(b" and ");
+        output.extend_from_slice(&python_string_bytes(strings.last()?)?);
+    } else {
         let hidden = length.checked_sub(limit)?;
-        let mut output = refs[..usize::try_from(end).ok()?].join(", ");
         let plural = if hidden == 1 { "" } else { "s" };
         write!(&mut output, " and {hidden} other{plural}").ok()?;
-        output
-    };
-    Some(PyString::new(py, &output))
+    }
+    python_string_from_bytes(py, &output)
 }

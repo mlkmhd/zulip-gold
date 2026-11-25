@@ -339,6 +339,7 @@ mod _zulip_backend {
         module.add("LOG_DISPLAY_API", 1)?;
         module.add("MIGRATION_DISPLAY_API", 1)?;
         module.add("TABBED_TEXT_API", 1)?;
+        module.add("PLAIN_DISPLAY_LIST_API", 1)?;
         module.add("DISPLAY_RECIPIENT_ORDER_API", 1)
     }
 

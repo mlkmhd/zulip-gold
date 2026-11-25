@@ -1,6 +1,4 @@
-import os
 import time
-from importlib import import_module
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +25,7 @@ import zerver.lib.markdown.static
 import zerver.lib.markdown.tabbed_sections
 import zerver.openapi.markdown_extension
 from zerver.lib.cache import dict_to_items_tuple, ignore_unhashable_lru_cache, items_tuple_to_dict
+from zerver.lib.native_backend import load_native_contract
 from zerver.openapi.merge_api_changelogs import (
     get_feature_level,
     get_unmerged_changelogs,
@@ -37,10 +36,8 @@ register = Library()
 
 
 try:
-    _rust_plain_display_list = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_PLAIN_DISPLAY_LIST") == "1"
-        else None
+    _rust_plain_display_list = load_native_contract(
+        "ZULIP_RUST_PLAIN_DISPLAY_LIST", "PLAIN_DISPLAY_LIST_API"
     )
 except ImportError:
     _rust_plain_display_list = None
