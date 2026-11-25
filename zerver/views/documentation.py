@@ -4,7 +4,6 @@ import re
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
-from importlib import import_module
 from typing import Any
 
 import werkzeug
@@ -448,10 +447,8 @@ def get_visible_integrations_for_category(category_slug: str) -> list[Integratio
 
 
 try:
-    _rust_integration_catalog_display = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_INTEGRATION_CATALOG_DISPLAY") == "1"
-        else None
+    _rust_integration_catalog_display = load_native_contract(
+        "ZULIP_RUST_INTEGRATION_CATALOG_DISPLAY", "INTEGRATION_CATALOG_DISPLAY_API"
     )
 except ImportError:
     _rust_integration_catalog_display = None

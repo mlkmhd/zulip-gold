@@ -1,4 +1,3 @@
-import os
 from importlib import import_module
 from types import SimpleNamespace
 from typing import cast
@@ -39,14 +38,19 @@ class IntegrationCatalogDisplayRustTest(TestCase):
         self.assertIs(result[1][1], name)
         self.assertEqual(project(mapping, []), [])
         self.assertIsNone(project(mapping, ["missing"]))
-        self.assertIsNone(project({"one": "\ud800"}, ["\ud800"]))
+        if getattr(module, "INTEGRATION_CATALOG_DISPLAY_API", None) == 1:
+            special = "".join(map(chr, range(0xD800, 0xE000))) + "🙂"
+            chosen = ("prefix" + special).removeprefix("prefix")
+            final_slug = "آخر\ud800"
+            row = project({"one": special, final_slug: special}, [chosen])[0]
+            self.assertIs(row[0], final_slug)
+            self.assertIs(row[1], chosen)
         self.assertIsNone(project(mapping, ("فارسی🚀",)))
         self.assertIsNone(project({"one": True}, []))
 
     def test_real_catalog_rounds_only_after_original_count(self) -> None:
         native = documentation._rust_round_integration_display_count
-        enabled = os.environ.get("ZULIP_RUST_INTEGRATION_CATALOG_DISPLAY") == "1"
-        self.assertEqual(callable(native), enabled)
+        enabled = native is not None
         integrations = {str(i): Mock() for i in range(12)}
         for i, item in enumerate(integrations.values()):
             item.is_enabled_in_catalog.return_value = i != 1
@@ -78,8 +82,7 @@ class IntegrationCatalogDisplayRustTest(TestCase):
 
     def test_documentation_only_projection_preserves_route_default(self) -> None:
         native = documentation._rust_project_integration_display_categories
-        enabled = os.environ.get("ZULIP_RUST_INTEGRATION_CATALOG_DISPLAY") == "1"
-        self.assertEqual(callable(native), enabled)
+        enabled = native is not None
         label = f" فارسی {len(self.id())}"
         final_slug = f"last-{len(label)}"
         names = [label, "other", label]

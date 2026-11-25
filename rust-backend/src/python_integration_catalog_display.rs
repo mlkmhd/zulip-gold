@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use crate::python_text_bytes::python_string_bytes;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyInt, PyList, PyString};
 
@@ -23,15 +24,15 @@ pub(crate) fn project_integration_display_categories<'py>(
     let mut by_name = HashMap::with_capacity(available.len());
     for (slug, name) in available.iter() {
         let slug = slug.cast_into_exact::<PyString>().ok()?;
-        let name = name.cast_exact::<PyString>().ok()?.to_str().ok()?;
+        let name = python_string_bytes(name.cast_exact::<PyString>().ok()?)?;
         // Reverse the catalog as Python does: last duplicate display wins.
-        by_name.insert(name.to_owned(), slug);
+        by_name.insert(name.into_owned(), slug);
     }
     names
         .iter()
         .map(|name| {
             let name = name.cast_into_exact::<PyString>().ok()?;
-            let slug = by_name.get(name.to_str().ok()?)?.clone();
+            let slug = by_name.get(python_string_bytes(&name)?.as_ref())?.clone();
             Some((slug, name))
         })
         .collect()

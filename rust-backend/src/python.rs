@@ -344,6 +344,7 @@ mod _zulip_backend {
         module.add("SLACK_FIELD_DISPLAY_API", 1)?;
         module.add("COMMIT_DISPLAY_API", 1)?;
         module.add("ROCKETCHAT_DISPLAY_NAME_API", 1)?;
+        module.add("INTEGRATION_CATALOG_DISPLAY_API", 1)?;
         module.add("DISPLAY_RECIPIENT_ORDER_API", 1)
     }
 
