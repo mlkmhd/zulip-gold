@@ -6848,13 +6848,14 @@ An absent, older or declining extension falls back to Python.
 `ZULIP_RUST_NAVIGATION_VIEW_DISPLAY=1` remains an explicit opt-in.
 Bootstrap, events and writes retain their existing Python formatting.
 
-### Opt-in Gong duration and topic display text
+### Format prepared Gong duration and topic display text in Rust
 
-`ZULIP_RUST_GONG_DISPLAY=1` optionally formats supplied duration seconds
-and joins the already selected topic display labels. Python still checks
-inputs, chooses and sorts topics, and owns time, URL, message and webhook
-handling. The switch defaults off; absent, older, or declining native
-implementations use the original Python formatting.
+An Ubuntu 24.04 x86-64 wheel exporting `GONG_DISPLAY_API = 1` formats duration
+seconds and joins already selected topic labels. All Python string code
+points are preserved. Python still validates inputs, chooses and sorts
+topics, and owns time, URL, message and webhook handling. Older or absent
+wheels and values outside the native contract keep their original behavior.
+`ZULIP_RUST_GONG_DISPLAY=1` remains explicit opt-in.
 
 ### Order prepared channel folders through Rust
 

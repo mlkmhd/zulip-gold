@@ -1,9 +1,9 @@
 //! Literal Gong display text over already selected strings/counts.
 
-use std::fmt::Write;
-
 use pyo3::prelude::*;
 use pyo3::types::{PyInt, PyList, PyString};
+
+use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes};
 
 fn exact_i64(value: &Bound<'_, PyAny>) -> Option<i64> {
     value.cast_exact::<PyInt>().ok()?.extract().ok()
@@ -30,26 +30,26 @@ pub(crate) fn format_gong_duration_display(duration: &Bound<'_, PyAny>) -> Optio
 }
 
 #[pyfunction]
-pub(crate) fn join_gong_topic_display(
-    labels: &Bound<'_, PyAny>,
+pub(crate) fn join_gong_topic_display<'py>(
+    labels: &Bound<'py, PyAny>,
     extra_topics: &Bound<'_, PyAny>,
-) -> Option<String> {
+) -> Option<Bound<'py, PyString>> {
     let labels = labels.cast_exact::<PyList>().ok()?;
     let extra_topics = exact_i64(extra_topics)?;
-    let mut text = String::new();
+    let mut text = Vec::new();
     for (index, label) in labels.iter().enumerate() {
         if index != 0 {
-            text.push_str(", ");
+            text.extend_from_slice(b", ");
         }
-        text.push_str(label.cast_exact::<PyString>().ok()?.to_str().ok()?);
+        text.extend_from_slice(&python_string_bytes(label.cast_exact::<PyString>().ok()?)?);
     }
 
     if extra_topics > 0 {
         let word = if extra_topics == 1 { "topic" } else { "topics" };
-        write!(text, " and {extra_topics} more {word}").ok()?;
+        text.extend_from_slice(format!(" and {extra_topics} more {word}").as_bytes());
     }
     if !text.is_empty() {
-        text.push('.');
+        text.push(b'.');
     }
-    Some(text)
+    python_string_from_bytes(labels.py(), &text)
 }

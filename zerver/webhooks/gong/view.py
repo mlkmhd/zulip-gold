@@ -1,10 +1,8 @@
-import os
-from importlib import import_module
-
 from django.http import HttpRequest, HttpResponse
 from pydantic import Json
 
 from zerver.decorator import webhook_view
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.response import json_success
 from zerver.lib.timestamp import datetime_to_global_time
 from zerver.lib.typed_endpoint import JsonBodyPayload, typed_endpoint
@@ -30,11 +28,7 @@ COMMENTS_LIMIT = 3
 
 
 try:
-    _rust_gong_display = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_GONG_DISPLAY") == "1"
-        else None
-    )
+    _rust_gong_display = load_native_contract("ZULIP_RUST_GONG_DISPLAY", "GONG_DISPLAY_API")
 except ImportError:
     _rust_gong_display = None
 

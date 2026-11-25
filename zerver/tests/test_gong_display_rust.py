@@ -5,6 +5,7 @@ from unittest.mock import call, patch
 
 from typing_extensions import override
 
+from zerver.lib.native_backend import supports_default_rust_backend
 from zerver.lib.validator import wrap_wild_value
 from zerver.webhooks.gong import view
 
@@ -48,15 +49,29 @@ class GongDisplayRustTest(TestCase):
         self.assertEqual(native([""], 0), "")
         self.assertEqual(native(["", ""], -2), ", .")
         self.assertEqual(native([], 0), "")
-        self.assertIsNone(native(["\ud800"], 1))
         self.assertIsNone(native((["a"],), 1))
         self.assertIsNone(native(["a"], True))
         self.assertIsNone(native(["a"], 2**63))
 
+    def test_prepared_topics_preserve_all_surrogate_code_points(self) -> None:
+        try:
+            module = import_module("_zulip_backend")
+        except ImportError:
+            self.skipTest("Wheel is absent")
+        if getattr(module, "GONG_DISPLAY_API", None) != 1:
+            self.skipTest("Wheel predates surrogate-safe Gong topic joins")
+        native = module.join_gong_topic_display
+        for code in range(0xD800, 0xE000):
+            text = f"متن{chr(code)}\0😀"
+            self.assertEqual(native(["One", text], 1), f"One, {text} and 1 more topic.")
+
     def test_real_topics_keep_order_and_only_pass_prepared_data(self) -> None:
         duration = view._rust_format_gong_duration_display
         join = view._rust_join_gong_topic_display
-        enabled = os.environ.get("ZULIP_RUST_GONG_DISPLAY") == "1"
+        enabled = os.environ.get("ZULIP_RUST_GONG_DISPLAY") == "1" or (
+            supports_default_rust_backend()
+            and getattr(view._rust_gong_display, "GONG_DISPLAY_API", None) == 1
+        )
         self.assertEqual(callable(duration), enabled)
         self.assertEqual(callable(join), enabled)
         data = [
