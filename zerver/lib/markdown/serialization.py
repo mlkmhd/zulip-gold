@@ -1,19 +1,28 @@
-import os
-from importlib import import_module
 from xml.etree.ElementTree import HTML_EMPTY, Comment, Element, ProcessingInstruction
 
+from markdown import serializers
 from markdown.serializers import to_html_string as python_to_html_string
 from markdown.util import AtomicString
 
-_rust_serialization = (
-    import_module("_zulip_backend")
-    if os.environ.get("ZULIP_RUST_MARKDOWN_SERIALIZATION") == "1"
-    else None
+from zerver.lib.native_backend import load_native_contract
+
+_rust_serialization = load_native_contract(
+    "ZULIP_RUST_MARKDOWN_SERIALIZATION", "MARKDOWN_SERIALIZATION_API"
 )
+_REFERENCE_HTML_SERIALIZER = python_to_html_string
+_REFERENCE_HTML_IMPL = vars(serializers).get("_serialize_html")
 
 
 def to_html_string(root: Element) -> str:
-    if _rust_serialization is not None:
+    if (
+        _rust_serialization is not None
+        and python_to_html_string is _REFERENCE_HTML_SERIALIZER
+        and serializers.to_html_string is _REFERENCE_HTML_SERIALIZER
+        and vars(serializers).get("_serialize_html") is _REFERENCE_HTML_IMPL
+        and HTML_EMPTY is serializers.HTML_EMPTY
+        and type(HTML_EMPTY) is set
+        and all(type(tag) is str for tag in HTML_EMPTY)
+    ):
         nodes = []
         pending = [(root, 0)]
         while pending:

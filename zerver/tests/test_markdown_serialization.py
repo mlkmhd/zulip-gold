@@ -169,14 +169,24 @@ class MarkdownSerializationTest(TestCase):
         self.assertIs(Markdown.output_formats["html"], python_to_html_string)
 
     def test_rust_serialization_is_used(self) -> None:
-        if serialization._rust_serialization is None:
+        backend = serialization._rust_serialization
+        if backend is None:
             self.skipTest("Rust serialization is disabled")
-        with mock.patch.object(serialization, "python_to_html_string", side_effect=AssertionError):
+        with mock.patch.object(
+            backend, "serialize_markdown_html", wraps=backend.serialize_markdown_html
+        ) as emit:
             self.test_entities_attributes_and_atomic_text()
             self.test_raw_text_empty_elements_and_children()
             self.test_comments_instructions_and_tagless_elements()
             self.test_empty_elements_follow_the_python_runtime()
             self.test_generated_trees()
+        emit.assert_called()
+
+    def test_custom_runtime_empty_elements_use_reference_path(self) -> None:
+        root = Element("source")
+        root.text = "text"
+        with mock.patch("markdown.serializers.HTML_EMPTY", set()):
+            self.assertEqual(serialization.to_html_string(root), "<source>text</source>")
 
     def test_fallback_preserves_tree(self) -> None:
         if serialization._rust_serialization is None:
