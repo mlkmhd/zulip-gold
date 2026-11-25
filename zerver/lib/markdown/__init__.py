@@ -1655,8 +1655,16 @@ class ListIndentProcessor(markdown.blockprocessors.ListIndentProcessor):
 
     @override
     def run(self, parent: Element, blocks: list[str]) -> None:
-        if not run_list_indent_layout(self, parent, blocks):
-            super().run(parent, blocks)
+        if (
+            type(self) is ListIndentProcessor
+            and _rust_markdown_list_indent is None
+            and getattr(self.get_level, "__func__", None) is _STANDARD_LIST_GET_LEVEL
+            and getattr(self.looseDetab, "__func__", None) is _STANDARD_LIST_LOOSE_DETAB
+            and getattr(self.lastChild, "__func__", None) is _STANDARD_LIST_LAST_CHILD
+            and run_list_indent_layout(self, parent, blocks)
+        ):
+            return
+        super().run(parent, blocks)
 
     @override
     def get_level(self, parent: Element, block: str) -> tuple[int, Element]:
@@ -1679,6 +1687,11 @@ class ListIndentProcessor(markdown.blockprocessors.ListIndentProcessor):
             if result is not None:
                 return result
         return super().looseDetab(text, level)
+
+
+_STANDARD_LIST_GET_LEVEL = ListIndentProcessor.get_level
+_STANDARD_LIST_LOOSE_DETAB = ListIndentProcessor.looseDetab
+_STANDARD_LIST_LAST_CHILD = ListIndentProcessor.lastChild
 
 
 _STANDARD_HEADING_RE = re.compile(

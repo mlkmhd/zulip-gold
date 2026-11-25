@@ -131,14 +131,26 @@ class MarkdownListIndentLayoutTest(TestCase):
             )
 
     def test_rust_layout_is_used(self) -> None:
-        if list_indent_layout._rust_list_indent_layout is None:
+        backend = list_indent_layout._rust_list_indent_layout
+        if backend is None:
             self.skipTest("Rust list indentation layout is disabled")
         with (
             mock.patch.object(PythonListIndentProcessor, "run", side_effect=AssertionError),
-            mock.patch.object(ListIndentProcessor, "get_level", side_effect=AssertionError),
-            mock.patch.object(ListIndentProcessor, "looseDetab", side_effect=AssertionError),
+            mock.patch.object(
+                backend,
+                "plan_markdown_list_indentation",
+                wraps=backend.plan_markdown_list_indentation,
+            ) as plan,
         ):
             self.assertIn("<li>nested</li>", self.render("* first\n\n  * nested\n\n  paragraph"))
+            plan.assert_called()
+
+    def test_custom_get_level_is_not_bypassed(self) -> None:
+        processor = ListIndentProcessor(Markdown().parser)
+        with mock.patch.object(processor, "get_level", wraps=processor.get_level) as get_level:
+            parent = Element("li")
+            processor.run(parent, ["  text"])
+        get_level.assert_called_once_with(parent, "  text")
 
     def test_fallback_precedes_mutation(self) -> None:
         if list_indent_layout._rust_list_indent_layout is None:
