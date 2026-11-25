@@ -7,6 +7,7 @@ import platform
 import re
 import shutil
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 BUILD_ID = re.compile(r"[0-9a-f]{40}")
@@ -25,14 +26,22 @@ def supported_wheel_platform(distro: dict[str, str], machine: str) -> bool:
     )
 
 
-def select_wheel(root: Path, wheel_dir: Path, machine: str) -> tuple[Path, str]:
+def select_wheel(
+    root: Path,
+    wheel_dir: Path,
+    machine: str,
+    *,
+    git_preexec: Callable[[], None] | None = None,
+) -> tuple[Path, str]:
     manifest_path = wheel_dir / "manifest.json"
     if wheel_dir.is_symlink() or manifest_path.is_symlink():
         raise ValueError("Invalid staged Rust wheel directory")
     manifest = json.loads(manifest_path.read_text())
     if (root / ".git").exists():
         checkout, build_id = subprocess.check_output(
-            ["git", "-C", str(root), "rev-parse", "--show-toplevel", "HEAD"], text=True
+            ["git", "-C", str(root), "rev-parse", "--show-toplevel", "HEAD"],
+            text=True,
+            preexec_fn=git_preexec,
         ).splitlines()
         if Path(checkout).resolve() != root:
             raise ValueError("Staged Rust wheel must match the invoking checkout")

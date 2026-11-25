@@ -46,7 +46,13 @@ parser.add_argument("deploy_path", metavar="deploy_path", help="Path to deployme
 parser.add_argument(
     "--from-git", action="store_true", help="Upgrading from git, so run update-prod-static."
 )
+parser.add_argument("--rust-wheel-dir", help=argparse.SUPPRESS)
 args = parser.parse_args()
+if args.rust_wheel_dir is not None:
+    if not args.from_git:
+        parser.error("Pass --rust-wheel-dir to upgrade-zulip-from-git, not to a tarball upgrade.")
+    if not os.path.isabs(args.rust_wheel_dir):
+        parser.error("--rust-wheel-dir must name an absolute path in stage 3.")
 
 if args.skip_restart:
     if args.less_graceful:
@@ -120,6 +126,12 @@ def shutdown_server(fill_caches: bool = True) -> None:
         IS_SERVER_UP = False
 
 
+venv_command = [os.path.join(deploy_path, "scripts", "lib", "create-production-venv"), deploy_path]
+if args.rust_wheel_dir is not None:
+    venv_command.extend(["--git-deployment", "--rust-wheel-dir", args.rust_wheel_dir])
+    # Check the staged wheel before changing any system packages.
+    subprocess.check_call([*venv_command, "--check-rust-wheel"])
+
 if not (args.skip_restart or args.skip_puppet):
     # We need to temporarily hold pgroonga, if installed -- upgrading
     # it without running the appropriate upgrade SQL can cause
@@ -134,9 +146,7 @@ if not (args.skip_restart or args.skip_puppet):
 
 # Now we should have an environment set up where we can run our tools;
 # first, creating the production venv.
-subprocess.check_call(
-    [os.path.join(deploy_path, "scripts", "lib", "create-production-venv"), deploy_path]
-)
+subprocess.check_call(venv_command)
 
 # Check to make sure that this upgrade is not actually a database
 # downgrade.

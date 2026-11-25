@@ -2,7 +2,7 @@ import hashlib
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest import TestCase
+from unittest import TestCase, mock
 
 from scripts.lib.select_native_wheel import RELEASE_WHEEL_DIR, select_wheel, stage_release_wheel
 
@@ -55,3 +55,24 @@ class ReleaseWheelTest(TestCase):
         with self.assertRaises(FileExistsError):
             stage_release_wheel(self.root, self.source, "x86_64")
         self.assertEqual(list(self.bundled.iterdir()), [])
+
+    def test_git_verification_uses_the_supplied_process_identity(self) -> None:
+        (self.root / ".git").touch()
+        (self.root / "build_id").unlink()
+
+        def checkout_owner() -> None:
+            return
+
+        with mock.patch(
+            "scripts.lib.select_native_wheel.subprocess.check_output",
+            return_value=f"{self.root}\n{BUILD_ID}\n",
+        ) as git:
+            self.assertEqual(
+                select_wheel(self.root, self.source, "x86_64", git_preexec=checkout_owner),
+                (self.source / WHEEL_NAME, DIGEST),
+            )
+            git.assert_called_once_with(
+                ["git", "-C", str(self.root), "rev-parse", "--show-toplevel", "HEAD"],
+                text=True,
+                preexec_fn=checkout_owner,
+            )

@@ -16,13 +16,15 @@ from scripts.lib.select_native_wheel import (
     supported_wheel_platform,
 )
 from scripts.lib.setup_venv import get_venv_dependencies
-from scripts.lib.zulip_tools import os_families, run
+from scripts.lib.zulip_tools import os_families, run, su_to_zulip
 
 parser = argparse.ArgumentParser(description="Create a production virtualenv with caching")
 parser.add_argument("deploy_path")
 parser.add_argument(
     "--rust-wheel-dir", type=Path, help="Install a staged native wheel from this directory"
 )
+parser.add_argument("--git-deployment", action="store_true", help=argparse.SUPPRESS)
+parser.add_argument("--check-rust-wheel", action="store_true", help=argparse.SUPPRESS)
 args = parser.parse_args()
 distro_info = platform.freedesktop_os_release()
 wheel = None
@@ -30,7 +32,10 @@ wheel_dir = args.rust_wheel_dir
 machine = platform.machine()
 wheel_supported = supported_wheel_platform(distro_info, machine)
 root = Path(args.deploy_path).resolve()
-if wheel_dir is None and wheel_supported and not (root / ".git").exists():
+is_git_checkout = (root / ".git").exists()
+if args.git_deployment and (wheel_dir is None or not is_git_checkout):
+    parser.error("Git wheel installation requires a staged wheel and a deployment checkout")
+if wheel_dir is None and wheel_supported and not is_git_checkout:
     bundled = root / RELEASE_WHEEL_DIR
     if bundled.exists() or bundled.is_symlink():
         wheel_dir = bundled
@@ -40,7 +45,15 @@ if wheel_dir is not None:
         parser.error("staged Rust wheels are only supported on Ubuntu 24.04 x86-64")
     if root != Path(ZULIP_PATH).resolve():
         parser.error("native wheel must be installed into the invoking checkout")
-    wheel = select_wheel(root, wheel_dir.absolute(), machine)
+    # Deployment Git worktrees belong to the service user. Do not relax
+    # Git's ownership checks to inspect them from this root process.
+    git_preexec = su_to_zulip if args.git_deployment and os.geteuid() == 0 else None
+    wheel = select_wheel(root, wheel_dir.absolute(), machine, git_preexec=git_preexec)
+
+if args.check_rust_wheel:
+    if wheel is None:
+        parser.error("No staged Rust wheel to check")
+    sys.exit(0)
 
 # install dependencies for setting up the virtualenv
 vendor = distro_info["ID"]
