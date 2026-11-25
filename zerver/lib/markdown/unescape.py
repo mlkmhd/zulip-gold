@@ -1,15 +1,11 @@
-import os
-from importlib import import_module
-
 from markdown.treeprocessors import UnescapeTreeprocessor as PythonUnescapeTreeprocessor
 from markdown.util import AtomicString
 from typing_extensions import override
 
-_rust_unescape = (
-    import_module("_zulip_backend")
-    if os.environ.get("ZULIP_RUST_MARKDOWN_UNESCAPE") == "1"
-    else None
-)
+from zerver.lib.native_backend import load_native_contract
+
+_rust_unescape = load_native_contract("ZULIP_RUST_MARKDOWN_UNESCAPE", "MARKDOWN_UNESCAPE_API")
+
 
 _python_unescape = PythonUnescapeTreeprocessor._unescape  # type: ignore[attr-defined] # Incomplete upstream stubs.
 _python_pattern = PythonUnescapeTreeprocessor.RE

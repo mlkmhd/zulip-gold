@@ -358,6 +358,7 @@ mod _zulip_backend {
         module.add("MARKDOWN_CODE_BLOCKS_API", 1)?;
         module.add("MARKDOWN_EMPHASIS_API", 1)?;
         module.add("MARKDOWN_LISTS_API", 1)?;
+        module.add("MARKDOWN_UNESCAPE_API", 1)?;
         module.add("DISPLAY_RECIPIENT_ORDER_API", 1)
     }
 
@@ -1120,8 +1121,13 @@ mod _zulip_backend {
     }
 
     #[pyfunction]
-    fn unescape_markdown_text(text: &Bound<'_, PyString>) -> Option<String> {
-        markdown_unescape::unescape(text.to_str().ok()?)
+    fn unescape_markdown_text<'py>(text: &Bound<'py, PyString>) -> Option<Bound<'py, PyString>> {
+        let original = text.to_str().ok()?;
+        let rendered = markdown_unescape::unescape(original)?;
+        if text.is_exact_instance_of::<PyString>() && rendered == original {
+            return Some(text.clone());
+        }
+        Some(PyString::new(text.py(), &rendered))
     }
 
     #[pyfunction]

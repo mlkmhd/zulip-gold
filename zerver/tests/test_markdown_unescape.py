@@ -52,6 +52,16 @@ class MarkdownUnescapeTest(TestCase):
         self.compare(AtomicString("\x0242\x03"))
         self.compare(cast(str, 3))
 
+    def test_unchanged_exact_string_identity_and_atomic_type(self) -> None:
+        unescaped = "fixture:متن 🙂".removeprefix("fixture:")
+        atomic = AtomicString(unescaped)
+        processor = UnescapeTreeprocessor()
+        self.assertIs(processor.unescape(unescaped), unescaped)
+        result = processor.unescape(atomic)
+        self.assertEqual(result, unescaped)
+        self.assertIs(type(result), str)
+        self.assertIsNot(result, atomic)
+
     def test_generated_text(self) -> None:
         rng = random.Random(17)
         pieces = ["\x02", "\x03", "0", "42", "1114112", "فارسی", "۴۲", "-", "&", ""]
