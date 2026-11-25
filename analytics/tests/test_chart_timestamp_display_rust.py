@@ -10,6 +10,7 @@ from django.test import RequestFactory, SimpleTestCase
 from typing_extensions import override
 
 from analytics.views import stats
+from zerver.lib.native_backend import supports_default_rust_backend
 from zerver.models import Realm, UserProfile
 
 
@@ -39,8 +40,12 @@ class ChartTimestampDisplayRustTest(TestCase):
 class ChartTimestampDisplayIntegrationTest(SimpleTestCase):
     def test_actual_chart_keeps_python_timestamps_and_original_bucket_objects(self) -> None:
         native = stats._rust_truncate_chart_timestamp_display
-        if os.environ.get("ZULIP_RUST_CHART_TIMESTAMP_DISPLAY") != "1":
-            self.assertIsNone(native)
+        enabled = os.environ.get("ZULIP_RUST_CHART_TIMESTAMP_DISPLAY") == "1" or (
+            supports_default_rust_backend()
+            and getattr(stats._rust_chart_timestamp_display, "ANALYTICS_CHART_TIMESTAMP_API", None)
+            == 1
+        )
+        self.assertEqual(native is not None, enabled)
         spy = Mock(wraps=native) if native is not None else None
         epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
         values = [

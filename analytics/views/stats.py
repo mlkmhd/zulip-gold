@@ -1,8 +1,6 @@
 import logging
-import os
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from importlib import import_module
 from typing import Annotated, Any, Optional, TypeAlias, TypeVar
 
 from django.conf import settings
@@ -96,10 +94,8 @@ _project_analytics_subgroup_series = getattr(
 
 
 try:
-    _rust_chart_timestamp_display = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_CHART_TIMESTAMP_DISPLAY") == "1"
-        else None
+    _rust_chart_timestamp_display = load_native_contract(
+        "ZULIP_RUST_CHART_TIMESTAMP_DISPLAY", "ANALYTICS_CHART_TIMESTAMP_API"
     )
 except ImportError:
     _rust_chart_timestamp_display = None

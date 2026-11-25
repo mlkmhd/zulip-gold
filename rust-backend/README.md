@@ -6820,13 +6820,14 @@ path, selection, ranking, surrounding templates, URLs, and notification
 behavior stay in Python. The original display formatting is the default and
 handles unavailable or declined native inputs.
 
-### Opt-in chart timestamp display integers
+### Format ready chart timestamps through Rust
 
-`ZULIP_RUST_CHART_TIMESTAMP_DISPLAY=1` optionally truncates already calculated
-Python chart timestamp floats toward zero for display. Python retains timestamp
-calculation, timezone and bucket handling, and response serialization. The
-original Python conversion is the default and handles unavailable or declined
-native values.
+On Ubuntu 24.04 x86-64 a wheel exporting `ANALYTICS_CHART_TIMESTAMP_API = 1`
+truncates already calculated Python chart timestamp floats toward zero
+without a flag. Django still calculates timestamps, handles timezones
+and buckets, and serializes the response. Incompatible wheels and
+unsupported or declined inputs keep the original behavior.
+`ZULIP_RUST_CHART_TIMESTAMP_DISPLAY=1` remains an explicit option.
 
 ### Opt-in saved-snippet display rows
 
