@@ -4,7 +4,6 @@ import struct
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Iterator
-from importlib import import_module
 from typing import IO, Any
 
 import bson
@@ -39,6 +38,7 @@ from zerver.data_import.user_handler import UserHandler
 from zerver.lib.emoji import name_to_codepoint
 from zerver.lib.export import batched, do_common_export_processes
 from zerver.lib.markdown import IMAGE_EXTENSIONS
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.upload import sanitize_name
 from zerver.models import Reaction, RealmEmoji, Recipient, UserProfile
 
@@ -258,10 +258,8 @@ def process_users(
 
 
 try:
-    _rust_rocketchat_display_name = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_ROCKETCHAT_DISPLAY_NAME") == "1"
-        else None
+    _rust_rocketchat_display_name = load_native_contract(
+        "ZULIP_RUST_ROCKETCHAT_DISPLAY_NAME", "ROCKETCHAT_DISPLAY_NAME_API"
     )
 except ImportError:
     _rust_rocketchat_display_name = None

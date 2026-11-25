@@ -1,4 +1,3 @@
-import os
 from importlib import import_module
 from unittest import TestCase
 from unittest.mock import patch
@@ -29,20 +28,28 @@ class RocketChatDisplayNameRustTest(TestCase):
         class Derived(str):
             __slots__ = ()
 
-        for bad in (b"test", Derived("plain"), "\ud800", None):
+        for bad in (b"test", Derived("plain"), None):
             self.assertIsNone(prepend(bad))
             self.assertIsNone(clip(bad, 1, " [new]"))
-        self.assertIsNone(clip("abc", 1, "\ud800"))
         self.assertIsNone(clip("abc", 2**90, " [new]"))
         self.assertIsNone(clip("abc", -(2**63), " [new]"))
         self.assertIsNone(clip("abc", True, " [new]"))
 
+        if getattr(module, "ROCKETCHAT_DISPLAY_NAME_API", None) == 1:
+            special = "".join(map(chr, range(0xD800, 0xE000))) + "🙂"
+            self.assertIs(clip(special, len(special), None), special)
+            self.assertEqual(prepend(special), f"[TEAM] {special}")
+            suffix = " \ud800[ID]"
+            for length in (-4096, -13, -1, 1, 24, len(special) - 1):
+                self.assertEqual(
+                    clip(special, length, suffix), special[: length - len(suffix)] + suffix
+                )
+
     def test_real_team_branch_and_optional_literal_clip(self) -> None:
         prefix = rocketchat._rust_prefix_rocketchat_team_display_name
         clip = rocketchat._rust_truncate_rocketchat_display_name
-        enabled = os.environ.get("ZULIP_RUST_ROCKETCHAT_DISPLAY_NAME") == "1"
-        self.assertEqual(callable(prefix), enabled)
-        self.assertEqual(callable(clip), enabled)
+        enabled = prefix is not None
+        self.assertEqual(clip is not None, enabled)
         chosen = "فارسی😀 " * 12
         prepared = f"[TEAM] {chosen}"
         with (
