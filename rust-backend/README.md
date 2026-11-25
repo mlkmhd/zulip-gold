@@ -6784,13 +6784,12 @@ rows with no trimming. Python retains field selection, cleanup, markup
 decisions, and import behavior. The original assembly is the default and the
 fallback for unavailable or declined native helpers.
 
-`ZULIP_RUST_DISPLAY_RECIPIENT_ORDER=1` optionally plans ascending
-display order on the already selected IDs of each direct-message group.
-Django keeps all grouping, queries, cache lookups and record projection.
-Rust sees only supplied IDs and returns indices scoped to each group;
-Django validates the permutation and uses Python for missing, unsupported
-or stale plans. This is off by default and does not change independent
-Rust API coverage.
+On Ubuntu 24.04 x86-64 a wheel exporting `DISPLAY_RECIPIENT_ORDER_API = 1`
+plans the display order of already selected direct-message group member IDs
+without a flag. Django retains group membership, queries, cache, record
+identity and permission handling. Rust only returns indices scoped to each
+provided group; invalid or stale plans and absent/older wheels keep the
+original sort. The explicit `ZULIP_RUST_DISPLAY_RECIPIENT_ORDER=1` remains available.
 
 On Ubuntu 24.04 x86-64, a wheel exporting `UPDOWN_DURATION_DISPLAY_API = 1`
 formats prepared integer seconds without a flag. Signed values use the

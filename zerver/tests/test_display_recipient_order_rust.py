@@ -1,3 +1,4 @@
+import os
 from importlib import import_module
 from unittest import TestCase
 from unittest.mock import patch
@@ -5,7 +6,11 @@ from unittest.mock import patch
 from typing_extensions import override
 
 from zerver.lib import display_recipient
+from zerver.lib.native_backend import supports_default_rust_backend
+from zerver.lib.test_classes import ZulipTestCase
 from zerver.lib.types import UserDisplayRecipient
+from zerver.models import Recipient
+from zerver.models.recipients import get_or_create_direct_message_group
 
 TURN = {(900, 2, 21), (600, 2, 18)}
 
@@ -229,3 +234,47 @@ class DisplayRecipientOrderRustTest(TestCase):
         ):
             got = display_recipient.bulk_fetch_user_display_recipients({(6, 2, 0)})
         self.assertEqual([record["id"] for record in got[6]], [1, large_id])
+
+
+class DisplayRecipientOrderNativeGroupTest(ZulipTestCase):
+    def test_selected_groups_keep_their_member_sets_and_increasing_id_order(self) -> None:
+        if not supports_default_rust_backend() or os.environ.get(
+            "ZULIP_RUST_DISPLAY_RECIPIENT_ORDER"
+        ):
+            self.skipTest("No-flag startup is tested on Ubuntu 24.04 x86-64")
+        if (
+            getattr(
+                display_recipient._rust_display_recipient_order, "DISPLAY_RECIPIENT_ORDER_API", None
+            )
+            != 1
+        ):
+            self.skipTest("Wheel predates the default recipient-order contract")
+
+        a, b, c, d = (
+            self.example_user(name).id for name in ("hamlet", "iago", "othello", "cordelia")
+        )
+        first_members = [a, c, b]
+        second_members = [d, b, a]
+        first = get_or_create_direct_message_group(first_members)
+        second = get_or_create_direct_message_group(second_members)
+        selectors = {
+            (first.recipient_id, Recipient.DIRECT_MESSAGE_GROUP, first.id),
+            (second.recipient_id, Recipient.DIRECT_MESSAGE_GROUP, second.id),
+        }
+        native = display_recipient._rust_plan_display_recipient_order
+        assert native is not None
+        with patch.object(
+            display_recipient, "_rust_plan_display_recipient_order", wraps=native
+        ) as planner:
+            result = display_recipient.bulk_fetch_user_display_recipients(selectors)
+        planner.assert_called_once()
+        self.assertCountEqual(
+            [frozenset(group) for group in planner.call_args.args[0]],
+            [frozenset(first_members), frozenset(second_members)],
+        )
+        self.assertEqual(set(result), {first.recipient_id, second.recipient_id})
+        for key, members in (
+            (first.recipient_id, first_members),
+            (second.recipient_id, second_members),
+        ):
+            self.assertEqual([row["id"] for row in result[key]], sorted(members))

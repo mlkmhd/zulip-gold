@@ -1,6 +1,4 @@
-import os
 from collections.abc import Mapping
-from importlib import import_module
 from typing import TYPE_CHECKING, Optional, TypedDict
 
 from django.db.models import QuerySet
@@ -12,6 +10,7 @@ from zerver.lib.cache import (
     generic_bulk_cached_fetch,
     single_user_display_recipient_cache_key,
 )
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.per_request_cache import cache_for_current_request
 from zerver.lib.types import DisplayRecipientT, UserDisplayRecipient
 
@@ -19,10 +18,8 @@ if TYPE_CHECKING:
     from zerver.models import Recipient
 
 try:
-    _rust_display_recipient_order = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_DISPLAY_RECIPIENT_ORDER") == "1"
-        else None
+    _rust_display_recipient_order = load_native_contract(
+        "ZULIP_RUST_DISPLAY_RECIPIENT_ORDER", "DISPLAY_RECIPIENT_ORDER_API"
     )
 except ImportError:
     _rust_display_recipient_order = None
