@@ -5,16 +5,21 @@ set -eu
 . "$(dirname "$0")"/lib/git-tools.bash
 
 usage() {
-    echo "Usage: $0 [--rust-wheel-dir DIR] <ZULIP_VERSION>" >&2
+    echo "Usage: $0 [--build-rust-wheel | --rust-wheel-dir DIR] <ZULIP_VERSION>" >&2
     exit 1
 }
 
 rust_wheel_dir=
-args="$(getopt -o '' -l 'help,rust-wheel-dir:' -n "$0" -- "$@")"
+build_rust_wheel=false
+args="$(getopt -o '' -l 'help,build-rust-wheel,rust-wheel-dir:' -n "$0" -- "$@")"
 eval "set -- $args"
 
 while true; do
     case "$1" in
+        --build-rust-wheel)
+            build_rust_wheel=true
+            shift
+            ;;
         --rust-wheel-dir)
             if [ -z "$2" ]; then
                 usage
@@ -30,7 +35,7 @@ while true; do
     esac
 done
 
-if [ -z "${1:-}" ]; then
+if [ -z "${1:-}" ] || { "$build_rust_wheel" && [ -n "$rust_wheel_dir" ]; }; then
     usage
 fi
 
@@ -85,8 +90,16 @@ mv zulip-git-version "$OUTPUT_DIR/$prefix/"
 # A staged wheel belongs to the archived commit, not to the builder's venv.
 echo "$GITID" >"$OUTPUT_DIR/$prefix/build_id"
 release_wheel_entries=()
-if [ -n "$rust_wheel_dir" ]; then
-    python3 scripts/lib/select_native_wheel.py "$OUTPUT_DIR/$prefix" "$rust_wheel_dir"
+if "$build_rust_wheel" || [ -n "$rust_wheel_dir" ]; then
+    (
+        if "$build_rust_wheel"; then
+            wheel_build_dir=$(mktemp -d)
+            trap 'rm -rf -- "$wheel_build_dir"' EXIT
+            rust_wheel_dir="$wheel_build_dir/wheels"
+            python3 rust-backend/tools/build_portable_wheel.py --output "$rust_wheel_dir"
+        fi
+        python3 scripts/lib/select_native_wheel.py "$OUTPUT_DIR/$prefix" "$rust_wheel_dir"
+    )
     release_wheel_entries=("$prefix/rust-wheels")
 fi
 

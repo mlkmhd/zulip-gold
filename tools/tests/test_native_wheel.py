@@ -1,5 +1,6 @@
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, mock
@@ -76,3 +77,21 @@ class ReleaseWheelTest(TestCase):
                 text=True,
                 preexec_fn=checkout_owner,
             )
+
+    def test_tarball_rejects_a_build_and_prebuilt_wheel_together(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        result = subprocess.run(
+            [
+                str(root / "tools/build-release-tarball"),
+                "--build-rust-wheel",
+                "--rust-wheel-dir",
+                str(self.source),
+                "test-wheel",
+            ],
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("Usage:", result.stderr)
