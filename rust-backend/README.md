@@ -6915,13 +6915,13 @@ chooses the original display name or username fallback. The switch defaults
 off, with Python fallback for absent, older or declining native helpers
 and unusual inputs.
 
-### Opt-in Redmine display labels
+### Format prepared Redmine display labels through Rust
 
-`ZULIP_RUST_REDMINE_DISPLAY=1` optionally spells the
-already selected issue number and title or joins prepared name parts.
-Python still validates and chooses these values, and handles links and
-delivery. The switch defaults off; absent, older, declining or unsupported
-native implementations use the same Python formatting.
+On Ubuntu 24.04 x86-64 a wheel exporting `REDMINE_DISPLAY_API = 1`
+spells the selected issue number, title and author names without a flag.
+All Python string code points survive. Python still selects and validates
+inputs, links and message delivery. Older or absent wheels and unsupported
+values keep the original result. `ZULIP_RUST_REDMINE_DISPLAY=1` remains optional.
 
 ### Format prepared documentation display titles in Rust
 

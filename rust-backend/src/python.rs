@@ -318,7 +318,8 @@ mod _zulip_backend {
         module.add("CHANNEL_FOLDER_DISPLAY_ORDER_API", 1)?;
         module.add("DOCUMENTATION_DISPLAY_TITLE_API", 1)?;
         module.add("GONG_DISPLAY_API", 1)?;
-        module.add("NEWRELIC_DISPLAY_LIST_API", 1)
+        module.add("NEWRELIC_DISPLAY_LIST_API", 1)?;
+        module.add("REDMINE_DISPLAY_API", 1)
     }
 
     #[pymodule_export]

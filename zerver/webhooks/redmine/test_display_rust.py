@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from typing_extensions import override
 
+from zerver.lib.native_backend import supports_default_rust_backend
 from zerver.lib.validator import check_string, wrap_wild_value
 from zerver.webhooks.redmine import view
 
@@ -22,16 +23,30 @@ class RedmineDisplayRustTest(TestCase):
         self.assertEqual(label(3, ""), "#3 ")
         self.assertIsNone(label(True, "word"))
         self.assertIsNone(label(2**70, "word"))
-        self.assertIsNone(label(3, "\ud800"))
         self.assertEqual(join("", ""), " ")
         self.assertEqual(join(" فارسی ", "😀 \0"), " فارسی  😀 \0")
-        self.assertIsNone(join("\ud800", "word"))
         self.assertIsNone(join("word", None))
+
+    def test_all_surrogate_code_points_in_selected_display_parts(self) -> None:
+        try:
+            module = import_module("_zulip_backend")
+        except ImportError:
+            self.skipTest("Wheel is absent")
+        if getattr(module, "REDMINE_DISPLAY_API", None) != 1:
+            self.skipTest("Wheel predates surrogate-safe Redmine display")
+        for code in range(0xD800, 0xE000):
+            part = f"آ{chr(code)}\0😀"
+            self.assertEqual(module.format_redmine_display_issue_label(42, part), f"#42 {part}")
+            self.assertEqual(module.join_redmine_display_name(part, "X"), f"{part} X")
+            self.assertEqual(module.join_redmine_display_name("X", part), f"X {part}")
 
     def test_real_ready_values_dispatch_exactly(self) -> None:
         native_label = view._rust_format_redmine_display_issue_label
         native_join = view._rust_join_redmine_display_name
-        enabled = os.environ.get("ZULIP_RUST_REDMINE_DISPLAY") == "1"
+        enabled = os.environ.get("ZULIP_RUST_REDMINE_DISPLAY") == "1" or (
+            supports_default_rust_backend()
+            and getattr(view._rust_redmine_display, "REDMINE_DISPLAY_API", None) == 1
+        )
         self.assertEqual(callable(native_label), enabled)
         self.assertEqual(callable(native_join), enabled)
         with (

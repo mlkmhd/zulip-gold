@@ -1,10 +1,8 @@
-import os
-from importlib import import_module
-
 from django.http import HttpRequest, HttpResponse
 
 from zerver.decorator import webhook_view
 from zerver.lib.exceptions import UnsupportedWebhookEventTypeError
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.response import json_success
 from zerver.lib.typed_endpoint import JsonBodyPayload, typed_endpoint
 from zerver.lib.validator import WildValue, check_int, check_string
@@ -21,10 +19,8 @@ CONTENT_MESSAGE_TEMPLATE = "\n\n~~~ quote\n{message}\n~~~"
 
 
 try:
-    _rust_redmine_display = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_REDMINE_DISPLAY") == "1"
-        else None
+    _rust_redmine_display = load_native_contract(
+        "ZULIP_RUST_REDMINE_DISPLAY", "REDMINE_DISPLAY_API"
     )
 except ImportError:
     _rust_redmine_display = None
