@@ -1,4 +1,5 @@
 import random
+import re
 from unittest import TestCase, mock
 
 from markdown import Markdown
@@ -75,7 +76,17 @@ class MarkdownHeadingTest(TestCase):
     def test_rust_path(self) -> None:
         from zerver.lib import markdown
 
-        if markdown._rust_markdown_headings is None:
+        backend = markdown._rust_markdown_headings
+        if backend is None:
             self.skipTest("Rust heading parser is disabled")
-        with mock.patch.object(HashHeaderProcessor, "RE", None):
+        with mock.patch.object(
+            backend, "parse_markdown_heading", wraps=backend.parse_markdown_heading
+        ) as parser:
             self.assertEqual(self.render("# title"), "<h1>title</h1>")
+            parser.assert_called()
+
+    def test_custom_heading_pattern_is_not_substituted(self) -> None:
+        custom = re.compile(r"(?P<level>!) (?P<header>.+)$")
+        with mock.patch.object(HashHeaderProcessor, "RE", custom):
+            self.assertEqual(self.render("! custom heading"), "<h1>custom heading</h1>")
+            self.assertEqual(self.render("# ordinary paragraph"), "<p># ordinary paragraph</p>")

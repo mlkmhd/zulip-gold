@@ -351,6 +351,7 @@ mod _zulip_backend {
         module.add("SEARCH_HIGHLIGHTS_API", 1)?;
         module.add("FENCED_CODE_HEADER_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
+        module.add("MARKDOWN_HEADINGS_API", 1)?;
         module.add("DISPLAY_RECIPIENT_ORDER_API", 1)
     }
 

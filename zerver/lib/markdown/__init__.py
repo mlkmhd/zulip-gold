@@ -72,6 +72,7 @@ from zerver.lib.mention import (
     get_user_group_mention_display_name,
 )
 from zerver.lib.mime_types import AUDIO_INLINE_MIME_TYPES, guess_type
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.per_request_cache import cache_for_current_request
 from zerver.lib.subdomains import is_static_or_current_realm_url
 from zerver.lib.tex import render_tex
@@ -137,10 +138,8 @@ _rust_markdown_paragraphs = (
     if os.environ.get("ZULIP_RUST_MARKDOWN_PARAGRAPHS") == "1"
     else None
 )
-_rust_markdown_headings = (
-    import_module("_zulip_backend")
-    if os.environ.get("ZULIP_RUST_MARKDOWN_HEADINGS") == "1"
-    else None
+_rust_markdown_headings = load_native_contract(
+    "ZULIP_RUST_MARKDOWN_HEADINGS", "MARKDOWN_HEADINGS_API"
 )
 _rust_markdown_quote_mentions = (
     import_module("_zulip_backend")
@@ -1690,6 +1689,11 @@ class ListIndentProcessor(markdown.blockprocessors.ListIndentProcessor):
         return super().looseDetab(text, level)
 
 
+_STANDARD_HEADING_RE = re.compile(
+    r"(?:^|\n)(?P<level>#{1,6})\s(?P<header>(?:\\.|[^\\])*?)#*(?:\n|$)"
+)
+
+
 class HashHeaderProcessor(markdown.blockprocessors.HashHeaderProcessor):
     """Process hash headers.
 
@@ -1698,11 +1702,15 @@ class HashHeaderProcessor(markdown.blockprocessors.HashHeaderProcessor):
 
     # Original regex for hashheader is
     # RE = re.compile(r'(?:^|\n)(?P<level>#{1,6})(?P<header>(?:\\.|[^\\])*?)#*(?:\n|$)')
-    RE = re.compile(r"(?:^|\n)(?P<level>#{1,6})\s(?P<header>(?:\\.|[^\\])*?)#*(?:\n|$)")
+    RE = _STANDARD_HEADING_RE
 
     @override
     def test(self, parent: Element, block: str) -> bool:
-        if _rust_markdown_headings is not None:
+        if (
+            _rust_markdown_headings is not None
+            and self.RE is _STANDARD_HEADING_RE
+            and type(block) is str
+        ):
             result = _rust_markdown_headings.parse_markdown_heading(block)
             if result is not None:
                 return result[0] is not None
@@ -1710,7 +1718,13 @@ class HashHeaderProcessor(markdown.blockprocessors.HashHeaderProcessor):
 
     @override
     def run(self, parent: Element, blocks: list[str]) -> None:
-        if _rust_markdown_headings is not None:
+        if (
+            _rust_markdown_headings is not None
+            and self.RE is _STANDARD_HEADING_RE
+            and type(blocks) is list
+            and blocks
+            and type(blocks[0]) is str
+        ):
             result = _rust_markdown_headings.parse_markdown_heading(blocks[0])
             if result is not None and result[0] is not None:
                 level, text, before, after = result
