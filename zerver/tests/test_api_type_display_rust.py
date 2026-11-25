@@ -1,4 +1,5 @@
 import os
+from collections import UserDict
 from collections.abc import Iterator
 from importlib import import_module
 from unittest import TestCase
@@ -57,6 +58,7 @@ class APITypeDisplayRustTest(TestCase):
         argument_preprocessor = arguments.APIArgumentsTablePreprocessor(Markdown(), {})
         result_preprocessor = APIReturnValuesTablePreprocessor(Markdown(), {})
         with (
+            patch.object(arguments, "_rust_render_api_doc_type_tree", None),
             patch.object(arguments, "_rust_join_prepared_doc_type_labels", join),
             patch.object(arguments, "_rust_wrap_prepared_doc_array_label", array),
             patch.object(arguments, "_rust_append_doc_nullable_label", nullable),
@@ -137,3 +139,50 @@ class APITypeDisplayRustTest(TestCase):
         self.assertIs(join.call_args.args[0][0], original)
         self.assertIs(array.call_args.args[0], original)
         self.assertIs(nullable.call_args.args[0], original)
+
+    def test_native_tree_and_limits(self) -> None:
+        try:
+            render = import_module("_zulip_backend").render_api_doc_type_tree
+        except (ImportError, AttributeError):
+            self.skipTest("Rust API documentation tree helper is not available")
+        name = "نوع🙂"
+        surrogate = "\ud800"
+        self.assertIs(render({"type": name}), name)
+        self.assertIs(render({"oneOf": [{"type": surrogate}]}), surrogate)
+        self.assertEqual(render({"oneOf": [], "items": {}, "nullable": True}), "")
+        self.assertEqual(
+            render({"items": {"oneOf": [{"type": name}, {"type": "string", "nullable": True}]}}),
+            "(نوع🙂 | string | null)[]",
+        )
+        loop: dict[str, object] = {}
+        loop["items"] = loop
+        deep: dict[str, object] = {"type": "string"}
+        for _ in range(32):
+            deep = {"items": deep}
+        for schema in [
+            loop,
+            deep,
+            {"oneOf": [{"type": "a"}] * 1024},
+            {"items": {"type": "x" * 65536}},
+            {"items": {"type": surrogate}},
+            {"oneOf": [None]},
+            {"oneOf": ({"type": "string"},)},
+            {"type": "string", "nullable": 1},
+            UserDict({"type": "string"}),
+        ]:
+            self.assertIsNone(render(schema))
+        self.assertEqual(arguments.generate_data_type(deep), "(" * 32 + "string" + ")[]" * 32)
+        with self.assertRaises(RecursionError):
+            arguments.generate_data_type(loop)
+
+    def test_declined_tree_attempts_once_and_keeps_legacy_leaf_calls(self) -> None:
+        schema = {"items": {"oneOf": [{"type": "integer"}, {"type": "string"}]}}
+        tree = Mock(return_value=None)
+        leaf = Mock(return_value=None)
+        with (
+            patch.object(arguments, "_rust_render_api_doc_type_tree", tree),
+            patch.object(arguments, "_rust_join_prepared_doc_type_labels", leaf),
+        ):
+            self.assertEqual(arguments.generate_data_type(schema), "(integer | string)[]")
+        tree.assert_called_once_with(schema)
+        leaf.assert_called_once_with(["integer", "string"])

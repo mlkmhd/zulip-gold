@@ -23,6 +23,9 @@ Before the generated sections.
 After the generated sections.
 """
 
+TREE_HOOK = "_rust_render_api_doc_type_tree"
+TREE_FLAG = "ZULIP_RUST_API_DOC_TYPE_TREE"
+
 NATIVE_HOOKS = (
     (arguments, "_rust_join_prepared_doc_type_labels", "ZULIP_RUST_API_TYPE_DISPLAY", 1),
     (arguments, "_rust_wrap_prepared_doc_array_label", "ZULIP_RUST_API_TYPE_DISPLAY", 2),
@@ -108,6 +111,7 @@ class APIDocsRenderFlowRustTest(TestCase):
 
     def render_python_baseline(self) -> str:
         with ExitStack() as stack:
+            stack.enter_context(patch.object(arguments, TREE_HOOK, None))
             for module, hook, _, _ in NATIVE_HOOKS:
                 stack.enter_context(patch.object(module, hook, None))
             return self.render_synthetic_reference()
@@ -139,6 +143,18 @@ class APIDocsRenderFlowRustTest(TestCase):
         self.assert_expected_document(expected)
 
         with ExitStack() as stack:
+            tree_enabled = os.environ.get(TREE_FLAG) == "1"
+            tree = getattr(arguments, TREE_HOOK)
+            self.assertEqual(callable(tree), tree_enabled)
+            tree_spy = (
+                stack.enter_context(
+                    patch.object(
+                        arguments, TREE_HOOK, side_effect=partial(require_native_text, tree)
+                    )
+                )
+                if tree_enabled
+                else None
+            )
             spies: list[tuple[Mock, int]] = []
             for module, hook, flag, expected_calls in NATIVE_HOOKS:
                 native = getattr(module, hook)
@@ -147,10 +163,14 @@ class APIDocsRenderFlowRustTest(TestCase):
                     spy = stack.enter_context(
                         patch.object(module, hook, side_effect=partial(require_native_text, native))
                     )
+                    if tree_enabled and flag == "ZULIP_RUST_API_TYPE_DISPLAY":
+                        expected_calls = 0
                     spies.append((spy, expected_calls))
                 else:
                     self.assertIsNone(native, (flag, hook))
             self.assertEqual(self.render_synthetic_reference(), expected)
+            if tree_spy is not None:
+                self.assertGreater(tree_spy.call_count, 0)
             for spy, expected_calls in spies:
                 self.assertEqual(spy.call_count, expected_calls)
 
@@ -158,6 +178,7 @@ class APIDocsRenderFlowRustTest(TestCase):
         expected = self.render_python_baseline()
         for missing in (None, "_rust_wrap_prepared_doc_array_label"):
             with self.subTest(missing=missing), ExitStack() as stack:
+                tree = stack.enter_context(patch.object(arguments, TREE_HOOK, return_value=None))
                 declines: list[tuple[Mock, int]] = []
                 for module, hook, _, expected_calls in NATIVE_HOOKS:
                     if hook == missing:
@@ -166,5 +187,6 @@ class APIDocsRenderFlowRustTest(TestCase):
                         decline = stack.enter_context(patch.object(module, hook, return_value=None))
                         declines.append((decline, expected_calls))
                 self.assertEqual(self.render_synthetic_reference(), expected)
+                self.assertGreater(tree.call_count, 0)
                 for decline, expected_calls in declines:
                     self.assertEqual(decline.call_count, expected_calls)

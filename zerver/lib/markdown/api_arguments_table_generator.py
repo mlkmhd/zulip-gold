@@ -37,6 +37,17 @@ _rust_wrap_prepared_doc_array_label = getattr(
 _rust_append_doc_nullable_label = getattr(_rust_api_type_display, "append_doc_nullable_label", None)
 
 try:
+    _rust_api_type_tree = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_API_DOC_TYPE_TREE") == "1"
+        else None
+    )
+except ImportError:
+    _rust_api_type_tree = None
+
+_rust_render_api_doc_type_tree = getattr(_rust_api_type_tree, "render_api_doc_type_tree", None)
+
+try:
     _rust_api_enum_display = (
         import_module("_zulip_backend")
         if os.environ.get("ZULIP_RUST_API_ENUM_DISPLAY") == "1"
@@ -344,10 +355,17 @@ def makeExtension(*args: Any, **kwargs: str) -> MarkdownArgumentsTableGenerator:
     return MarkdownArgumentsTableGenerator(*args, **kwargs)
 
 
-def generate_data_type(schema: Mapping[str, Any]) -> str:
+def generate_data_type(schema: Mapping[str, Any], *, _try_native: bool = True) -> str:
+    # A declined tree stays on the existing recursive path, with its
+    # independently selected leaf helpers. Do not restart native in a child.
+    if _try_native and _rust_render_api_doc_type_tree is not None:
+        tree = _rust_render_api_doc_type_tree(schema)
+        if tree is not None:
+            return tree
+
     data_type = ""
     if "oneOf" in schema:
-        items = (generate_data_type(item) for item in schema["oneOf"])
+        items = (generate_data_type(item, _try_native=False) for item in schema["oneOf"])
         if _rust_join_prepared_doc_type_labels is None:
             data_type = " | ".join(items)
         else:
@@ -357,7 +375,7 @@ def generate_data_type(schema: Mapping[str, Any]) -> str:
             native = _rust_join_prepared_doc_type_labels(prepared_items)
             data_type = " | ".join(prepared_items) if native is None else native
     elif "items" in schema:
-        item_type = generate_data_type(schema["items"])
+        item_type = generate_data_type(schema["items"], _try_native=False)
         if _rust_wrap_prepared_doc_array_label is not None:
             native = _rust_wrap_prepared_doc_array_label(item_type)
             if native is not None:
