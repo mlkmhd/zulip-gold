@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from importlib import import_module
 from itertools import product
+from os import environ
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 from unittest import SkipTest
@@ -8,6 +9,7 @@ from unittest.mock import Mock, patch
 
 from zerver.actions.realm_settings import do_set_realm_property
 from zerver.lib import native_message_payload
+from zerver.lib.native_backend import supports_default_rust_backend
 from zerver.lib.test_classes import ZulipTestCase
 from zerver.models.realms import MessageEditHistoryVisibilityPolicyEnum
 
@@ -16,6 +18,36 @@ if TYPE_CHECKING:
 
 
 class MessagePayloadBoundaryRustTest(ZulipTestCase):
+    def test_matching_wheel_only_enables_the_content_finalizer(self) -> None:
+        if not supports_default_rust_backend() or environ.get("ZULIP_RUST_MESSAGE_PAYLOAD"):
+            self.skipTest("No-flag startup is tested on Ubuntu 24.04 x86-64")
+        try:
+            backend = import_module("_zulip_backend")
+        except ModuleNotFoundError:
+            raise SkipTest("Rust extension is not installed") from None
+        if getattr(backend, "MESSAGE_CONTENT_FINALIZER_API", None) != 1:
+            self.skipTest("Wheel predates the default content finalizer contract")
+        self.assertTrue(native_message_payload.has_content_finalizer())
+        self.assertFalse(native_message_payload.is_enabled())
+
+        author = self.example_user("cordelia")
+        channel = self.make_stream("Native content fixture", is_web_public=True)
+        self.subscribe(author, channel.name)
+        message_id = self.send_stream_message(author, channel.name, "**Visible body**")
+        with patch.object(
+            backend,
+            "finalize_message_payload_content",
+            wraps=backend.finalize_message_payload_content,
+        ) as finalizer:
+            response = self.api_get(
+                author, f"/api/v1/messages/{message_id}", {"apply_markdown": "true"}
+            )
+        self.assertIn(
+            "<strong>Visible body</strong>",
+            self.assert_json_success(response)["message"]["content"],
+        )
+        finalizer.assert_called_once()
+
     def test_single_message_bytes_and_native_input_allowlist(self) -> None:
         try:
             backend = import_module("_zulip_backend")
@@ -106,7 +138,10 @@ class MessagePayloadBoundaryRustTest(ZulipTestCase):
                     }
                     if mobile:
                         params["client"] = "ZulipMobile"
-                    with patch.object(native_message_payload, "_backend", None):
+                    with (
+                        patch.object(native_message_payload, "_backend", None),
+                        patch.object(native_message_payload, "_default_content_backend", None),
+                    ):
                         reference = fetch(route, params)
                     envelope = self.assert_json_success(reference)
                     card = envelope["message"]

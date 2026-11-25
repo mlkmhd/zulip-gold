@@ -266,7 +266,7 @@ class MessageDict:
 
         MessageDict.set_sender_avatar(obj, client_gravatar, can_access_sender)
         native_callbacks = (
-            native_message_payload.is_enabled()
+            native_message_payload.has_content_finalizer()
             and type(plain_reply_links) is bool
             and (
                 not plain_reply_links

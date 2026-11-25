@@ -4717,12 +4717,12 @@ matched URLs.
 
 ## Assemble message payload content and annotations through Rust
 
-Set `ZULIP_RUST_MESSAGE_PAYLOAD=1` to use the opt-in PyO3 assembly used
-by message fetch, event delivery, and outgoing-webhook formatting.
-Rust selects HTML or Markdown for the response, removes internal edit
-rendering versions, and applies the empty topic label for older
-clients. It also assembles reaction and submessage arrays from Django
-rows. The existing lazy reaction query still runs only after message
+On Ubuntu 24.04 x86-64 a wheel exporting `MESSAGE_CONTENT_FINALIZER_API = 1`
+uses Rust for content finalization without a flag. It selects HTML or
+Markdown, removes internal edit rendering versions, and applies the empty
+topic label when needed. The earlier explicit
+`ZULIP_RUST_MESSAGE_PAYLOAD=1` option still enables the broader assembly,
+including reaction and submessage arrays from Django rows. The existing lazy reaction query still runs only after message
 buckets are initialized. Stable order, shared annotation objects,
 repeated message IDs, and the distinct handling of missing reaction
 versus submessage targets follow the Python behavior.
@@ -4743,9 +4743,9 @@ The existing shallow-copy and in-place mutation semantics stay the
 same for ordinary dictionaries and lists. Old wheels,
 custom callbacks and unsupported shapes use the Python path. Native
 declines happen before any writing to caller containers; an exception
-after the callback has started propagates without retry. The switch is
-off by default. The narrower interface adds a small allocation and
-copying cost on the opt-in path; it is an input boundary, not a
+after the callback has started propagates without retry. The broader
+assembly still requires the explicit flag. The narrower interface adds a
+small allocation and copying cost; it is an input boundary, not a
 performance improvement or a new authorization boundary.
 
 With the new extension available on `PYTHONPATH`, run:

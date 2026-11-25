@@ -1,4 +1,4 @@
-"""Opt-in Rust assembly of selected message payload fields."""
+"""Rust assembly of selected message payload fields."""
 
 import os
 import sys
@@ -6,22 +6,36 @@ from collections.abc import Callable, Iterable, Mapping
 from importlib import import_module
 from typing import TypeVar, cast
 
+from zerver.lib.native_backend import load_native_contract
+
 MessageT = TypeVar("MessageT", bound=Mapping[str, object])
+_requested = os.environ.get("ZULIP_RUST_MESSAGE_PAYLOAD") == "1"
 
 try:
-    _backend = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_MESSAGE_PAYLOAD") == "1"
-        else None
-    )
+    _backend = import_module("_zulip_backend") if _requested else None
 except ModuleNotFoundError as error:
     if error.name != "_zulip_backend":
         raise
     _backend = None
 
 
+_default_content_backend = (
+    None
+    if _requested
+    else load_native_contract("ZULIP_RUST_MESSAGE_PAYLOAD", "MESSAGE_CONTENT_FINALIZER_API")
+)
+
+
 def is_enabled() -> bool:
     return _backend is not None
+
+
+def _content_backend() -> object:
+    return _backend if _backend is not None else _default_content_backend
+
+
+def has_content_finalizer() -> bool:
+    return callable(getattr(_content_backend(), "finalize_message_payload_content", None))
 
 
 def _ordinary_dict(obj: object) -> bool:
@@ -84,7 +98,7 @@ def finalize_content(
     empty_topic_fallback: str,
     plain_reply_fields: Callable[..., dict[str, str]] | None,
 ) -> bool:
-    native = getattr(_backend, "finalize_message_payload_content", None)
+    native = getattr(_content_backend(), "finalize_message_payload_content", None)
     if native is None or not _ordinary_finalizer_options(
         apply_markdown, allow_empty_topic, empty_topic_fallback
     ):
