@@ -1,7 +1,5 @@
-import os
 import re
 from collections.abc import Mapping
-from importlib import import_module
 from typing import Any
 
 import markdown
@@ -10,11 +8,10 @@ from markdown.preprocessors import Preprocessor
 from typing_extensions import override
 
 from zerver.lib.markdown.priorities import PREPROCESSOR_PRIORITIES
+from zerver.lib.native_backend import load_native_contract
 
 try:
-    _rust_tabbed_text = (
-        import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_TABBED_TEXT") == "1" else None
-    )
+    _rust_tabbed_text = load_native_contract("ZULIP_RUST_TABBED_TEXT", "TABBED_TEXT_API")
 except ImportError:
     _rust_tabbed_text = None
 

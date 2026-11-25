@@ -1,7 +1,10 @@
 //! Fixed text transformations over Python-selected documentation tab content.
 
+use crate::python_text_bytes::{
+    join_exact_python_strings, python_string_bytes, python_string_from_bytes,
+};
 use pyo3::prelude::*;
-use pyo3::types::{PyList, PyString};
+use pyo3::types::PyString;
 
 fn is_python_space(c: char) -> bool {
     // CPython str.strip(): Unicode spacing plus the ASCII information separators.
@@ -21,51 +24,48 @@ fn is_python_space(c: char) -> bool {
     )
 }
 
-fn join_lines<'py>(lines: &Bound<'py, PyAny>, trim: bool) -> Option<Bound<'py, PyString>> {
-    let lines = lines.cast_exact::<PyList>().ok()?;
-    if lines.len() == 1 {
-        let value = lines.get_item(0).ok()?;
-        let value = value.cast_exact::<PyString>().ok()?;
-        if !trim {
-            return Some(value.clone());
-        }
-        let original = value.to_str().ok()?;
-        let trimmed = original.trim_matches(is_python_space);
-        return Some(if original.len() == trimmed.len() {
-            value.clone()
-        } else {
-            PyString::new(lines.py(), trimmed)
-        });
+fn trim_python_text(text: &[u8]) -> &[u8] {
+    if let Ok(text) = std::str::from_utf8(text) {
+        return text.trim_matches(is_python_space).as_bytes();
     }
 
-    let mut joined = String::new();
-    for (index, line) in lines.iter().enumerate() {
-        let text = line.cast_exact::<PyString>().ok()?.to_str().ok()?;
-        if index > 0 {
-            joined.push('\n');
+    let mut first = None;
+    let mut last = 0;
+    let mut offset = 0;
+    for chunk in text.utf8_chunks() {
+        for (i, ch) in chunk.valid().char_indices() {
+            if !is_python_space(ch) {
+                first.get_or_insert(offset + i);
+                last = offset + i + ch.len_utf8();
+            }
         }
-        joined.push_str(text);
+        offset += chunk.valid().len();
+        // Lone surrogate bytes cannot be Python whitespace.
+        if !chunk.invalid().is_empty() {
+            first.get_or_insert(offset);
+            offset += chunk.invalid().len();
+            last = offset;
+        }
     }
-    Some(PyString::new(
-        lines.py(),
-        if trim {
-            joined.trim_matches(is_python_space)
-        } else {
-            &joined
-        },
-    ))
+    &text[first.unwrap_or(0)..last]
 }
 
 #[pyfunction]
 pub(crate) fn normalize_prepared_tabbed_lines<'py>(
     lines: &Bound<'py, PyAny>,
 ) -> Option<Bound<'py, PyString>> {
-    join_lines(lines, true)
+    let joined = join_exact_python_strings(lines, b"\n")?;
+    let text = python_string_bytes(&joined)?;
+    let trimmed = trim_python_text(&text);
+    if trimmed.len() == text.len() {
+        return Some(joined);
+    }
+    python_string_from_bytes(joined.py(), trimmed)
 }
 
 #[pyfunction]
 pub(crate) fn join_prepared_tabbed_blocks<'py>(
     tabs: &Bound<'py, PyAny>,
 ) -> Option<Bound<'py, PyString>> {
-    join_lines(tabs, false)
+    join_exact_python_strings(tabs, b"\n")
 }

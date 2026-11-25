@@ -1,4 +1,3 @@
-import os
 from importlib import import_module
 from typing import cast
 from unittest import TestCase
@@ -29,16 +28,18 @@ class TabbedTextRustTest(TestCase):
         self.assertEqual(normalize(["\u200b", " value ", "\ufeff"]), "\u200b\n value \n\ufeff")
         self.assertEqual(join(["a\r", "b\n"]), "a\r\nb\n")
         self.assertEqual(join([]), "")
-        self.assertIsNone(normalize(["\ud800"]))
+        if getattr(module, "TABBED_TEXT_API", None) == 1:
+            surrogate_text = "".join(map(chr, range(0xD800, 0xE000))) + "🙂"
+            self.assertIs(normalize([surrogate_text]), surrogate_text)
+            values = ["\xa0\u2002", surrogate_text, "\udfff\u3000"]
+            self.assertEqual(normalize(values), "\n".join(values).strip())
+            self.assertEqual(join(values), "\n".join(values))
         self.assertIsNone(normalize(("\t",)))
         self.assertIsNone(join(["x", 1]))
 
     def test_real_preprocessor_selects_and_formats_tabs_in_python(self) -> None:
         normalizer = tabs._rust_normalize_prepared_tabbed_lines
         joiner = tabs._rust_join_prepared_tabbed_blocks
-        if os.environ.get("ZULIP_RUST_TABBED_TEXT") != "1":
-            self.assertIsNone(normalizer)
-            self.assertIsNone(joiner)
         normalize = Mock(wraps=normalizer) if normalizer is not None else None
         join = Mock(wraps=joiner) if joiner is not None else None
         first = ["  \x1d", "  First *text* ", ""]
@@ -70,6 +71,11 @@ class TabbedTextRustTest(TestCase):
         self.assertIn("\n".join(prepared), result[1])
         self.assertIn("Desktop/Web</li>", result[1])
         self.assertIn("iOS</li>", result[1])
+        with (
+            patch.object(tabs, "_rust_normalize_prepared_tabbed_lines", None),
+            patch.object(tabs, "_rust_join_prepared_tabbed_blocks", None),
+        ):
+            self.assertEqual(tabs.TabbedSectionsPreprocessor(Markdown(), {}).run(source), result)
         if normalize is not None:
             self.assertEqual(
                 [call.args for call in normalize.call_args_list], [(first,), (second,)]
