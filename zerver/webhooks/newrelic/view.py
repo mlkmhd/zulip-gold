@@ -1,12 +1,10 @@
 # Webhooks for external integrations.
 
-import os
-from importlib import import_module
-
 from django.core.exceptions import ValidationError
 from django.http import HttpRequest, HttpResponse
 
 from zerver.decorator import webhook_view
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.response import json_success
 from zerver.lib.timestamp import datetime_to_global_time, timestamp_to_datetime
 from zerver.lib.typed_endpoint import JsonBodyPayload, typed_endpoint
@@ -79,10 +77,8 @@ EXPECTED_FIELDS = [
 
 
 try:
-    _rust_newrelic_display_list = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_NEWRELIC_DISPLAY_LIST") == "1"
-        else None
+    _rust_newrelic_display_list = load_native_contract(
+        "ZULIP_RUST_NEWRELIC_DISPLAY_LIST", "NEWRELIC_DISPLAY_LIST_API"
     )
 except ImportError:
     _rust_newrelic_display_list = None

@@ -6932,14 +6932,14 @@ and catalog-root titles, extraction, routing, metadata selection, escaping
 and rendering are unchanged. Absent or older wheels keep the original
 behavior; `ZULIP_RUST_DOCUMENTATION_DISPLAY_TITLE=1` remains explicit opt-in.
 
-### Opt-in New Relic display list joins
+### Join prepared New Relic display lists in Rust
 
-`ZULIP_RUST_NEWRELIC_DISPLAY_LIST=1` optionally joins already
-formatted condition, policy and custom-detail values with comma and space.
-Python still validates, chooses and formats the individual values and
-retains message and webhook behavior. The switch defaults off, with Python
-fallback for absent, older, declining or unsupported extensions.
-
+On Ubuntu 24.04 x86-64 a wheel with `NEWRELIC_DISPLAY_LIST_API = 1` joins
+the prepared condition, policy and custom-detail strings. All Python
+string code points and single-item identity are preserved. Validation,
+selection, formatting the individual values, message and webhook
+handling stay in Python. An older or absent extension uses the original
+join; `ZULIP_RUST_NEWRELIC_DISPLAY_LIST=1` remains explicit opt-in.
 
 ### Assemble prepared draft GET display fields in Rust
 
