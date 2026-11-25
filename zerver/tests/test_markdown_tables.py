@@ -90,14 +90,18 @@ class MarkdownTableTest(TestCase):
     def test_rust_parser_is_used(self) -> None:
         from zerver.lib.markdown import tables as tables_module
 
-        if tables_module._rust_tables is None:
+        backend = tables_module._rust_tables
+        if backend is None:
             self.skipTest("Rust table parser is disabled")
         with (
             mock.patch.object(tables.TableProcessor, "test", side_effect=AssertionError),
-            mock.patch.object(tables.TableProcessor, "_split_row", side_effect=AssertionError),
+            mock.patch.object(
+                backend, "check_markdown_table", wraps=backend.check_markdown_table
+            ) as check,
         ):
             rendered = self.render("| a | b |\n|---|---|\n| `a|b` | c |")
             self.assertIn("<td><code>a|b</code></td>", rendered)
+            check.assert_called()
 
     def test_layout_preserves_missing_body_and_empty_cells(self) -> None:
         for align_attribute in [False, True]:
@@ -201,17 +205,18 @@ class MarkdownTableTest(TestCase):
     def test_rust_layout_is_used(self) -> None:
         from zerver.lib.markdown import tables as tables_module
 
-        if tables_module._rust_table_layout is None:
+        backend = tables_module._rust_table_layout
+        if backend is None:
             self.skipTest("Rust table layout is disabled")
         with (
             mock.patch.object(tables.TableProcessor, "run", side_effect=AssertionError),
-            mock.patch.object(tables.TableProcessor, "_build_row", side_effect=AssertionError),
             mock.patch.object(
-                tables.TableProcessor, "_build_empty_row", side_effect=AssertionError
-            ),
+                backend, "plan_markdown_table", wraps=backend.plan_markdown_table
+            ) as plan,
         ):
             self.assertIn("<td><code>a|b</code></td>", self.render("a|b\n--|--\n`a|b`|c"))
             self.assertIn("<td></td>", self.render("a|b\n:-:|--"))
+            plan.assert_called()
 
     def test_rust_layout_delegates_invalid_unicode_before_mutation(self) -> None:
         from zerver.lib.markdown import tables as tables_module
@@ -232,3 +237,16 @@ class MarkdownTableTest(TestCase):
             fallback.assert_called_once_with(processor, parent, blocks)
             self.assertEqual(blocks, ["\ud800", "following block"])
             self.assertFalse(list(parent))
+
+    def test_custom_split_or_builder_keeps_its_original_dispatch(self) -> None:
+        processor = TableProcessor(Markdown().parser, {"use_align_attribute": False})
+        with mock.patch.object(
+            processor, "_split_row", side_effect=[["a", "b"], ["-", "-"]]
+        ) as split:
+            self.assertTrue(processor.test(Element("div"), "a|b\n-|-"))
+        self.assertEqual(split.call_count, 2)
+        with mock.patch.object(
+            processor, "_build_row", wraps=getattr(processor, "_build_row", None)
+        ) as build:
+            processor.run(Element("div"), ["a|b\n-|-"])
+        build.assert_called_once()
