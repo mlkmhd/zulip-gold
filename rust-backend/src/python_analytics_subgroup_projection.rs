@@ -5,17 +5,16 @@ use std::collections::HashMap;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyInt, PyList, PyString, PyTuple};
 
-fn subgroup(value: &Bound<'_, PyAny>) -> Option<Option<String>> {
+use crate::python_text_bytes::python_string_bytes;
+
+type Group = Option<Vec<u8>>;
+
+fn subgroup(value: &Bound<'_, PyAny>) -> Option<Group> {
     if value.is_none() {
         Some(None)
     } else {
         Some(Some(
-            value
-                .cast_exact::<PyString>()
-                .ok()?
-                .to_str()
-                .ok()?
-                .to_owned(),
+            python_string_bytes(value.cast_exact::<PyString>().ok()?)?.into_owned(),
         ))
     }
 }
@@ -24,7 +23,7 @@ fn time_token(value: &Bound<'_, PyAny>) -> Option<i64> {
     value.cast_exact::<PyInt>().ok()?.extract().ok()
 }
 
-type PointRows<'py> = HashMap<Option<String>, HashMap<i64, Bound<'py, PyInt>>>;
+type PointRows<'py> = HashMap<Group, HashMap<i64, Bound<'py, PyInt>>>;
 
 fn parse_rows<'py>(rows: &Bound<'py, PyAny>) -> Option<PointRows<'py>> {
     let mut points = PointRows::new();

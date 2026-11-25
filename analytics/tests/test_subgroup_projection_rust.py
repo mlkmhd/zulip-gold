@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 from analytics.lib.counts import COUNT_STATS
 from analytics.models import RealmCount
 from analytics.views import stats
+from zerver.lib.native_backend import supports_default_rust_backend
 
 
 class SubgroupProjectionRustTest(TestCase):
@@ -38,13 +39,33 @@ class SubgroupProjectionRustTest(TestCase):
             ([("a", True, 5)], [], []),
             ([("a", 1, True)], [], []),
             ([("a", 1)], [], []),
-            ([("\ud800", 0, 5)], [], []),
             (rows, [2**90], eligible),
             (rows, times, [("a",)]),
             (rows, times, [("a", 5)]),
         )
         for inputs in invalid_cases:
             self.assertIsNone(project(*inputs))
+
+    def test_subgroup_keys_preserve_every_surrogate_without_merging_null_and_empty(self) -> None:
+        try:
+            native = import_module("_zulip_backend")
+        except ImportError:
+            self.skipTest("Rust chart subgroup projection is not available")
+        if getattr(native, "ANALYTICS_SUBGROUP_PROJECTION_API", None) != 1:
+            self.skipTest("Wheel predates surrogate-safe subgroup projection")
+        count = 2**90
+        for point in range(0xD800, 0xE000):
+            key = "group-" + chr(point)
+            label = "label-" + chr(point)
+            rows = [(None, 0, 2), ("", 0, 3), (key, 1, 4), (key, 1, count)]
+            eligible = [(None, "null"), ("", "empty"), (key, label)]
+            values = native.project_analytics_subgroup_series(rows, [1, 0, 1], eligible)
+            self.assertEqual(
+                list(values.items()),
+                [("null", [0, 2, 0]), ("empty", [0, 3, 0]), (label, [count, 0, count])],
+            )
+            self.assertIs(list(values)[2], label)
+            self.assertIs(values[label][0], count)
 
     def test_real_chart_query_eligibility_and_order_are_unchanged(self) -> None:
         first = datetime(2020, 1, 1, tzinfo=timezone.utc)
@@ -55,8 +76,12 @@ class SubgroupProjectionRustTest(TestCase):
         label_two = "two:نمودار".removeprefix("two:")
         large = 2**91
         native = stats._project_analytics_subgroup_series
-        if os.environ.get("ZULIP_RUST_ANALYTICS_SUBGROUP_PROJECTION") != "1":
-            self.assertIsNone(native)
+        enabled = os.environ.get("ZULIP_RUST_ANALYTICS_SUBGROUP_PROJECTION") == "1" or (
+            supports_default_rust_backend()
+            and getattr(stats._rust_subgroup_projection, "ANALYTICS_SUBGROUP_PROJECTION_API", None)
+            == 1
+        )
+        self.assertEqual(native is not None, enabled)
         spy = Mock(wraps=native) if native is not None else None
         query = Mock()
         query.filter.return_value.values_list.return_value = [

@@ -86,10 +86,8 @@ _CHART_DAY_MICROSECONDS = 24 * _CHART_HOUR_MICROSECONDS
 
 
 try:
-    _rust_subgroup_projection = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_ANALYTICS_SUBGROUP_PROJECTION") == "1"
-        else None
+    _rust_subgroup_projection = load_native_contract(
+        "ZULIP_RUST_ANALYTICS_SUBGROUP_PROJECTION", "ANALYTICS_SUBGROUP_PROJECTION_API"
     )
 except ImportError:
     _rust_subgroup_projection = None

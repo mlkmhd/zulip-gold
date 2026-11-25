@@ -6732,13 +6732,17 @@ traversal, validation and error behavior, and all markup and escaping. Python is
 the default and the fallback if the extension or an individual helper is missing
 or declines an already-prepared value.
 
-### Opt-in analytics subgroup projection
+### Project already selected analytics subgroup series
 
-`ZULIP_RUST_ANALYTICS_SUBGROUP_PROJECTION=1` fills chart arrays for already
-selected subgroup labels and prepared UTC time keys. Django retains chart
-queries, grouping and eligible-label selection; the unchanged client alias
-step runs afterward. The default and unsupported-value fallback is the
-original Python fill loop. No time conversion or scope decision runs in Rust.
+On Ubuntu 24.04 x86-64 a wheel exporting `ANALYTICS_SUBGROUP_PROJECTION_API = 1`
+fills chart arrays for selected labels and prepared UTC time keys without
+a flag. It preserves missing buckets, duplicate-label precedence,
+null versus empty keys, exact Unicode, and Python's original counts.
+Django keeps queries, grouping, eligibility and the timestamp conversion.
+
+Old or absent wheels and unsupported values keep the original Python
+loop. The explicit `ZULIP_RUST_ANALYTICS_SUBGROUP_PROJECTION=1`
+option remains available.
 
 ### Opt-in documentation tab text
 
