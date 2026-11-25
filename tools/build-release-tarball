@@ -90,16 +90,23 @@ mv zulip-git-version "$OUTPUT_DIR/$prefix/"
 # A staged wheel belongs to the archived commit, not to the builder's venv.
 echo "$GITID" >"$OUTPUT_DIR/$prefix/build_id"
 release_wheel_entries=()
-if "$build_rust_wheel" || [ -n "$rust_wheel_dir" ]; then
-    (
-        if "$build_rust_wheel"; then
-            wheel_build_dir=$(mktemp -d)
-            trap 'rm -rf -- "$wheel_build_dir"' EXIT
-            rust_wheel_dir="$wheel_build_dir/wheels"
-            python3 rust-backend/tools/build_portable_wheel.py --output "$rust_wheel_dir"
+(
+    if [ -z "$rust_wheel_dir" ]; then
+        wheel_build_dir=$(mktemp -d)
+        trap 'rm -rf -- "$wheel_build_dir"' EXIT
+        rust_wheel_dir="$wheel_build_dir/wheels"
+        build_args=()
+        if ! "$build_rust_wheel"; then
+            build_args=(--if-ready)
         fi
-        python3 scripts/lib/select_native_wheel.py "$OUTPUT_DIR/$prefix" "$rust_wheel_dir"
-    )
+        python3 rust-backend/tools/build_portable_wheel.py --output "$rust_wheel_dir" "${build_args[@]}"
+        if [ ! -d "$rust_wheel_dir" ]; then
+            exit 0
+        fi
+    fi
+    python3 scripts/lib/select_native_wheel.py "$OUTPUT_DIR/$prefix" "$rust_wheel_dir"
+)
+if [ -d "$OUTPUT_DIR/$prefix/rust-wheels" ]; then
     release_wheel_entries=("$prefix/rust-wheels")
 fi
 

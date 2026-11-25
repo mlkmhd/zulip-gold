@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, mock
@@ -101,6 +102,28 @@ class ReleaseWheelTest(TestCase):
         )
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("Usage:", result.stderr)
+
+    def test_automatic_build_skips_without_touching_the_output(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        output = self.root / "built-wheels"
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(root / "rust-backend/tools/build_portable_wheel.py"),
+                "--if-ready",
+                "--maturin",
+                str(self.root / "missing-maturin"),
+                "--output",
+                str(output),
+            ],
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Skipping bundled Rust wheel:", result.stderr)
+        self.assertFalse(output.exists())
 
 
 class GitWheelStoreTest(TestCase):
