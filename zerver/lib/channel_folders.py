@@ -1,22 +1,19 @@
-import os
 from dataclasses import dataclass
-from importlib import import_module
 from typing import Literal
 
 from django.utils.translation import gettext as _
 
 from zerver.lib.exceptions import JsonableError
 from zerver.lib.markdown import markdown_convert
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.streams import get_web_public_streams_queryset
 from zerver.lib.string_validation import check_string_is_printable
 from zerver.lib.timestamp import datetime_to_timestamp
 from zerver.models import ChannelFolder, Realm, Stream, UserProfile
 
 try:
-    _rust_channel_folder_display = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_CHANNEL_FOLDER_DISPLAY") == "1"
-        else None
+    _rust_channel_folder_display = load_native_contract(
+        "ZULIP_RUST_CHANNEL_FOLDER_DISPLAY", "CHANNEL_FOLDER_DISPLAY_ORDER_API"
     )
 except ImportError:
     _rust_channel_folder_display = None

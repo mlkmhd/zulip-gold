@@ -6856,13 +6856,13 @@ inputs, chooses and sorts topics, and owns time, URL, message and webhook
 handling. The switch defaults off; absent, older, or declining native
 implementations use the original Python formatting.
 
-### Opt-in channel folder display ordering
+### Order prepared channel folders through Rust
 
-`ZULIP_RUST_CHANNEL_FOLDER_DISPLAY=1` optionally plans stable ordering
-after Python selects channel folders and builds the display rows. Realm and
-spectator views retain their existing sort keys and original DTO objects.
-Python handles absent, older, declining or malformed native results. This is
-off by default and does not participate in folder writes or reordering.
+On Ubuntu 24.04 x86-64, a wheel exporting `CHANNEL_FOLDER_DISPLAY_ORDER_API = 1`
+plans stable display order after Python selects channels and prepares the folder
+rows. Realm and spectator views retain their earlier sort keys and DTO objects.
+An older or absent wheel, or unsupported input, keeps the original sort.
+`ZULIP_RUST_CHANNEL_FOLDER_DISPLAY=1` remains explicit opt-in.
 
 ### Opt-in Jotform display value joining
 

@@ -5,6 +5,8 @@ from unittest import TestCase
 from unittest.mock import MagicMock, call, patch
 
 from zerver.lib import channel_folders as display
+from zerver.lib.native_backend import supports_default_rust_backend
+from zerver.lib.test_classes import ZulipTestCase
 from zerver.models import ChannelFolder, Realm
 
 
@@ -48,7 +50,13 @@ class ChannelFolderDisplayRustTest(TestCase):
         queryset.exclude.return_value = rows[:3]
         queryset.__iter__.return_value = rows
         native = display._rust_plan_channel_folder_display_order
-        enabled = os.environ.get("ZULIP_RUST_CHANNEL_FOLDER_DISPLAY") == "1"
+        enabled = os.environ.get("ZULIP_RUST_CHANNEL_FOLDER_DISPLAY") == "1" or (
+            supports_default_rust_backend()
+            and getattr(
+                display._rust_channel_folder_display, "CHANNEL_FOLDER_DISPLAY_ORDER_API", None
+            )
+            == 1
+        )
         self.assertEqual(callable(native), enabled)
 
         with (
@@ -75,7 +83,13 @@ class ChannelFolderDisplayRustTest(TestCase):
         eligible = MagicMock()
         eligible.values_list.return_value = [30, 20, 10, 11, 30]
         native = display._rust_plan_channel_folder_display_order
-        enabled = os.environ.get("ZULIP_RUST_CHANNEL_FOLDER_DISPLAY") == "1"
+        enabled = os.environ.get("ZULIP_RUST_CHANNEL_FOLDER_DISPLAY") == "1" or (
+            supports_default_rust_backend()
+            and getattr(
+                display._rust_channel_folder_display, "CHANNEL_FOLDER_DISPLAY_ORDER_API", None
+            )
+            == 1
+        )
         with (
             patch.object(
                 display, "get_web_public_streams_queryset", return_value=eligible
@@ -125,3 +139,52 @@ class ChannelFolderDisplayRustTest(TestCase):
                 [folder.id for folder in display.get_channel_folders_in_realm(realm, True)],
                 [30, 20, 10],
             )
+
+
+class ChannelFolderDefaultNativeDisplayTest(ZulipTestCase):
+    def test_realm_and_spectator_dispatch_after_existing_selection(self) -> None:
+        if not supports_default_rust_backend() or os.environ.get(
+            "ZULIP_RUST_CHANNEL_FOLDER_DISPLAY"
+        ):
+            self.skipTest("No-flag startup is tested on Ubuntu 24.04 x86-64")
+        backend = display._rust_channel_folder_display
+        if getattr(backend, "CHANNEL_FOLDER_DISPLAY_ORDER_API", None) != 1:
+            self.skipTest("Wheel predates the default channel-folder ordering contract")
+
+        reader = self.example_user("hamlet")
+        realm = reader.realm
+        other_realm = self.mit_user("sipbtest").realm
+        earlier_id = ChannelFolder.objects.create(realm=realm, name="Second by order", order=5)
+        later_id = ChannelFolder.objects.create(realm=realm, name="First by order", order=-2)
+        private = ChannelFolder.objects.create(realm=realm, name="Not public", order=8)
+        archived = ChannelFolder.objects.create(realm=realm, name="Archived", is_archived=True)
+        outside = ChannelFolder.objects.create(realm=other_realm, name="Outside", order=-8)
+        for folder in (later_id, earlier_id, outside):
+            stream = self.make_stream(f"public {folder.id}", folder.realm, is_web_public=True)
+            stream.folder = folder
+            stream.save(update_fields=["folder"])
+        stream = self.make_stream("ordinary stream", realm)
+        stream.folder = private
+        stream.save(update_fields=["folder"])
+
+        native = display._rust_plan_channel_folder_display_order
+        assert native is not None
+        self.login_user(reader)
+        with patch.object(display, "_rust_plan_channel_folder_display_order", wraps=native) as plan:
+            api = self.api_get(reader, "/api/v1/channel_folders")
+            web = self.client_get("/json/channel_folders")
+            active_native = display.get_channel_folders_in_realm(realm)
+            archived_native = display.get_channel_folders_in_realm(realm, include_archived=True)
+            spectator = display.get_channel_folders_for_spectators(realm)
+        expected_active = [later_id.id, earlier_id.id, private.id]
+        for response in (api, web):
+            rows = self.assert_json_success(response)["channel_folders"]
+            self.assertEqual([row["id"] for row in rows], expected_active)
+        self.assertEqual([folder.id for folder in active_native], expected_active)
+        self.assertEqual(
+            [folder.id for folder in archived_native],
+            [later_id.id, archived.id, earlier_id.id, private.id],
+        )
+        self.assertEqual([folder.id for folder in spectator], [earlier_id.id, later_id.id])
+        self.assertEqual(plan.call_count, 5)
+        self.assertCountEqual(plan.call_args_list[-1].args[0], [earlier_id.id, later_id.id])
