@@ -1,4 +1,5 @@
 import random
+import re
 from contextlib import nullcontext
 from unittest import TestCase, mock
 from xml.etree.ElementTree import Element, tostring
@@ -102,11 +103,26 @@ class MarkdownBlockQuoteTest(TestCase):
     def test_rust_parser_is_used(self) -> None:
         import zerver.lib.markdown as markdown_module
 
-        if markdown_module._rust_markdown_blockquotes is None:
+        backend = markdown_module._rust_markdown_blockquotes
+        if backend is None:
             self.skipTest("Rust blockquote parsing is disabled")
-        with mock.patch.object(BlockQuoteProcessor, "RE") as pattern:
-            pattern.search.side_effect = AssertionError("Python quote search was used")
-            pattern.match.side_effect = AssertionError("Python quote cleaning was used")
+        with (
+            mock.patch.object(
+                backend, "split_markdown_blockquote", wraps=backend.split_markdown_blockquote
+            ) as split,
+            mock.patch.object(
+                backend,
+                "strip_markdown_blockquote_marker",
+                wraps=backend.strip_markdown_blockquote_marker,
+            ) as strip,
+        ):
             self.assertEqual(
                 self.render("> content"), "<blockquote>\n<p>content</p>\n</blockquote>"
             )
+            split.assert_called()
+            strip.assert_called_once_with("> content")
+
+    def test_custom_pattern_keeps_reference_matching_and_strip(self) -> None:
+        with mock.patch.object(BlockQuoteProcessor, "RE", re.compile(r"(^|\n)!(.*)")):
+            self.assertEqual(self.render("!custom"), "<blockquote>\n<p>custom</p>\n</blockquote>")
+            self.assertEqual(self.render("> content"), "<p>&gt; content</p>")

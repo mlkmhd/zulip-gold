@@ -113,10 +113,8 @@ _rust_markdown_channel_links = (
 _rust_markdown_lists = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_MARKDOWN_LISTS") == "1" else None
 )
-_rust_markdown_blockquotes = (
-    import_module("_zulip_backend")
-    if os.environ.get("ZULIP_RUST_MARKDOWN_BLOCKQUOTES") == "1"
-    else None
+_rust_markdown_blockquotes = load_native_contract(
+    "ZULIP_RUST_MARKDOWN_BLOCKQUOTES", "MARKDOWN_BLOCKQUOTES_API"
 )
 _rust_markdown_list_blocks = (
     import_module("_zulip_backend")
@@ -1817,6 +1815,11 @@ class ParagraphProcessor(markdown.blockprocessors.ParagraphProcessor):
         super().run(parent, blocks)
 
 
+_STANDARD_BLOCKQUOTE_RE = re.compile(
+    r"(^|\n)(?!(?:[ ]{0,3}>\s*(?:$|\n))*(?:$|\n))[ ]{0,3}>[ ]?(.*)"
+)
+
+
 class BlockQuoteProcessor(markdown.blockprocessors.BlockQuoteProcessor):
     """Process block quotes.
 
@@ -1824,11 +1827,16 @@ class BlockQuoteProcessor(markdown.blockprocessors.BlockQuoteProcessor):
     """
 
     # Original regex for blockquote is RE = re.compile(r'(^|\n)[ ]{0,3}>[ ]?(.*)')
-    RE = re.compile(r"(^|\n)(?!(?:[ ]{0,3}>\s*(?:$|\n))*(?:$|\n))[ ]{0,3}>[ ]?(.*)")
+    RE = _STANDARD_BLOCKQUOTE_RE
 
     @override
     def test(self, parent: Element, block: str) -> bool:
-        if _rust_markdown_blockquotes is not None:
+        if (
+            _rust_markdown_blockquotes is not None
+            and type(self) is BlockQuoteProcessor
+            and self.RE is _STANDARD_BLOCKQUOTE_RE
+            and type(block) is str
+        ):
             result = _rust_markdown_blockquotes.split_markdown_blockquote(block)
             if result is not None:
                 return result[0] and not markdown.util.nearing_recursion_limit()
@@ -1840,7 +1848,12 @@ class BlockQuoteProcessor(markdown.blockprocessors.BlockQuoteProcessor):
         block = blocks.pop(0)
         result = (
             _rust_markdown_blockquotes.split_markdown_blockquote(block)
-            if _rust_markdown_blockquotes is not None
+            if (
+                _rust_markdown_blockquotes is not None
+                and type(self) is BlockQuoteProcessor
+                and self.RE is _STANDARD_BLOCKQUOTE_RE
+                and type(block) is str
+            )
             else None
         )
         if result is not None:
@@ -1887,7 +1900,12 @@ class BlockQuoteProcessor(markdown.blockprocessors.BlockQuoteProcessor):
             line = mention.USER_GROUP_MENTIONS_RE.sub(
                 lambda m: "@_*{}*".format(m.group("match")), line
             )
-        if _rust_markdown_blockquotes is not None:
+        if (
+            _rust_markdown_blockquotes is not None
+            and type(self) is BlockQuoteProcessor
+            and self.RE is _STANDARD_BLOCKQUOTE_RE
+            and type(line) is str
+        ):
             result = _rust_markdown_blockquotes.strip_markdown_blockquote_marker(line)
             if result is not None:
                 return result
