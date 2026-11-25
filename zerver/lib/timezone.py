@@ -1,20 +1,22 @@
 import os
 from functools import cache
-from importlib import import_module
 
 from scripts.lib.zulip_tools import get_tzdata_zi
+from zerver.lib.native_backend import load_native_contract
 
 try:
-    _rust_timezone_aliases = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_TIMEZONE_ALIASES") == "1"
-        else None
+    _rust_timezone_aliases = load_native_contract(
+        "ZULIP_RUST_TIMEZONE_ALIASES", "TIMEZONE_ALIAS_SOURCE_API"
     )
 except ImportError:
     _rust_timezone_aliases = None
 
 _parse_timezone_alias_lines = getattr(_rust_timezone_aliases, "parse_timezone_alias_lines", None)
-_lookup_timezone_alias = getattr(_rust_timezone_aliases, "lookup_timezone_alias", None)
+_lookup_timezone_alias = (
+    getattr(_rust_timezone_aliases, "lookup_timezone_alias", None)
+    if os.environ.get("ZULIP_RUST_TIMEZONE_ALIASES") == "1"
+    else None
+)
 
 
 @cache

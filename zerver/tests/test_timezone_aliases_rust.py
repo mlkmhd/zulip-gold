@@ -11,6 +11,7 @@ from django.test import SimpleTestCase
 from typing_extensions import override
 
 from zerver.lib import timezone
+from zerver.lib.native_backend import supports_default_rust_backend
 
 
 class TimezoneAliasesRustTest(TestCase):
@@ -61,25 +62,31 @@ class TimezoneAliasesIntegrationTest(SimpleTestCase):
         timezone.get_canonical_timezone_map.cache_clear()
         self.addCleanup(timezone.get_canonical_timezone_map.cache_clear)
 
-    def test_existing_stream_cache_lookup_and_flag(self) -> None:
-        enabled = os.environ.get("ZULIP_RUST_TIMEZONE_ALIASES") == "1"
+    def test_existing_stream_cache_and_lookup_selection(self) -> None:
+        explicit_request = os.environ.get("ZULIP_RUST_TIMEZONE_ALIASES") == "1"
+        try:
+            backend = import_module("_zulip_backend")
+        except ImportError:
+            backend = None
+        default_parse = (
+            supports_default_rust_backend()
+            and getattr(backend, "TIMEZONE_ALIAS_SOURCE_API", None) == 1
+        )
         parse = timezone._parse_timezone_alias_lines
         lookup = timezone._lookup_timezone_alias
-        if enabled:
-            self.assertIsNotNone(parse)
-            self.assertIsNotNone(lookup)
-        else:
-            self.assertIsNone(parse)
-            self.assertIsNone(lookup)
+        self.assertEqual(
+            parse is not None, default_parse or (explicit_request and backend is not None)
+        )
+        self.assertEqual(lookup is not None, explicit_request and backend is not None)
         parse_spy = (
             patch.object(timezone, "_parse_timezone_alias_lines", wraps=parse)
-            if enabled
-            else patch.object(timezone, "_parse_timezone_alias_lines", None)
+            if parse
+            else (patch.object(timezone, "_parse_timezone_alias_lines", None))
         )
         lookup_spy = (
             patch.object(timezone, "_lookup_timezone_alias", wraps=lookup)
-            if enabled
-            else patch.object(timezone, "_lookup_timezone_alias", None)
+            if lookup
+            else (patch.object(timezone, "_lookup_timezone_alias", None))
         )
         lines = ["# comment\n", "L Initial Alias\n", "\xa0linK Final Alias\n", "LI Two B"]
         key = "value:unknown key".removeprefix("value:")
@@ -96,15 +103,24 @@ class TimezoneAliasesIntegrationTest(SimpleTestCase):
             self.assertIs(timezone.canonicalize_timezone(key), key)
             self.assertTrue(source.closed)
             opener.assert_called_once_with()
-            if enabled:
-                assert native_parse is not None
-                assert native_lookup is not None
+            if native_parse is not None:
                 self.assertEqual(native_parse.call_args_list, [call([line]) for line in lines])
+            if native_lookup is not None:
                 self.assertEqual(
                     native_lookup.call_args_list, [call(aliases, "Alias"), call(aliases, key)]
                 )
                 self.assertIs(native_lookup.call_args.args[0], aliases)
                 self.assertIs(native_lookup.call_args.args[1], key)
+
+    def test_installed_tzdata_has_identical_aliases(self) -> None:
+        parse = timezone._parse_timezone_alias_lines
+        with patch.object(timezone, "_parse_timezone_alias_lines", None):
+            expected = list(timezone.get_canonical_timezone_map().items())
+        timezone.get_canonical_timezone_map.cache_clear()
+        self.assertEqual(list(timezone.get_canonical_timezone_map().items()), expected)
+        self.assertGreater(len(expected), 100)
+        self.assertEqual(timezone.canonicalize_timezone("US/Pacific"), "America/Los_Angeles")
+        self.assertIs(timezone._parse_timezone_alias_lines, parse)
 
     def test_early_malformed_line_precedes_later_stream_error(self) -> None:
         events: list[str] = []
