@@ -23,7 +23,7 @@ pub(crate) fn plan_display_mentions<'py>(
         .map(|value| Some((value.to_str().ok()?, value)))
         .collect::<Option<Vec<_>>>()?;
     if sort {
-        ordered.sort_by(|(left, _), (right, _)| left.cmp(right));
+        ordered.sort_by_key(|(left, _)| *left);
     }
     let ((_, last), preceding) = ordered.split_last()?;
     if preceding.is_empty() {
