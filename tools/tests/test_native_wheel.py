@@ -1,11 +1,17 @@
 import hashlib
 import json
+import os
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, mock
 
-from scripts.lib.select_native_wheel import RELEASE_WHEEL_DIR, select_wheel, stage_release_wheel
+from scripts.lib.select_native_wheel import (
+    RELEASE_WHEEL_DIR,
+    find_git_wheel_dir,
+    select_wheel,
+    stage_release_wheel,
+)
 
 BUILD_ID = "a" * 40
 WHEEL_NAME = "zulip_backend-0.1.0-cp310-abi3-manylinux_2_34_x86_64.whl"
@@ -95,3 +101,70 @@ class ReleaseWheelTest(TestCase):
         )
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("Usage:", result.stderr)
+
+
+class GitWheelStoreTest(TestCase):
+    def setUp(self) -> None:
+        temp = TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.base = Path(temp.name)
+        self.root = self.base / "checkout"
+        self.store = self.base / "zulip-rust-wheels"
+        patcher = mock.patch(
+            "scripts.lib.select_native_wheel.git_checkout_build_id", return_value=BUILD_ID
+        )
+        self.git_checkout_build_id = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def select(self, *, owner_uid: int | None = None) -> Path | None:
+        return find_git_wheel_dir(
+            self.root,
+            self.store,
+            None,
+            owner_uid=owner_uid if owner_uid is not None else os.getuid(),
+        )
+
+    def stage(self, build_id: str = BUILD_ID) -> Path:
+        wheel_dir = self.store / build_id
+        self.store.mkdir(mode=0o755, exist_ok=True)
+        wheel_dir.mkdir(mode=0o755)
+        (wheel_dir / "manifest.json").write_text(
+            json.dumps({"build_id": build_id, "wheels": [{"file": WHEEL_NAME, "sha256": DIGEST}]})
+        )
+        (wheel_dir / WHEEL_NAME).write_bytes(WHEEL_BYTES)
+        for entry in wheel_dir.iterdir():
+            entry.chmod(0o644)
+        return wheel_dir
+
+    def test_missing_store_does_not_read_git(self) -> None:
+        self.assertIsNone(self.select())
+        self.git_checkout_build_id.assert_not_called()
+
+    def test_store_does_not_fall_back_to_another_commit(self) -> None:
+        self.stage("b" * 40)
+        self.assertIsNone(self.select())
+
+    def test_finds_only_exact_commit_in_trusted_store(self) -> None:
+        self.stage("b" * 40)
+        exact = self.stage()
+        self.assertEqual(self.select(), exact)
+        self.git_checkout_build_id.assert_called_once_with(self.root, None)
+
+    def test_rejects_wrong_owner(self) -> None:
+        self.stage()
+        with self.assertRaisesRegex(ValueError, "Untrusted native wheel store entry"):
+            self.select(owner_uid=os.getuid() + 1)
+
+    def test_rejects_writable_manifest(self) -> None:
+        exact = self.stage()
+        (exact / "manifest.json").chmod(0o664)
+        with self.assertRaisesRegex(ValueError, "Untrusted native wheel store entry"):
+            self.select()
+
+    def test_rejects_symlinked_store(self) -> None:
+        self.stage()
+        alias = self.base / "actual"
+        self.store.rename(alias)
+        self.store.symlink_to(alias)
+        with self.assertRaisesRegex(ValueError, "Untrusted native wheel store entry"):
+            self.select()

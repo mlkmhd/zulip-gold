@@ -6,6 +6,7 @@ import json
 import platform
 import re
 import shutil
+import stat
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -18,12 +19,57 @@ WHEEL = re.compile(
 
 
 RELEASE_WHEEL_DIR = "rust-wheels"
+GIT_WHEEL_STORE = Path("/srv/zulip-rust-wheels")
 
 
 def supported_wheel_platform(distro: dict[str, str], machine: str) -> bool:
     return (
         distro.get("ID") == "ubuntu" and distro.get("VERSION_ID") == "24.04" and machine == "x86_64"
     )
+
+
+def git_checkout_build_id(root: Path, git_preexec: Callable[[], None] | None) -> str:
+    checkout, build_id = subprocess.check_output(
+        ["git", "-C", str(root), "rev-parse", "--show-toplevel", "HEAD"],
+        text=True,
+        preexec_fn=git_preexec,
+    ).splitlines()
+    if Path(checkout).resolve() != root:
+        raise ValueError("Staged Rust wheel must match the invoking checkout")
+    if not BUILD_ID.fullmatch(build_id):
+        raise ValueError("Invalid Git build ID")
+    return build_id
+
+
+def _require_trusted_path(path: Path, expected_type: int, owner_uid: int) -> None:
+    info = path.lstat()
+    if (
+        info.st_uid != owner_uid
+        or stat.S_IFMT(info.st_mode) != expected_type
+        or (info.st_mode & (stat.S_IWGRP | stat.S_IWOTH))
+    ):
+        raise ValueError(f"Untrusted native wheel store entry: {path}")
+
+
+def find_git_wheel_dir(
+    root: Path,
+    store: Path,
+    git_preexec: Callable[[], None] | None,
+    *,
+    owner_uid: int = 0,
+) -> Path | None:
+    if not store.exists() and not store.is_symlink():
+        return None
+    # Only the administrator may select binaries for a root-run upgrade.
+    _require_trusted_path(store.parent, stat.S_IFDIR, owner_uid)
+    _require_trusted_path(store, stat.S_IFDIR, owner_uid)
+    wheel_dir = store / git_checkout_build_id(root, git_preexec)
+    if not wheel_dir.exists() and not wheel_dir.is_symlink():
+        return None
+    _require_trusted_path(wheel_dir, stat.S_IFDIR, owner_uid)
+    for entry in wheel_dir.iterdir():
+        _require_trusted_path(entry, stat.S_IFREG, owner_uid)
+    return wheel_dir
 
 
 def select_wheel(
@@ -38,13 +84,7 @@ def select_wheel(
         raise ValueError("Invalid staged Rust wheel directory")
     manifest = json.loads(manifest_path.read_text())
     if (root / ".git").exists():
-        checkout, build_id = subprocess.check_output(
-            ["git", "-C", str(root), "rev-parse", "--show-toplevel", "HEAD"],
-            text=True,
-            preexec_fn=git_preexec,
-        ).splitlines()
-        if Path(checkout).resolve() != root:
-            raise ValueError("Staged Rust wheel must match the invoking checkout")
+        build_id = git_checkout_build_id(root, git_preexec)
         if (root / "build_id").exists() and (root / "build_id").read_text().strip() != build_id:
             raise ValueError("Git HEAD and release build ID disagree")
     else:
