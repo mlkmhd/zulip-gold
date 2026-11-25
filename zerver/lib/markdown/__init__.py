@@ -1586,8 +1586,15 @@ class OListProcessor(sane_lists.SaneOListProcessor):
 
     @override
     def run(self, parent: Element, blocks: list[str]) -> None:
-        if not run_list_layout(self, parent, blocks):
-            super().run(parent, blocks)
+        if (
+            type(self) is OListProcessor
+            and _rust_markdown_list_blocks is None
+            and getattr(self.get_items, "__func__", None) is _STANDARD_OLIST_ITEMS
+            and getattr(self.lastChild, "__func__", None) is _STANDARD_LAYOUT_LAST_CHILD
+            and run_list_layout(self, parent, blocks)
+        ):
+            return
+        super().run(parent, blocks)
 
     @override
     def test(self, parent: Element, block: str) -> bool:
@@ -1619,8 +1626,15 @@ class UListProcessor(sane_lists.SaneUListProcessor):
 
     @override
     def run(self, parent: Element, blocks: list[str]) -> None:
-        if not run_list_layout(self, parent, blocks):
-            super().run(parent, blocks)
+        if (
+            type(self) is UListProcessor
+            and _rust_markdown_list_blocks is None
+            and getattr(self.get_items, "__func__", None) is _STANDARD_ULIST_ITEMS
+            and getattr(self.lastChild, "__func__", None) is _STANDARD_LAYOUT_LAST_CHILD
+            and run_list_layout(self, parent, blocks)
+        ):
+            return
+        super().run(parent, blocks)
 
     @override
     def test(self, parent: Element, block: str) -> bool:
@@ -1637,6 +1651,11 @@ class UListProcessor(sane_lists.SaneUListProcessor):
             if result is not None:
                 return result[0]
         return super().get_items(block)
+
+
+_STANDARD_OLIST_ITEMS = OListProcessor.get_items
+_STANDARD_ULIST_ITEMS = UListProcessor.get_items
+_STANDARD_LAYOUT_LAST_CHILD = markdown.blockprocessors.OListProcessor.lastChild
 
 
 class ListIndentProcessor(markdown.blockprocessors.ListIndentProcessor):

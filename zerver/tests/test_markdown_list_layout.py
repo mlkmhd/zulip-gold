@@ -1,4 +1,5 @@
 import random
+import re
 from contextlib import nullcontext
 from unittest import TestCase, mock
 from xml.etree.ElementTree import Element, SubElement, tostring
@@ -122,15 +123,32 @@ class MarkdownListLayoutTest(TestCase):
                         self.assertEqual(results[0], results[1])
 
     def test_rust_layout_is_used(self) -> None:
-        if list_layout._rust_list_layout is None:
+        backend = list_layout._rust_list_layout
+        if backend is None:
             self.skipTest("Rust list layout is disabled")
         with (
             mock.patch.object(PythonOListProcessor, "run", side_effect=AssertionError),
-            mock.patch.object(OListProcessor, "get_items", side_effect=AssertionError),
-            mock.patch.object(UListProcessor, "get_items", side_effect=AssertionError),
+            mock.patch.object(
+                backend, "plan_markdown_list", wraps=backend.plan_markdown_list
+            ) as plan,
         ):
             for content in ["3. first\n4. last", "* first\n  * nested\n\n* last"]:
                 self.assertIn("<li>", self.render(content))
+            plan.assert_called()
+
+    def test_custom_item_regex_or_callback_keeps_reference_dispatch(self) -> None:
+        backend = list_layout._rust_list_layout
+        processor = UListProcessor(Markdown().parser)
+        parent = Element("div")
+        with mock.patch.object(processor, "get_items", wraps=processor.get_items) as items:
+            processor.run(parent, ["* item"])
+        items.assert_called_once_with("* item")
+
+        processor.CHILD_RE = re.compile(r"^(([@])) (.*)")
+        with mock.patch.object(list_layout, "_rust_list_layout", backend):
+            parent = Element("div")
+            processor.run(parent, ["@ custom"])
+        self.assertEqual(tostring(parent), b"<div><ul><li>custom</li></ul></div>")
 
     def test_parser_errors_preserve_tree_and_state(self) -> None:
         for processor_type in [OListProcessor, UListProcessor]:
