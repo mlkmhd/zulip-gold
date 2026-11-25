@@ -1,7 +1,8 @@
 from importlib import import_module
-from typing import override
 from unittest import TestCase
 from unittest.mock import patch
+
+from typing_extensions import override
 
 from zerver.lib import display_recipient
 from zerver.lib.types import UserDisplayRecipient

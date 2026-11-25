@@ -1,7 +1,9 @@
 from importlib import import_module
-from typing import SupportsIndex, override
+from typing import SupportsIndex
 from unittest import TestCase
 from unittest.mock import patch
+
+from typing_extensions import override
 
 from zerver.lib.validator import WildValue, wrap_wild_value
 from zerver.webhooks.sonarqube import view

@@ -1,11 +1,12 @@
 import os
 from datetime import date, datetime, timedelta, timezone
 from importlib import import_module
-from typing import cast, override
+from typing import cast
 from unittest import TestCase
 from unittest.mock import patch
 
 from django.utils.translation import override as language_override
+from typing_extensions import override
 
 from corporate.lib import activity
 

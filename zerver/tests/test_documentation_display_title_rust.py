@@ -1,12 +1,13 @@
 import os
 from importlib import import_module
 from types import SimpleNamespace
-from typing import Any, override
+from typing import Any
 from unittest import TestCase
 from unittest.mock import call, mock_open, patch
 
 from django.http import HttpRequest
 from lxml import html
+from typing_extensions import override
 
 from zerver.views import documentation
 

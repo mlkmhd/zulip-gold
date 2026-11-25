@@ -2,11 +2,11 @@ import json
 import os
 from datetime import datetime, timezone
 from importlib import import_module
-from typing import override
 from unittest import TestCase
 from unittest.mock import patch
 
 from django.test import RequestFactory
+from typing_extensions import override
 
 from zerver.actions import saved_snippets as actions
 from zerver.models import SavedSnippet, UserProfile

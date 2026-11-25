@@ -1,11 +1,11 @@
 import json
 import os
 from importlib import import_module
-from typing import override
 from unittest import TestCase
 from unittest.mock import patch
 
 from django.test import RequestFactory
+from typing_extensions import override
 
 from zerver.lib import navigation_views as display
 from zerver.models import NavigationView, UserProfile

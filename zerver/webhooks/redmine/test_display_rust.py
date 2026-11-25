@@ -1,8 +1,9 @@
 import os
 from importlib import import_module
-from typing import override
 from unittest import TestCase
 from unittest.mock import patch
+
+from typing_extensions import override
 
 from zerver.lib.validator import check_string, wrap_wild_value
 from zerver.webhooks.redmine import view

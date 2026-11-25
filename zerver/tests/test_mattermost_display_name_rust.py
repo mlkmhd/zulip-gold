@@ -1,8 +1,10 @@
 import os
 from importlib import import_module
-from typing import Any, override
+from typing import Any
 from unittest import TestCase
 from unittest.mock import call, patch
+
+from typing_extensions import override
 
 from zerver.data_import import mattermost
 

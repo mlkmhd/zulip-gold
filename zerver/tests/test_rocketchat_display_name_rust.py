@@ -1,8 +1,9 @@
 import os
 from importlib import import_module
-from typing import override
 from unittest import TestCase
 from unittest.mock import patch
+
+from typing_extensions import override
 
 from zerver.data_import import rocketchat
 
