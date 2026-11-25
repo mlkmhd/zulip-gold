@@ -40,7 +40,7 @@ class WidgetTextRustTest(TestCase):
         class Derived(str):
             __slots__ = ()
 
-        for invalid in (None, b"abc", Derived("title"), "\ud800", "title\n-\udcff"):
+        for invalid in (None, b"abc", Derived("title")):
             self.assertIsNone(poll(invalid))
             self.assertIsNone(todo(invalid))
 
@@ -198,7 +198,40 @@ class WidgetShorthandRustTest(SimpleTestCase):
             assert native is not None
             self.assertEqual(native("/other"), (None, None))
             self.assertIsNone(native(b"/todo"))
-            self.assertIsNone(native("/poll\ud800"))
+            self.assertEqual(native("/poll\ud800"), (None, None))
+
+    def test_native_result_preserves_surrogates_and_private_use_characters(self) -> None:
+        try:
+            module = import_module("_zulip_backend")
+            parse = module.parse_widget_shorthand
+            poll = module.extract_poll_widget_text
+            todo = module.extract_todo_widget_text
+        except (ImportError, AttributeError):
+            self.skipTest("Rust widget parsing is not available")
+
+        prefix = "\U000f0000\U000f0001"
+        for point in range(0xD800, 0xE000):
+            tail = prefix + chr(point)
+            source = f" {tail} \r\n - {tail}: {tail}\u2028* \u3000{tail}"
+            options = [f"{tail}: {tail}", tail]
+            tasks = [(tail, tail), (tail, "")]
+            with self.subTest(code_point=point):
+                self.assertEqual(poll(source), (tail, options))
+                self.assertEqual(todo(source), (tail, tasks))
+                self.assertEqual(
+                    parse("/poll" + source), ("poll", {"question": tail, "options": options})
+                )
+                self.assertEqual(
+                    parse("/todo" + source),
+                    (
+                        "todo",
+                        {
+                            "task_list_title": tail,
+                            "tasks": [{"task": task, "desc": desc} for task, desc in tasks],
+                        },
+                    ),
+                )
+        self.assertEqual(poll("\ud800\udc00\n- " + prefix), ("\ud800\udc00", [prefix]))
 
     def test_native_result_matches_python_across_whitespace_and_rows(self) -> None:
         try:
