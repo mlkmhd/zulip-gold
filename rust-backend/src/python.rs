@@ -413,7 +413,9 @@ mod _zulip_backend {
     use crate::python_display_mentions::plan_display_mentions;
 
     #[pymodule_export]
-    use crate::python_widget_text::{extract_poll_widget_text, extract_todo_widget_text};
+    use crate::python_widget_text::{
+        extract_poll_widget_text, extract_todo_widget_text, parse_widget_shorthand,
+    };
 
     #[pymodule_export]
     use crate::python_locale_catalog::{

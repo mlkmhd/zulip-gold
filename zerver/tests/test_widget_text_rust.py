@@ -1,13 +1,16 @@
+import json
 import os
 from importlib import import_module
+from typing import SupportsIndex
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
 from typing_extensions import override
 
 from zerver.lib import widget
-from zerver.models import SubMessage
+from zerver.lib.message import SendMessageRequest
+from zerver.models import Message, SubMessage
 
 
 class WidgetTextRustTest(TestCase):
@@ -142,3 +145,159 @@ class WidgetTextIntegrationTest(SimpleTestCase):
                 ),
             )
             self.assertEqual(widget.get_widget_data("/other text"), (None, None))
+
+
+class WidgetShorthandRustTest(SimpleTestCase):
+    def test_exact_dispatch_under_startup_flag(self) -> None:
+        enabled = os.environ.get("ZULIP_RUST_WIDGET_SHORTHAND") == "1"
+        native = widget._parse_widget_shorthand
+        self.assertEqual(callable(native), enabled)
+        examples = [
+            ("", (None, None)),
+            (" /poll title", (None, None)),
+            ("/polling title", (None, None)),
+            ("/me /todo", (None, None)),
+            ("/POLL", (None, None)),
+            ("/poll\u200b title", (None, None)),
+            ("/todo\ufeff", (None, None)),
+            ("/poll", ("poll", {"question": "", "options": []})),
+            (
+                "/poll\u001fپرسش\r\n -- گزینه\u2028* second",
+                ("poll", {"question": "پرسش", "options": ["- گزینه", "second"]}),
+            ),
+            (
+                "/todo\x85- task: first: last\u001c* : empty title",
+                (
+                    "todo",
+                    {
+                        "task_list_title": "",
+                        "tasks": [
+                            {"task": "task", "desc": "first: last"},
+                            {"task": "", "desc": "empty title"},
+                        ],
+                    },
+                ),
+            ),
+        ]
+        with (
+            patch.object(SubMessage, "save", side_effect=AssertionError("widget saved")),
+            patch.object(
+                widget,
+                "get_extra_data_from_widget_type",
+                wraps=widget.get_extra_data_from_widget_type,
+            ) as legacy,
+        ):
+            for content, expected in examples:
+                with self.subTest(content=content):
+                    actual = widget.get_widget_data(content)
+                    self.assertEqual(json.dumps(actual), json.dumps(expected))
+
+        self.assertEqual(legacy.call_count, 0 if enabled else 3)
+        if enabled:
+            self.assertIsNotNone(native)
+            assert native is not None
+            self.assertEqual(native("/other"), (None, None))
+            self.assertIsNone(native(b"/todo"))
+            self.assertIsNone(native("/poll\ud800"))
+
+    def test_native_result_matches_python_across_whitespace_and_rows(self) -> None:
+        try:
+            parse = import_module("_zulip_backend").parse_widget_shorthand
+        except (ImportError, AttributeError):
+            self.skipTest("Rust widget shorthand parsing is not available")
+
+        separators = [
+            "",
+            " ",
+            "\t",
+            "\n",
+            "\r",
+            "\r\n",
+            "\v",
+            "\f",
+            "\x1c",
+            "\x1d",
+            "\x1e",
+            "\x1f",
+            "\x85",
+            "\xa0",
+            "\u1680",
+            *map(chr, range(0x2000, 0x200B)),
+            "\u2028",
+            "\u2029",
+            "\u202f",
+            "\u205f",
+            "\u3000",
+            "\u200b",
+            "\ufeff",
+        ]
+        beginnings = ("", " ", "\u200b", "/poll", "/todo", "/Poll", "/polling", "//todo")
+        tails = (
+            "",
+            "عنوان",
+            "\n* one\n- two : desc: more",
+            " /poll\r\n- ** \u2028 - *",
+            "\u00a0*: empty\n- a:\tx",
+        )
+        with (
+            patch.object(widget, "_parse_widget_shorthand", None),
+            patch.object(widget, "_extract_poll_widget_text", None),
+            patch.object(widget, "_extract_todo_widget_text", None),
+        ):
+            for beginning in beginnings:
+                for separator in separators:
+                    for tail in tails:
+                        content = beginning + separator + tail
+                        with self.subTest(content=content):
+                            self.assertEqual(
+                                json.dumps(parse(content)),
+                                json.dumps(widget.get_widget_data(content)),
+                            )
+
+    def test_decline_and_old_symbol_use_python(self) -> None:
+        class Substituted(str):
+            __slots__ = ()
+
+            @override
+            def replace(self, old: str, new: str, /, count: SupportsIndex = -1) -> str:
+                return "override\n- replacement"
+
+        content = Substituted("/poll original")
+        surrogate = "/todo title\n - \ud800"
+        disabled = {
+            content: ("poll", {"question": "override", "options": ["replacement"]}),
+            surrogate: (
+                "todo",
+                {"task_list_title": "title", "tasks": [{"task": "\ud800", "desc": ""}]},
+            ),
+        }
+        for value, expected in disabled.items():
+            self.assertEqual(widget.get_widget_data(value), expected)
+        for legacy_export in (None, Mock(return_value=None)):
+            with patch.object(widget, "_parse_widget_shorthand", legacy_export):
+                for value, expected in disabled.items():
+                    self.assertEqual(widget.get_widget_data(value), expected)
+                with self.assertRaises(TypeError):
+                    widget.get_widget_data(Mock(spec=str))
+
+    def test_post_save_still_prefers_explicit_widget_content(self) -> None:
+        send_request = Mock(spec=SendMessageRequest)
+        send_request.message = Message(id=101, sender_id=202, content="/todo ignored")
+        explicit = {
+            "widget_type": "zform",
+            "extra_data": {"type": "choices", "heading": "Explicit", "choices": []},
+        }
+        send_request.widget_content = explicit
+        with (
+            patch.object(widget, "get_widget_data", wraps=widget.get_widget_data) as parse,
+            patch.object(SubMessage, "save", autospec=True) as save,
+            patch.object(SubMessage, "get_raw_db_rows", return_value=[]) as fetch,
+        ):
+            widget.do_widget_post_save_actions(send_request)
+
+        parse.assert_called_once_with("/todo ignored")
+        saved = save.call_args.args[0]
+        self.assertEqual((saved.sender_id, saved.message_id, saved.msg_type), (202, 101, "widget"))
+        self.assertEqual(json.loads(saved.content), explicit)
+        fetch.assert_called_once_with([101])
+        self.assertEqual(send_request.submessages, [])

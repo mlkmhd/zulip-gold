@@ -18,6 +18,17 @@ except ImportError:
 _extract_poll_widget_text = getattr(_rust_widget_text, "extract_poll_widget_text", None)
 _extract_todo_widget_text = getattr(_rust_widget_text, "extract_todo_widget_text", None)
 
+try:
+    _rust_widget_shorthand = (
+        import_module("_zulip_backend")
+        if os.environ.get("ZULIP_RUST_WIDGET_SHORTHAND") == "1"
+        else None
+    )
+except ImportError:
+    _rust_widget_shorthand = None
+
+_parse_widget_shorthand = getattr(_rust_widget_shorthand, "parse_widget_shorthand", None)
+
 
 @dataclass
 class PollData:
@@ -38,6 +49,11 @@ class TodoData:
 
 
 def get_widget_data(content: str) -> tuple[str | None, Any]:
+    if _parse_widget_shorthand is not None:
+        native = _parse_widget_shorthand(content)
+        if native is not None:
+            return native
+
     valid_widget_types = ["poll", "todo"]
     tokens = re.split(r"\s+|\n+", content)
 
