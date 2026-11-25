@@ -5568,22 +5568,18 @@ done
 
 ### Rank eligible digest topics through Rust
 
-Set `ZULIP_RUST_DIGEST_RANK=1` before starting Django to rank topics already
-selected for a digest. Rust receives only ordered identity labels and two
-numeric scores. It returns positions in the original list, preserving
-ties and repeats in the diversity pass and the existing four-candidate
-limit on the length pass. Django still selects eligible topics and
-handles rendering and delivery.
+On Ubuntu 24.04 x86-64, a wheel with `DIGEST_TOPIC_RANK_API = 1`
+orders topics after Django has selected eligible channels and
+assembled scores. Rust preserves the diversity pass, count pass,
+stable ties, and duplicate-object handling. Django still decides
+what is eligible, builds the preview and email, selects recipients,
+and schedules delivery.
 
-The switch defaults to off. An absent or older extension, a different
-limit, or unsupported ranking inputs leave both passes on Python. In
-an isolated environment with the current extension built, test both
-modes without sending email:
+Older or absent wheels and unsupported values keep the previous
+behavior. `ZULIP_RUST_DIGEST_RANK=1` remains available to opt in.
 
 ```bash
-for enabled in 0 1; do
-    ZULIP_RUST_DIGEST_RANK=$enabled ./tools/test-backend zerver.tests.test_digest_rank_rust
-done
+env -u ZULIP_RUST_DIGEST_RANK ./tools/test-backend zerver.tests.test_digest_rank_rust zerver.tests.test_digest
 ```
 
 ### Format selected topic title text through Rust

@@ -11,6 +11,7 @@ from typing_extensions import override
 
 from zerver.lib import digest
 from zerver.lib.digest import DigestTopic, get_hot_topics
+from zerver.lib.native_backend import supports_default_rust_backend
 
 Row = tuple[int, int, int]
 
@@ -81,7 +82,7 @@ def topic(stream_id: int, diversity: int, count: int) -> DigestTopic:
 
 
 class DigestRankDjangoDispatchRustTest(SimpleTestCase):
-    def test_uses_current_extension_only_when_enabled_after_stream_filter(self) -> None:
+    def test_uses_current_extension_after_stream_filter(self) -> None:
         native = extension()
         aliased = topic(1, 6, 9)
         twin = topic(1, 5, 8)
@@ -99,7 +100,9 @@ class DigestRankDjangoDispatchRustTest(SimpleTestCase):
         self.assertEqual(aliased.topic_key, twin.topic_key)
         self.assertIs(result[0], result[1])
         self.assertIs(result[2], twin)
-        if environ.get("ZULIP_RUST_DIGEST_RANK") == "1":
+        if environ.get("ZULIP_RUST_DIGEST_RANK") == "1" or (
+            supports_default_rust_backend() and getattr(native, "DIGEST_TOPIC_RANK_API", None) == 1
+        ):
             call.assert_called_once_with(
                 [
                     (id(aliased), 6, 9),

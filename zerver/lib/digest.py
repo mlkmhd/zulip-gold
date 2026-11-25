@@ -5,8 +5,6 @@ from collections import defaultdict
 from collections.abc import Collection, Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from importlib import import_module
-from os import environ
 from typing import Any, TypeAlias, cast
 
 from django.conf import settings
@@ -26,6 +24,7 @@ from zerver.lib.email_notifications import (
 )
 from zerver.lib.logging_util import log_to_file
 from zerver.lib.message import get_last_message_id
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.queue import queue_json_publish_rollback_unsafe
 from zerver.lib.send_email import FromAddress, send_future_email
 from zerver.lib.url_encoding import stream_narrow_url
@@ -50,14 +49,7 @@ log_to_file(logger, settings.DIGEST_LOG_PATH)
 DIGEST_CUTOFF = 5
 MAX_HOT_TOPICS_TO_BE_INCLUDED_IN_DIGEST = 4
 
-try:
-    _rust_digest_rank = (
-        import_module("_zulip_backend") if environ.get("ZULIP_RUST_DIGEST_RANK") == "1" else None
-    )
-except ModuleNotFoundError as error:
-    if error.name != "_zulip_backend":
-        raise
-    _rust_digest_rank = None
+_rust_digest_rank = load_native_contract("ZULIP_RUST_DIGEST_RANK", "DIGEST_TOPIC_RANK_API")
 
 TopicKey: TypeAlias = tuple[int, str]
 
