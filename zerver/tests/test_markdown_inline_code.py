@@ -1,9 +1,11 @@
 import random
 import re
 from contextlib import nullcontext
+from typing import SupportsIndex, cast
 from unittest import TestCase, mock
 
 import markdown
+from typing_extensions import override
 
 from zerver.actions.user_groups import check_add_user_group
 from zerver.lib.markdown import BacktickInlineProcessor, render_message_markdown
@@ -80,6 +82,26 @@ class MarkdownInlineCodeTest(TestCase):
         for position in [-(2**100), 2**100]:
             with self.assertRaises(OverflowError):
                 list(backtick_pattern(fallback).finditer("`code`", position))
+
+    def test_string_subclass_and_index_keep_the_reference_dispatch(self) -> None:
+        class Content(str):
+            __slots__ = ()
+
+            @override
+            def __getitem__(self, index: SupportsIndex | slice) -> str:
+                raise AssertionError("regular expression should not call subclass slicing")
+
+        class Position:
+            def __index__(self) -> int:
+                return 0
+
+        fallback = re.compile(markdown.inlinepatterns.BACKTICK_RE, re.DOTALL | re.UNICODE)
+        for source, position in (
+            (Content("x `code` y"), 0),
+            ("x `code` y", cast("int", Position())),
+        ):
+            actual = list(backtick_pattern(fallback).finditer(source, position))
+            self.assertEqual([(match.start(), match.group(3)) for match in actual], [(2, "code")])
 
     def test_generated_renderings(self) -> None:
         rng = random.Random(1)

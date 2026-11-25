@@ -1,15 +1,11 @@
-import os
 from collections.abc import Iterator
 from dataclasses import dataclass
-from importlib import import_module
 from re import Match, Pattern
 from typing import cast
 
-_rust_inline_code = (
-    import_module("_zulip_backend")
-    if os.environ.get("ZULIP_RUST_MARKDOWN_INLINE_CODE") == "1"
-    else None
-)
+from zerver.lib.native_backend import load_native_contract
+
+_rust_inline_code = load_native_contract("ZULIP_RUST_MARKDOWN_INLINE_CODE", "INLINE_CODE_API")
 
 
 @dataclass
@@ -37,6 +33,9 @@ class BacktickPattern:
 
     def finditer(self, data: str, pos: int = 0) -> Iterator[Match[str]]:
         assert _rust_inline_code is not None
+        if type(data) is not str or type(pos) is not int:
+            yield from self.fallback.finditer(data, pos)
+            return
         while True:
             result = _rust_inline_code.find_markdown_inline_code(data, pos)
             if result is None:
