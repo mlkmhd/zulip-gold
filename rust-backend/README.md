@@ -5642,19 +5642,17 @@ env -u ZULIP_RUST_EMAIL_PLAIN_PREFIX ./tools/test-backend zerver.tests.test_emai
 
 ### Format prepared onboarding text through Rust
 
-Set `ZULIP_RUST_ONBOARDING_TEXT=1` before starting Django to apply the
-existing single-newline cleanup and format a custom welcome quote from
-its translated introduction, chosen fence, and body. Blank lines and
-list boundaries are preserved. Django still selects mentions, the
-translation and fence, and handles all onboarding actions and delivery.
+On Ubuntu 24.04 x86-64, a wheel with `ONBOARDING_TEXT_API = 1` applies
+the original single-newline cleanup and wraps a custom welcome quote
+without a flag. Blank lines, list boundaries, and isolated surrogate
+values are preserved. Django still selects mentions, the fence, and the
+translated introduction, and handles scheduling and delivery.
 
-The switch defaults to off. Missing extension methods or unsupported
-strings fall back independently. Test both modes without sending messages:
+Absent or older wheels and unsupported Python inputs keep the previous
+behavior. `ZULIP_RUST_ONBOARDING_TEXT=1` remains an explicit opt-in.
 
 ```bash
-for enabled in 0 1; do
-    ZULIP_RUST_ONBOARDING_TEXT=$enabled ./tools/test-backend zerver.tests.test_onboarding_text_rust
-done
+env -u ZULIP_RUST_ONBOARDING_TEXT ./tools/test-backend zerver.tests.test_onboarding_text_rust
 ```
 
 ### Project a prepared private unread arrival through Rust

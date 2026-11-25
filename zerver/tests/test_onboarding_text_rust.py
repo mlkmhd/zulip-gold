@@ -11,6 +11,7 @@ from django.test import SimpleTestCase
 from typing_extensions import override
 
 from zerver.lib import message, native_onboarding_text, onboarding, zulip_update_announcements
+from zerver.lib.native_backend import supports_default_rust_backend
 from zerver.lib.zulip_update_announcements import ZulipUpdateAnnouncement
 from zerver.models import Realm
 from zerver.models.groups import SystemGroups
@@ -55,11 +56,29 @@ class OnboardingTextRustTest(SimpleTestCase):
         class TextSubclass(str):
             __slots__ = ()
 
-        for unusual in ("\ud800", None, b"text", TextSubclass("synthetic")):
+        for unusual in (None, b"text", TextSubclass("synthetic")):
             self.assertIsNone(native.flatten_prepared_onboarding_newlines(unusual))
             self.assertIsNone(native.wrap_prepared_welcome_quote(unusual, fence, body))
             self.assertIsNone(native.wrap_prepared_welcome_quote(intro, unusual, body))
             self.assertIsNone(native.wrap_prepared_welcome_quote(intro, fence, unusual))
+
+    def test_exact_text_retains_every_surrogate(self) -> None:
+        native = extension()
+        if getattr(native, "ONBOARDING_TEXT_API", None) != 1:
+            self.skipTest("Wheel predates the surrogate-safe onboarding contract")
+        for point in range(0xD800, 0xE000):
+            cp = chr(point)
+            value = f"\n{cp}\n  after\n1. item\n\n{cp}\n"
+            self.assertEqual(
+                native.flatten_prepared_onboarding_newlines(value),
+                f"{cp} after\n1. item\n\n{cp}",
+            )
+            self.assertIs(native.flatten_prepared_onboarding_newlines(cp), cp)
+            fence = chr(96) * 3
+            self.assertEqual(
+                native.wrap_prepared_welcome_quote(cp, fence, value),
+                f"\n{cp}\n{fence}quote\n{value}\n{fence}\n",
+            )
 
 
 class OnboardingTextDjangoDispatchRustTest(SimpleTestCase):
@@ -79,7 +98,9 @@ class OnboardingTextDjangoDispatchRustTest(SimpleTestCase):
 
     def test_real_announcement_and_welcome_builders_use_prepared_inputs_only(self) -> None:
         native = extension()
-        enabled = environ.get("ZULIP_RUST_ONBOARDING_TEXT") == "1"
+        enabled = environ.get("ZULIP_RUST_ONBOARDING_TEXT") == "1" or (
+            supports_default_rust_backend() and getattr(native, "ONBOARDING_TEXT_API", None) == 1
+        )
         flatten = native_onboarding_text.flatten_prepared_onboarding_newlines
         wrap = native_onboarding_text.wrap_prepared_welcome_quote
         self.assertIs(flatten, native.flatten_prepared_onboarding_newlines if enabled else None)
