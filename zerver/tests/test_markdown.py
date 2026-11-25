@@ -621,6 +621,32 @@ class MarkdownListPreprocessorTest(ZulipTestCase):
                 expected = ["intro", "", original[1]] if digit.isdecimal() else original
                 self.assertEqual(preprocessor.run(original), expected)
 
+    def test_custom_marker_and_fence_matching_keep_python(self) -> None:
+        processor = MarkdownListPreprocessor()
+        with mock.patch.object(processor, "LI_RE", re.compile(r"^(@) (.*)")):
+            self.assertEqual(processor.run(["intro", "@ item"]), ["intro", "", "@ item"])
+        lines = ["intro", "* item"]
+        with mock.patch(
+            "zerver.lib.markdown.parse_fence_line", return_value=("fence", "text", None)
+        ) as parser:
+            self.assertEqual(processor.run(lines), lines)
+        parser.assert_called_once_with("intro")
+
+    def test_stock_separator_uses_native_when_selected(self) -> None:
+        from zerver.lib import markdown as zulip_markdown
+
+        backend = zulip_markdown._rust_markdown_lists
+        if backend is None:
+            self.skipTest("Rust list separator planner is disabled")
+        lines = ["intro", "* item"]
+        with mock.patch.object(
+            backend,
+            "markdown_list_separator_positions",
+            wraps=backend.markdown_list_separator_positions,
+        ) as plan:
+            self.assertEqual(MarkdownListPreprocessor().run(lines), ["intro", "", "* item"])
+        plan.assert_called_once_with(lines)
+
     def test_list_in_code(self) -> None:
         preprocessor = MarkdownListPreprocessor()
         original, expected = self.split_message("```\nList without a gap\n* One\n* Two\n```")

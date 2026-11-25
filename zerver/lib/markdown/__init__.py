@@ -110,9 +110,7 @@ _rust_markdown_channel_links = (
     if os.environ.get("ZULIP_RUST_MARKDOWN_CHANNEL_LINKS") == "1"
     else None
 )
-_rust_markdown_lists = (
-    import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_MARKDOWN_LISTS") == "1" else None
-)
+_rust_markdown_lists = load_native_contract("ZULIP_RUST_MARKDOWN_LISTS", "MARKDOWN_LISTS_API")
 _rust_markdown_blockquotes = load_native_contract(
     "ZULIP_RUST_MARKDOWN_BLOCKQUOTES", "MARKDOWN_BLOCKQUOTES_API"
 )
@@ -1918,6 +1916,11 @@ class Fence:
     is_code: bool
 
 
+_STANDARD_LIST_ITEM_RE = re.compile(r"^[ ]*([*+-]|\d\.)[ ]+(.*)", re.MULTILINE)
+_STANDARD_LIST_FENCE_PARSER = parse_fence_line
+_STANDARD_LIST_FENCE_RE = fenced_code.FENCE_RE
+
+
 class MarkdownListPreprocessor(markdown.preprocessors.Preprocessor):
     """Allows list blocks that come directly after another block
     to be rendered as a list.
@@ -1926,12 +1929,20 @@ class MarkdownListPreprocessor(markdown.preprocessors.Preprocessor):
     directly after a line of text, and inserts a newline between
     to satisfy Markdown"""
 
-    LI_RE = re.compile(r"^[ ]*([*+-]|\d\.)[ ]+(.*)", re.MULTILINE)
+    LI_RE = _STANDARD_LIST_ITEM_RE
 
     @override
     def run(self, lines: list[str]) -> list[str]:
         """Insert a newline between a paragraph and ulist if missing"""
-        if _rust_markdown_lists is not None:
+        if (
+            _rust_markdown_lists is not None
+            and type(self) is MarkdownListPreprocessor
+            and self.LI_RE is _STANDARD_LIST_ITEM_RE
+            and parse_fence_line is _STANDARD_LIST_FENCE_PARSER
+            and fenced_code.FENCE_RE is _STANDARD_LIST_FENCE_RE
+            and type(lines) is list
+            and all(type(line) is str for line in lines)
+        ):
             positions = _rust_markdown_lists.markdown_list_separator_positions(lines)
             if positions is not None:
                 output = []

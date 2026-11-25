@@ -357,6 +357,7 @@ mod _zulip_backend {
         module.add("MARKDOWN_BLOCKQUOTES_API", 1)?;
         module.add("MARKDOWN_CODE_BLOCKS_API", 1)?;
         module.add("MARKDOWN_EMPHASIS_API", 1)?;
+        module.add("MARKDOWN_LISTS_API", 1)?;
         module.add("DISPLAY_RECIPIENT_ORDER_API", 1)
     }
 
