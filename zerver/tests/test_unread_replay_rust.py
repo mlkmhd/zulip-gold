@@ -216,6 +216,40 @@ class UnreadReplayRustTest(ZulipTestCase):
         self.assertEqual(raw["mentions"], {9})
         self.assertEqual(raw["unmuted_stream_msgs"], {9})
 
+    def test_default_unread_restore_updates_only_selected_buckets(self) -> None:
+        me = self.example_user("hamlet").id
+        peer = me + 500
+        raw = empty_unread()
+        raw["pm_dict"][11] = {"other_user_id": peer + 1}
+        details = {
+            "7": {"type": "private", "user_ids": [peer], "mentioned": True},
+            "9": {"type": "stream", "stream_id": 2, "topic": "بحث", "unmuted_stream_msg": False},
+        }
+        event = {
+            "type": "update_message_flags",
+            "flag": "read",
+            "op": "remove",
+            "messages": [7, 9],
+            "message_details": details,
+        }
+        backend = native_unread_replay._backend
+        if backend is not None:
+            with patch.object(
+                backend, "restore_unread_messages", wraps=backend.restore_unread_messages
+            ) as witness:
+                self.replay(raw, event)
+            witness.assert_called_once_with(raw, me, details)
+        else:
+            self.replay(raw, event)
+        self.assertEqual(
+            list(raw["pm_dict"].items()),
+            [(11, {"other_user_id": peer + 1}), (7, {"other_user_id": peer})],
+        )
+        self.assertEqual(raw["stream_dict"], {9: {"stream_id": 2, "topic": "بحث"}})
+        self.assertEqual(raw["mentions"], {7})
+        self.assertEqual(raw["unmuted_stream_msgs"], set())
+        self.assertEqual(raw["muted_stream_ids"], {2})
+
     def test_decline_leaves_the_selected_state_untouched(self) -> None:
         backend = extension()
         raw = empty_unread()

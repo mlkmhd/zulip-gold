@@ -399,6 +399,7 @@ mod _zulip_backend {
         module.add("UNREAD_DETAILS_API", 1)?;
         module.add("UNREAD_REMOVAL_API", 1)?;
         module.add("UNREAD_MOVE_API", 1)?;
+        module.add("UNREAD_REPLAY_API", 1)?;
         module.add("EXACT_MESSAGE_BODY_API", 1)?;
         module.add("PREPARED_RECENT_DM_ROWS_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;

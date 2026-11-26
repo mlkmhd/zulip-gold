@@ -1,4 +1,4 @@
-"""Optional reconciliation of unread state already selected by Django."""
+"""Native reconciliation of unread state already selected by Django."""
 
 import os
 from importlib import import_module
@@ -7,16 +7,7 @@ from typing import cast
 from zerver.lib.native_backend import load_native_contract
 from zerver.lib.topic import TOPIC_NAME
 
-try:
-    _backend = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_UNREAD_REPLAY") == "1"
-        else None
-    )
-except ModuleNotFoundError as error:
-    if error.name != "_zulip_backend":
-        raise
-    _backend = None
+_backend = load_native_contract("ZULIP_RUST_UNREAD_REPLAY", "UNREAD_REPLAY_API")
 
 
 try:
