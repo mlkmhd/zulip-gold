@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyFloat, PyInt, PyList, PyString};
+use pyo3::types::{PyDict, PyFloat, PyInt, PyList, PyString, PyTuple};
 
 use crate::python_presence::utc_instant;
 
@@ -94,4 +94,45 @@ pub(crate) fn plan_prepared_activity_interval<'py>(
         old_end
     };
     Some((true, start.clone(), end.clone()))
+}
+
+#[pyfunction]
+pub(crate) fn plan_prepared_activity_values<'py>(
+    rows: &Bound<'py, PyAny>,
+) -> Option<(String, Bound<'py, PyTuple>)> {
+    let rows = rows.cast_exact::<PyList>().ok()?;
+    if rows.is_empty() {
+        return None;
+    }
+    let mut placeholders = String::new();
+    let mut parameters = Vec::new();
+    for row in rows.iter() {
+        let row = row.cast_exact::<PyTuple>().ok()?;
+        if row.len() != 5 {
+            return None;
+        }
+        for (column, value) in row.iter().enumerate() {
+            match column {
+                0 | 1 | 3 => {
+                    value.cast_exact::<PyInt>().ok()?.extract::<i64>().ok()?;
+                }
+                2 => {
+                    value.cast_exact::<PyString>().ok()?.to_str().ok()?;
+                }
+                4 => {
+                    let timestamp = value.cast_exact::<PyFloat>().ok()?.extract::<f64>().ok()?;
+                    if !timestamp.is_finite() {
+                        return None;
+                    }
+                }
+                _ => return None,
+            }
+            parameters.push(value);
+        }
+        if !placeholders.is_empty() {
+            placeholders.push_str(", ");
+        }
+        placeholders.push_str("(%s,%s,%s,%s,to_timestamp(%s))");
+    }
+    Some((placeholders, PyTuple::new(rows.py(), parameters).ok()?))
 }

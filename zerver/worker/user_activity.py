@@ -17,6 +17,17 @@ _activity_backend = load_native_contract(
     "ZULIP_RUST_PREPARED_ACTIVITY_BATCH", "PREPARED_ACTIVITY_BATCH_API"
 )
 
+_activity_upsert_backend = load_native_contract(
+    "ZULIP_RUST_PREPARED_ACTIVITY_UPSERT_VALUES", "PREPARED_ACTIVITY_UPSERT_VALUES_API"
+)
+_ACTIVITY_UPSERT = """
+            INSERT INTO zerver_useractivity(user_profile_id, client_id, query, count, last_visit)
+            VALUES {rows}
+            ON CONFLICT (user_profile_id, client_id, query) DO UPDATE SET
+                count = zerver_useractivity.count + excluded.count,
+                last_visit = greatest(zerver_useractivity.last_visit, excluded.last_visit)
+            """
+
 ActivityRow = tuple[int, int, str, int, float]
 
 
@@ -82,10 +93,18 @@ class UserActivityWorker(LoopQueueProcessingWorker):
 
     @override
     def consume_batch(self, user_activity_events: list[dict[str, Any]]) -> None:
+        activity_rows = _activity_rows(user_activity_events)
+        plan_values = getattr(_activity_upsert_backend, "plan_prepared_activity_values", None)
+        if callable(plan_values):
+            plan = cast("tuple[str, tuple[object, ...]] | None", plan_values(activity_rows))
+            if plan is not None:
+                values, parameters = plan
+                with connection.cursor() as cursor:
+                    cursor.execute(_ACTIVITY_UPSERT.format(rows=values), parameters)
+                return
+
         rows = []
-        for user_profile_id, client_id, query, count, event_time in _activity_rows(
-            user_activity_events
-        ):
+        for user_profile_id, client_id, query, count, event_time in activity_rows:
             rows.append(
                 SQL("({},{},{},{},to_timestamp({}))").format(
                     Literal(user_profile_id),
@@ -97,14 +116,6 @@ class UserActivityWorker(LoopQueueProcessingWorker):
             )
 
         # Perform a single bulk UPSERT for all of the rows
-        sql_query = SQL(
-            """
-            INSERT INTO zerver_useractivity(user_profile_id, client_id, query, count, last_visit)
-            VALUES {rows}
-            ON CONFLICT (user_profile_id, client_id, query) DO UPDATE SET
-                count = zerver_useractivity.count + excluded.count,
-                last_visit = greatest(zerver_useractivity.last_visit, excluded.last_visit)
-            """
-        ).format(rows=SQL(", ").join(rows))
+        sql_query = SQL(_ACTIVITY_UPSERT).format(rows=SQL(", ").join(rows))
         with connection.cursor() as cursor:
             cursor.execute(sql_query)

@@ -311,6 +311,7 @@ mod _zulip_backend {
         module.add("PREPARED_MARKDOWN_ATTACHMENT_LINK_API", 1)?;
         module.add("PREPARED_SEND_EVENT_LABELS_API", 1)?;
         module.add("PREPARED_ACTIVITY_BATCH_API", 1)?;
+        module.add("PREPARED_ACTIVITY_UPSERT_VALUES_API", 1)?;
         module.add("PREPARED_ACTIVITY_INTERVAL_API", 1)?;
         module.add("PREPARED_MISSED_EMAIL_BATCH_API", 1)?;
         module.add("PREPARED_MATTERMOST_NAME_API", 1)?;
@@ -752,6 +753,7 @@ mod _zulip_backend {
     #[pymodule_export]
     use crate::python_activity_worker::{
         group_prepared_user_activity, plan_prepared_activity_interval,
+        plan_prepared_activity_values,
     };
 
     #[pymodule_export]
