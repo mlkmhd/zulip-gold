@@ -367,6 +367,7 @@ mod _zulip_backend {
         module.add("MARKDOWN_SERIALIZATION_API", 1)?;
         module.add("MARKDOWN_POSTPROCESSING_API", 1)?;
         module.add("MARKDOWN_TEX_SYNTAX_API", 1)?;
+        module.add("KATEX_SUCCESS_BYTES_API", 1)?;
         module.add("DISPLAY_RECIPIENT_ORDER_API", 1)
     }
 
@@ -682,9 +683,9 @@ mod _zulip_backend {
     };
     #[pymodule_export]
     use crate::python_tex::{
-        change_katex_to_raw_latex, encode_katex_input, find_markdown_tex, finish_katex_cli,
-        katex_native_cli_allowed, locate_katex_cli, render_katex_response, request_katex_service,
-        run_katex_cli, select_katex_encoding,
+        change_katex_to_raw_latex, decode_katex_success_text, encode_katex_input,
+        find_markdown_tex, finish_katex_cli, katex_native_cli_allowed, locate_katex_cli,
+        render_katex_response, request_katex_service, run_katex_cli, select_katex_encoding,
     };
 
     #[pymodule_export]

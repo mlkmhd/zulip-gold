@@ -145,20 +145,26 @@ pub(crate) fn finish_katex_cli<'py>(
 }
 
 #[pyfunction]
+pub(crate) fn decode_katex_success_text<'py>(
+    content: &Bound<'py, PyAny>,
+) -> Option<Bound<'py, PyString>> {
+    let content = content.cast_exact::<PyBytes>().ok()?;
+    let decoded = std::str::from_utf8(content.as_bytes()).ok()?;
+    Some(PyString::new(
+        content.py(),
+        decoded.trim_matches(crate::draft_text::is_python_whitespace),
+    ))
+}
+
+#[pyfunction]
 pub(crate) fn render_katex_response<'py>(
     response: &Bound<'py, PyAny>,
     context: &Bound<'py, PyDict>,
 ) -> PyResult<Bound<'py, PyAny>> {
     if response.getattr("status_code")?.eq(200)? {
         let content = response.getattr("content")?;
-        if content.is_exact_instance_of::<PyBytes>()
-            && let Ok(decoded) = std::str::from_utf8(content.cast::<PyBytes>()?.as_bytes())
-        {
-            return Ok(PyString::new(
-                context.py(),
-                decoded.trim_matches(crate::draft_text::is_python_whitespace),
-            )
-            .into_any());
+        if let Some(decoded) = decode_katex_success_text(&content) {
+            return Ok(decoded.into_any());
         }
         // Preserve custom decoders and CPython's exact UnicodeDecodeError.
         return content.call_method0("decode")?.call_method0("strip");

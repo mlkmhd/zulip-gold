@@ -10,6 +10,7 @@ import lxml.html
 import requests
 from django.conf import settings
 
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.outgoing_http import OutgoingSession
 from zerver.lib.storage import static_path
 
@@ -25,6 +26,9 @@ _rust_raw_latex = (
 
 _rust_katex_response = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_KATEX_RESPONSE") == "1" else None
+)
+_rust_katex_success = load_native_contract(
+    "ZULIP_RUST_KATEX_SUCCESS_BYTES", "KATEX_SUCCESS_BYTES_API"
 )
 
 
@@ -80,7 +84,13 @@ def render_tex(tex: str, is_inline: bool = True) -> str | None:
         if response_handler is not None:
             return cast(str | None, response_handler(resp, globals()))
         if resp.status_code == 200:
-            return resp.content.decode().strip()
+            content = resp.content
+            decode_success = getattr(_rust_katex_success, "decode_katex_success_text", None)
+            if decode_success is not None:
+                decoded = decode_success(content)
+                if type(decoded) is str:
+                    return decoded
+            return content.decode().strip()
         elif resp.status_code == 400:
             return None
         else:

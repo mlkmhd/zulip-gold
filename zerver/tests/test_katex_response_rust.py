@@ -23,6 +23,38 @@ class KatexResponseRustTest(SimpleTestCase):
         if not hasattr(self.extension, "render_katex_response"):
             raise SkipTest("Rust extension does not support KaTeX responses")
 
+    def test_matching_default_only_decodes_the_existing_success_body(self) -> None:
+        backend = tex._rust_katex_success
+        if getattr(backend, "KATEX_SUCCESS_BYTES_API", None) != 1:
+            self.skipTest("Matching native success decoder is not selected")
+        content = "\u001f <span>فارسی 🙂</span>\u0085\n".encode()
+        session = Mock()
+        session.post.return_value = SimpleNamespace(status_code=200, content=content)
+        with (
+            patch.object(tex, "_rust_katex_response", None),
+            patch.object(tex, "KatexSession", return_value=session),
+            patch.object(
+                backend,
+                "decode_katex_success_text",
+                wraps=backend.decode_katex_success_text,
+            ) as decode,
+        ):
+            self.assertEqual(tex.render_tex("x"), content.decode().strip())
+        decode.assert_called_once_with(content)
+        session.post.assert_called_once_with(
+            "http://localhost:9755/",
+            data={"content": "x", "is_display": "false", "shared_secret": "test-secret"},
+            proxies={"http": ""},
+        )
+
+        session.post.return_value = SimpleNamespace(status_code=200, content=b"\xff")
+        with (
+            patch.object(tex, "_rust_katex_response", None),
+            patch.object(tex, "KatexSession", return_value=session),
+            self.assertRaises(UnicodeDecodeError),
+        ):
+            tex.render_tex("x")
+
     def test_success_retains_request_and_unicode_strip(self) -> None:
         for is_inline in [True, False]:
             with self.subTest(is_inline=is_inline):
