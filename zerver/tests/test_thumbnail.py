@@ -16,6 +16,7 @@ from django.test import override_settings
 from typing_extensions import override
 
 from zerver.lib import native_thumbnail_status
+from zerver.lib.native_backend import supports_default_rust_backend
 from zerver.lib.test_classes import ZulipTestCase
 from zerver.lib.test_helpers import (
     consume_response,
@@ -1341,9 +1342,19 @@ class TestThumbnailRetrieval(ZulipTestCase):
         expected = fetch(str(middle))
         self.assertTrue(expected[0])
         self.assertEqual(expected[1], "image/webp")
-        enabled = environ.get("ZULIP_RUST_THUMBNAIL_DISPLAY_RANK") == "1"
+        try:
+            extension = import_module("_zulip_backend")
+        except ImportError:
+            extension = None
+        enabled = extension is not None and (
+            environ.get("ZULIP_RUST_THUMBNAIL_DISPLAY_RANK") == "1"
+            or (
+                supports_default_rust_backend()
+                and getattr(extension, "THUMBNAIL_DISPLAY_RANK_API", None) == 1
+            )
+        )
         backend = upload._thumbnail_display_rank_backend
-        self.assertEqual(backend is not None, enabled)
+        self.assertIs(backend, extension if enabled else None)
         rank = getattr(backend, "rank_thumbnail_display", None)
         witness = Mock(wraps=rank)
         bridge = SimpleNamespace(rank_thumbnail_display=witness) if enabled else None

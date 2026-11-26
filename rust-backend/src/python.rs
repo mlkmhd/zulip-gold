@@ -360,6 +360,7 @@ mod _zulip_backend {
         module.add("IMPORT_BODY_TEXT_API", 1)?;
         module.add("CHANNEL_STOCK_COLORS_API", 1)?;
         module.add("COMPOSE_QUOTE_BUDGET_API", 1)?;
+        module.add("THUMBNAIL_DISPLAY_RANK_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
         module.add("MARKDOWN_HEADINGS_API", 1)?;
         module.add("MARKDOWN_HORIZONTAL_RULES_API", 1)?;

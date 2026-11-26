@@ -2,7 +2,6 @@ import base64
 import binascii
 import os
 from datetime import timedelta
-from importlib import import_module
 from itertools import chain
 from operator import itemgetter
 from urllib.parse import quote, urlsplit
@@ -32,6 +31,7 @@ from zerver.lib import native_thumbnail_status
 from zerver.lib.attachments import validate_attachment_request
 from zerver.lib.exceptions import JsonableError
 from zerver.lib.mime_types import INLINE_MIME_TYPES, bare_content_type, guess_type
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.response import json_success
 from zerver.lib.storage import static_path
 from zerver.lib.thumbnail import (
@@ -53,16 +53,9 @@ from zerver.lib.upload.s3 import get_signed_upload_url
 from zerver.models import Attachment, ImageAttachment, Realm, UserProfile
 from zerver.worker.thumbnail import ensure_thumbnails
 
-try:
-    _thumbnail_display_rank_backend = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_THUMBNAIL_DISPLAY_RANK") == "1"
-        else None
-    )
-except ModuleNotFoundError as error:
-    if error.name != "_zulip_backend":
-        raise
-    _thumbnail_display_rank_backend = None
+_thumbnail_display_rank_backend = load_native_contract(
+    "ZULIP_RUST_THUMBNAIL_DISPLAY_RANK", "THUMBNAIL_DISPLAY_RANK_API"
+)
 
 
 def patch_disposition_header(response: HttpResponse, filename: str, is_attachment: bool) -> None:
