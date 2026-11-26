@@ -1,8 +1,10 @@
-"""Opt-in final shaping of register state after Django visibility filtering."""
+"""Native final shaping of register state after Django visibility filtering."""
 
 import os
 from importlib import import_module
 from typing import cast
+
+from zerver.lib.native_backend import load_native_contract
 
 try:
     _backend = (
@@ -27,6 +29,11 @@ except ModuleNotFoundError as error:
     _profile_prune_backend = None
 
 
+_legacy_topics_backend = load_native_contract(
+    "ZULIP_RUST_REGISTER_LEGACY_TOPICS", "REGISTER_LEGACY_TOPICS_API"
+)
+
+
 def prune_profile_fields(raw: object, fields: object) -> bool:
     if _profile_prune_backend is None:
         return False
@@ -49,5 +56,6 @@ def fill_legacy_notifications(subscribed: object, unsubscribed: object, profile:
 
 
 def fill_legacy_topics(topics: object, fallback: str) -> bool:
-    native = getattr(_backend, "fill_legacy_register_topics", None)
+    backend = _legacy_topics_backend if _legacy_topics_backend is not None else _backend
+    native = getattr(backend, "fill_legacy_register_topics", None)
     return native is not None and cast(bool, native(topics, fallback))

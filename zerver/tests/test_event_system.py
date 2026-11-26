@@ -20,6 +20,7 @@ from zerver.actions.streams import do_change_stream_folder
 from zerver.actions.user_settings import do_change_avatar_fields, do_change_user_setting
 from zerver.actions.user_topics import do_set_user_topic_visibility_policy
 from zerver.actions.users import do_change_user_role, do_deactivate_user
+from zerver.lib import native_register_state
 from zerver.lib.event_schema import check_web_reload_client_event
 from zerver.lib.events import fetch_initial_state_data, post_process_state
 from zerver.lib.exceptions import AccessDeniedError
@@ -309,6 +310,55 @@ class EventsEndpointTest(ZulipTestCase):
             self.assertIn(
                 inactive.id, [entry["user_id"] for entry in snapshot["realm_non_active_users"]]
             )
+
+    def test_register_legacy_empty_topic_shaping_preserves_selected_rows(self) -> None:
+        class DerivedTopic(str):
+            __slots__ = ()
+
+        extension = native_register_state._legacy_topics_backend or native_register_state._backend
+        fallback = Message.EMPTY_TOPIC_FALLBACK_NAME
+        for modern, unusual in ((True, False), (False, False), (False, True)):
+            empty = {"topic_name": "", "stream_id": 4}
+            named = {"topic_name": DerivedTopic(" ") if unusual else " ", "stream_id": 6}
+            literal = {"topic_name": fallback, "stream_id": 8}
+            rows = [empty, named, literal]
+            state = {"user_topics": rows}
+            with (
+                self.subTest(modern=modern, unusual=unusual),
+                mock.patch.object(
+                    native_register_state,
+                    "fill_legacy_topics",
+                    wraps=native_register_state.fill_legacy_topics,
+                ) as native,
+            ):
+                post_process_state(
+                    None, state, notification_settings_null=True, allow_empty_topic_name=modern
+                )
+                self.assertIs(state["user_topics"], rows)
+                self.assertIs(rows[0], empty)
+                self.assertIs(rows[1], named)
+                self.assertIs(rows[2], literal)
+                self.assertEqual(
+                    rows,
+                    [
+                        {"topic_name": "" if modern else fallback, "stream_id": 4},
+                        {"topic_name": " ", "stream_id": 6},
+                        {"topic_name": fallback, "stream_id": 8},
+                    ],
+                )
+                if modern:
+                    native.assert_not_called()
+                else:
+                    native.assert_called_once_with(rows, fallback)
+                    if extension is not None:
+                        untouched = [
+                            {"topic_name": "", "stream_id": 4},
+                            {"topic_name": named["topic_name"], "stream_id": 6},
+                        ]
+                        self.assertIs(
+                            extension.fill_legacy_register_topics(untouched, fallback), not unusual
+                        )
+                        self.assertEqual(untouched[0]["topic_name"], "" if unusual else fallback)
 
     def test_register_separates_personal_and_realm_settings_payloads(self) -> None:
         user = self.example_user("hamlet")
