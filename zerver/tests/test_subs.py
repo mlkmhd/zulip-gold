@@ -35,6 +35,7 @@ from zerver.actions.streams import (
 )
 from zerver.actions.user_groups import bulk_add_members_to_user_groups, check_add_user_group
 from zerver.actions.users import do_deactivate_user
+from zerver.lib import native_channel_payload, stream_traffic
 from zerver.lib.attachments import (
     validate_attachment_request,
     validate_attachment_request_for_spectator_access,
@@ -6216,6 +6217,72 @@ class InviteOnlyStreamTest(ZulipTestCase):
 
 
 class StreamTrafficTest(ZulipTestCase):
+    def test_prepared_weekly_traffic_matches_boundaries_and_rounding(self) -> None:
+        now = timezone_now()
+        counts = [
+            -(2**63) - 1,
+            -(2**63),
+            -141,
+            -125,
+            -35,
+            -25,
+            -1,
+            0,
+            1,
+            124,
+            125,
+            135,
+            999,
+            2**63 - 1,
+            2**63,
+        ]
+        cases = [
+            (now - timedelta(days=age), {42: count})
+            for age in [-1, 0, 6, 7, 8, 27, 28, 300]
+            for count in counts
+        ]
+        cases.append((now - timedelta(days=28), {}))
+
+        def calculate() -> list[int | None]:
+            return [get_average_weekly_stream_traffic(42, created, data) for created, data in cases]
+
+        with (
+            mock.patch.object(stream_traffic, "timezone_now", return_value=now),
+            mock.patch.object(native_channel_payload, "_backend", None),
+        ):
+            with mock.patch.object(native_channel_payload, "_traffic_backend", None):
+                reference = calculate()
+            backend = native_channel_payload._traffic_backend
+            if backend is None:
+                self.assertEqual(calculate(), reference)
+            else:
+                with mock.patch.object(
+                    backend,
+                    "calculate_weekly_channel_traffic",
+                    wraps=backend.calculate_weekly_channel_traffic,
+                ) as native:
+                    self.assertEqual(calculate(), reference)
+                    self.assertEqual(native.call_count, len(cases))
+                    native.reset_mock()
+                    with mock.patch.object(
+                        stream_traffic, "round_to_2_significant_digits", return_value=19
+                    ):
+                        self.assertEqual(
+                            get_average_weekly_stream_traffic(
+                                42, now - timedelta(days=28), {42: 400}
+                            ),
+                            19,
+                        )
+                    with mock.patch.object(
+                        stream_traffic, "STREAM_TRAFFIC_CALCULATION_MIN_AGE_DAYS", 8
+                    ):
+                        self.assertIsNone(
+                            get_average_weekly_stream_traffic(
+                                42, now - timedelta(days=7), {42: 400}
+                            )
+                        )
+                    native.assert_not_called()
+
     def test_average_weekly_stream_traffic_calculation(self) -> None:
         # No traffic data for the stream
         self.assertEqual(

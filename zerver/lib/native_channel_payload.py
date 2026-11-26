@@ -7,6 +7,8 @@ from importlib import import_module
 from types import ModuleType
 from typing import TYPE_CHECKING, TypeAlias, cast
 
+from zerver.lib.native_backend import load_native_contract
+
 if TYPE_CHECKING:
     from zerver.lib.types import APIStreamDict, RawSubscriptionDict, SubscriptionStreamDict
 
@@ -26,6 +28,9 @@ def _load_backend(flag: str) -> ModuleType | None:
 
 _backend = _load_backend("ZULIP_RUST_CHANNEL_PAYLOAD")
 _own_backend = _load_backend("ZULIP_RUST_OWN_SUBSCRIPTIONS")
+_traffic_backend = load_native_contract(
+    "ZULIP_RUST_PREPARED_CHANNEL_TRAFFIC", "PREPARED_CHANNEL_TRAFFIC_API"
+)
 
 
 def own_subscriptions_available() -> bool:
@@ -53,8 +58,11 @@ def assemble_subscription(
     return cast("SubscriptionStreamDict | None", native(subscription, stream))
 
 
-def average_weekly_traffic(age_days: int, count: int) -> tuple[int | None] | None:
-    native = getattr(_backend, "calculate_weekly_channel_traffic", None)
+def average_weekly_traffic(
+    age_days: int, count: int, *, prepared: bool = False
+) -> tuple[int | None] | None:
+    backend = _traffic_backend if prepared and _backend is None else _backend
+    native = getattr(backend, "calculate_weekly_channel_traffic", None)
     if native is None:
         return None
     return cast("tuple[int | None] | None", native(age_days, count))

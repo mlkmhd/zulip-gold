@@ -36,7 +36,9 @@ def round_to_2_significant_digits(number: int) -> int:
     return int(round(number, 2 - len(str(number))))
 
 
-STREAM_TRAFFIC_CALCULATION_MIN_AGE_DAYS = 7
+_reference_rounding = round_to_2_significant_digits
+_REFERENCE_MIN_AGE_DAYS = 7
+STREAM_TRAFFIC_CALCULATION_MIN_AGE_DAYS = _REFERENCE_MIN_AGE_DAYS
 
 
 def get_average_weekly_stream_traffic(
@@ -48,7 +50,15 @@ def get_average_weekly_stream_traffic(
         stream_traffic = 0
 
     stream_age = (timezone_now() - stream_date_created).days
-    native = native_channel_payload.average_weekly_traffic(stream_age, stream_traffic)
+    native = native_channel_payload.average_weekly_traffic(
+        stream_age,
+        stream_traffic,
+        prepared=(
+            round_to_2_significant_digits is _reference_rounding
+            and type(STREAM_TRAFFIC_CALCULATION_MIN_AGE_DAYS) is int
+            and STREAM_TRAFFIC_CALCULATION_MIN_AGE_DAYS == _REFERENCE_MIN_AGE_DAYS
+        ),
+    )
     if native is not None:
         return native[0]
 

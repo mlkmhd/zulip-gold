@@ -414,6 +414,7 @@ mod _zulip_backend {
         module.add("PREPARED_MESSAGE_FETCH_LABELS_API", 1)?;
         module.add("PREPARED_ALERT_WORD_ADDITIONS_API", 1)?;
         module.add("PREPARED_CHANNEL_LINK_FIELDS_API", 1)?;
+        module.add("PREPARED_CHANNEL_TRAFFIC_API", 1)?;
         module.add("PREPARED_BOT_STORAGE_DELTA_API", 1)?;
         module.add("PREPARED_USER_MENTION_SCAN_API", 1)?;
         module.add("PREPARED_GROUP_MENTION_SCAN_API", 1)?;
