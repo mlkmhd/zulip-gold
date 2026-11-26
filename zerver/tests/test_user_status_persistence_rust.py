@@ -1,3 +1,4 @@
+from datetime import timedelta, timezone
 from importlib import import_module
 from types import ModuleType, SimpleNamespace
 from typing import TYPE_CHECKING
@@ -32,6 +33,12 @@ def extension() -> ModuleType:
 
 
 class UserStatusPersistenceRustTest(ZulipTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        disable_prepared = patch.object(native_user_status_persistence, "_prepared_backend", None)
+        disable_prepared.start()
+        self.addCleanup(disable_prepared.stop)
+
     def test_creation_fallback_and_existing_update_query_count(self) -> None:
         backend = extension()
         owner = self.example_user("hamlet")
@@ -173,3 +180,53 @@ class UserStatusPersistenceRustTest(ZulipTestCase):
         witness.assert_called_once()
         row.refresh_from_db()
         self.assertEqual(row.status_text, "ORM")
+
+
+class PreparedUserStatusPersistenceRustTest(ZulipTestCase):
+    def test_default_dispatch_matches_orm_search_path(self) -> None:
+        backend = native_user_status_persistence._prepared_backend
+        if backend is None:
+            raise SkipTest("Rust extension lacks the prepared status contract")
+        owner = self.example_user("hamlet")
+        client = get_client("website")
+        seed = UserStatus.objects.create(
+            user_profile=owner, client=client, timestamp=timezone_now(), status_text="Original"
+        )
+        witness = Mock(wraps=backend.update_prepared_user_status)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                'CREATE TEMP TABLE "zerver_userstatus" ON COMMIT DROP '
+                'AS SELECT * FROM "zerver_userstatus" WHERE id = %s',
+                [seed.id],
+            )
+            try:
+                with patch.object(backend, "update_prepared_user_status", witness):
+                    update_user_status(owner.id, "آزمایش", client.id, None, None, None)
+                witness.assert_called_once()
+                self.assertEqual(UserStatus.objects.get(id=seed.id).status_text, "آزمایش")
+            finally:
+                cursor.execute('DROP TABLE pg_temp."zerver_userstatus"')
+        seed.refresh_from_db()
+        self.assertEqual(seed.status_text, "Original")
+
+    def test_decline_before_sql_for_nonstandard_inputs(self) -> None:
+        backend = native_user_status_persistence._prepared_backend
+        if backend is None:
+            raise SkipTest("Rust extension lacks the prepared status contract")
+        stamp = timezone_now()
+        changes = (None, None, None, None)
+
+        def decline() -> bool:
+            return native_user_status_persistence.update_existing_status(1, 1, stamp, changes)
+
+        with patch.object(backend, "update_prepared_user_status") as witness:
+            with patch.object(UserStatus._meta, "db_table", "custom_status"):
+                self.assertFalse(decline())
+            with patch.object(native_user_status_persistence.router, "routers", [object()]):
+                self.assertFalse(decline())
+            changes = (chr(0xD800), None, None, None)
+            self.assertFalse(decline())
+            changes = (None, None, None, None)
+            stamp = stamp.astimezone(timezone(timedelta(hours=1)))
+            self.assertFalse(decline())
+        witness.assert_not_called()

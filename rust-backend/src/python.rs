@@ -300,6 +300,7 @@ mod _zulip_backend {
         module.add("WIDGET_PARSER_API", 1)?;
         module.add("VISIBLE_TOPIC_HISTORY_API", 1)?;
         module.add("USER_STATUS_READ_API", 1)?;
+        module.add("PREPARED_USER_STATUS_PERSISTENCE_API", 1)?;
         module.add("USER_STATUS_REPLAY_API", 1)?;
         module.add("TOPIC_TITLE_API", 1)?;
         module.add("MESSAGE_CONTENT_FINALIZER_API", 1)?;
@@ -741,7 +742,9 @@ mod _zulip_backend {
     };
 
     #[pymodule_export]
-    use crate::python_user_status_persistence::update_existing_user_status;
+    use crate::python_user_status_persistence::{
+        update_existing_user_status, update_prepared_user_status,
+    };
 
     #[pymodule_export]
     use crate::python_channel_folder_order::update_channel_folder_order;
