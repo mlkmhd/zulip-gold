@@ -235,6 +235,9 @@ except ModuleNotFoundError as error:
     _rust_import_body = None
 
 
+_rust_exact_import_body = load_native_contract(
+    "ZULIP_RUST_IMPORT_BODY_TEXT", "IMPORT_BODY_TEXT_API"
+)
 _rust_display_mentions = load_native_contract("ZULIP_RUST_DISPLAY_MENTIONS", "DISPLAY_MENTION_API")
 
 
@@ -268,7 +271,24 @@ def normalize_body(body: str) -> str:
     return truncate_content(body, max_length, "\n[message truncated]")
 
 
+_original_import_re_sub = re.sub
+_original_import_truncate_content = truncate_content
+
+
 def normalize_body_for_import(body: str) -> str:
+    normalize_exact = getattr(
+        _rust_exact_import_body, "normalize_exact_imported_message_body", None
+    )
+    if (
+        normalize_exact is not None
+        and type(body) is str
+        and re.sub is _original_import_re_sub
+        and truncate_content is _original_import_truncate_content
+    ):
+        normalized = normalize_exact(body, settings.MAX_MESSAGE_LENGTH)
+        if normalized is not None:
+            return cast(str, normalized)
+
     if _rust_import_body is not None:
         normalize_native = getattr(_rust_import_body, "normalize_imported_message_body", None)
         if callable(normalize_native):

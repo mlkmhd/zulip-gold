@@ -356,6 +356,7 @@ mod _zulip_backend {
         module.add("FENCED_QUOTE_TEXT_API", 1)?;
         module.add("EMOJI_PRESENTATION_SELECTOR_API", 1)?;
         module.add("EMOJI_HEX_LABEL_API", 1)?;
+        module.add("IMPORT_BODY_TEXT_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
         module.add("MARKDOWN_HEADINGS_API", 1)?;
         module.add("MARKDOWN_HORIZONTAL_RULES_API", 1)?;
@@ -474,7 +475,9 @@ mod _zulip_backend {
     };
 
     #[pymodule_export]
-    use crate::python_import_body::normalize_imported_message_body;
+    use crate::python_import_body::{
+        normalize_exact_imported_message_body, normalize_imported_message_body,
+    };
 
     #[pymodule_export]
     use crate::python_digest_rank::rank_eligible_digest_topic_indices;

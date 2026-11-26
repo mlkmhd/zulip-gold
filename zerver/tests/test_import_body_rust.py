@@ -80,11 +80,14 @@ class ImportBodyDjangoDispatchRustTest(SimpleTestCase):
     def test_builder_uses_current_extension_only_in_enabled_process(self) -> None:
         native = extension()
         body = "\0 🙂\0e\u0301" + "🙂" * 20 + "\n"
-        with patch.object(
-            native,
-            "normalize_imported_message_body",
-            wraps=native.normalize_imported_message_body,
-        ) as call:
+        with (
+            patch.object(message, "_rust_exact_import_body", None),
+            patch.object(
+                native,
+                "normalize_imported_message_body",
+                wraps=native.normalize_imported_message_body,
+            ) as call,
+        ):
             record = self.build(body)
         self.assertEqual(record["content"], " \n[message truncated]")
         self.assertEqual(record["rendered_content"], "<p>unchanged</p>")
@@ -99,7 +102,10 @@ class ImportBodyDjangoDispatchRustTest(SimpleTestCase):
     def test_builder_keeps_even_an_empty_native_result(self) -> None:
         normalize = Mock(return_value="")
         backend = SimpleNamespace(normalize_imported_message_body=normalize)
-        with patch.object(message, "_rust_import_body", backend):
+        with (
+            patch.object(message, "_rust_exact_import_body", None),
+            patch.object(message, "_rust_import_body", backend),
+        ):
             self.assertEqual(self.build("synthetic")["content"], "")
         normalize.assert_called_once_with("synthetic", 21)
 
@@ -111,7 +117,10 @@ class ImportBodyDjangoDispatchRustTest(SimpleTestCase):
             SimpleNamespace(),
             SimpleNamespace(normalize_imported_message_body=decline),
         ):
-            with patch.object(message, "_rust_import_body", backend):
+            with (
+                patch.object(message, "_rust_exact_import_body", None),
+                patch.object(message, "_rust_import_body", backend),
+            ):
                 record = self.build(body, direct=True)
             self.assertEqual(record["content"], "\n hello \t")
             self.assertEqual(record[EXPORT_TOPIC_NAME], Message.DM_TOPIC)
@@ -137,3 +146,32 @@ class ImportBodyDjangoDispatchRustTest(SimpleTestCase):
                 self.build("synthetic")
             errors.append(str(error.exception))
         self.assertEqual(errors, ["'>' not supported between instances of 'int' and 'str'"] * 2)
+
+    def test_exact_matching_wheel_keeps_unicode_and_whitespace_in_import_record(self) -> None:
+        backend = message._rust_exact_import_body
+        if getattr(backend, "IMPORT_BODY_TEXT_API", None) != 1:
+            self.skipTest("Matching Rust import body contract is not available")
+
+        body = " \ud800\0" + "🙂" * 23
+        with patch.object(
+            backend,
+            "normalize_exact_imported_message_body",
+            wraps=backend.normalize_exact_imported_message_body,
+        ) as normalize:
+            record = self.build(body, direct=True)
+        normalize.assert_called_once_with(body, 21)
+        self.assertEqual(record["content"], " \n[message truncated]")
+        self.assertEqual(record[EXPORT_TOPIC_NAME], Message.DM_TOPIC)
+        self.assertEqual(record["rendered_content"], "<p>unchanged</p>")
+        existing = " \ud800🙂"
+        self.assertIs(message.normalize_body_for_import(existing), existing)
+        self.assertEqual(message.normalize_body_for_import("\0\ud800🙂"), "\ud800🙂")
+
+    def test_custom_truncation_still_uses_python(self) -> None:
+        body = "x\0y"
+        with (
+            patch.object(message, "_rust_import_body", None),
+            patch.object(message, "truncate_content", return_value="custom") as truncate,
+        ):
+            self.assertEqual(self.build(body)["content"], "custom")
+        truncate.assert_called_once_with("xy", 21, "\n[message truncated]")
