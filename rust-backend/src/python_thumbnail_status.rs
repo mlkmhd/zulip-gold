@@ -382,3 +382,21 @@ pub(crate) fn thumbnail_frame_load_options(
         Some(format!("n={}{}", limit / pixels_per_frame, suffix))
     }
 }
+
+#[pyfunction]
+pub(crate) fn thumbnail_format_string(
+    width: &Bound<'_, PyAny>,
+    height: &Bound<'_, PyAny>,
+    animated: &Bound<'_, PyAny>,
+    extension: &Bound<'_, PyAny>,
+) -> Option<String> {
+    let (width, height) = (integer(width)?, integer(height)?);
+    let animated = animated
+        .cast_exact::<PyBool>()
+        .ok()?
+        .extract::<bool>()
+        .ok()?;
+    let extension = extension.cast_exact::<PyString>().ok()?.to_str().ok()?;
+    let suffix = if animated { "-anim" } else { "" };
+    Some(format!("{width}x{height}{suffix}.{extension}"))
+}

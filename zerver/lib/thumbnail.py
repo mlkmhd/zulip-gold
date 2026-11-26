@@ -4,6 +4,7 @@ import re
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import cast
 
 import pyvips
 from bs4 import BeautifulSoup
@@ -15,6 +16,7 @@ from typing_extensions import Self, override
 from zerver.lib import native_thumbnail_status
 from zerver.lib.exceptions import ErrorCode, JsonableError
 from zerver.lib.mime_types import AUDIO_INLINE_MIME_TYPES, INLINE_MIME_TYPES, bare_content_type
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.queue import queue_event_on_commit
 from zerver.models import Attachment, ImageAttachment
 
@@ -40,6 +42,11 @@ IMAGE_MAX_ANIMATED_PIXELS = IMAGE_BOMB_TOTAL_PIXELS / 3
 MAX_EMOJI_GIF_FILE_SIZE_BYTES = 128 * 1024  # 128 kb
 
 
+_format_string_backend = load_native_contract(
+    "ZULIP_RUST_THUMBNAIL_FORMAT_STRING", "THUMBNAIL_FORMAT_STRING_API"
+)
+
+
 @dataclass(frozen=True)
 class BaseThumbnailFormat:  # noqa: PLW1641
     extension: str
@@ -55,6 +62,13 @@ class BaseThumbnailFormat:  # noqa: PLW1641
 
     @override
     def __str__(self) -> str:
+        native = getattr(_format_string_backend, "thumbnail_format_string", None)
+        if callable(native):
+            formatted = cast(
+                "str | None", native(self.max_width, self.max_height, self.animated, self.extension)
+            )
+            if formatted is not None:
+                return formatted
         animated = "-anim" if self.animated else ""
         return f"{self.max_width}x{self.max_height}{animated}.{self.extension}"
 

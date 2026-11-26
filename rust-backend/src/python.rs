@@ -382,6 +382,7 @@ mod _zulip_backend {
         module.add("COMPOSE_QUOTE_BUDGET_API", 1)?;
         module.add("THUMBNAIL_DISPLAY_RANK_API", 1)?;
         module.add("THUMBNAIL_FRAME_OPTIONS_API", 1)?;
+        module.add("THUMBNAIL_FORMAT_STRING_API", 1)?;
         module.add("THUMBNAIL_STORED_VARIANT_API", 1)?;
         module.add("THUMBNAIL_READINESS_API", 1)?;
         module.add("THUMBNAIL_MISSING_PLAN_API", 1)?;
@@ -523,8 +524,8 @@ mod _zulip_backend {
 
     #[pymodule_export]
     use crate::python_thumbnail_status::{
-        thumbnail_frame_load_options, thumbnail_has_stored_variant, thumbnail_missing_indexes,
-        thumbnail_status_complete, thumbnail_transcode_indexes,
+        thumbnail_format_string, thumbnail_frame_load_options, thumbnail_has_stored_variant,
+        thumbnail_missing_indexes, thumbnail_status_complete, thumbnail_transcode_indexes,
     };
 
     #[pymodule_export]
