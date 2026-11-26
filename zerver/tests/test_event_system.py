@@ -313,6 +313,37 @@ class EventsEndpointTest(ZulipTestCase):
                 inactive.id, [entry["user_id"] for entry in snapshot["realm_non_active_users"]]
             )
 
+    def test_register_partitions_only_selected_cards_without_copying(self) -> None:
+        first = {"user_id": 16, "is_active": True, "full_name": "First active row"}
+        tied = {"user_id": 16, "is_active": True, "full_name": "Second active row"}
+        inactive = {"user_id": 2, "is_active": False}
+        raw = {17: first, 8: inactive, 9: tied}
+        state = {"raw_users": raw}
+        expected = deepcopy(state)
+        with (
+            mock.patch.object(native_register_state, "_backend", None),
+            mock.patch.object(native_register_state, "_user_partition_backend", None),
+        ):
+            post_process_state(None, expected, True, True)
+        post_process_state(None, state, True, True)
+        self.assertEqual(state, expected)
+        self.assertEqual(list(state), ["realm_users", "realm_non_active_users"])
+        self.assertIs(state["realm_users"][0], first)
+        self.assertIs(state["realm_users"][1], tied)
+        self.assertIs(state["realm_non_active_users"][0], inactive)
+        for card in raw.values():
+            self.assertNotIn("is_active", card)
+
+        backend = native_register_state._user_partition_backend
+        if backend is not None:
+            shared = {"user_id": 3, "is_active": True}
+            self.assertIsNone(backend.partition_register_users({8: shared, 9: shared}))
+            self.assertIs(shared["is_active"], True)
+            legacy = {"user_id": 7, "is_active": "truthy"}
+            self.assertIsNone(backend.partition_register_users({1: legacy}))
+            post_process_state(None, {"raw_users": {1: legacy}}, True, True)
+            self.assertNotIn("is_active", legacy)
+
     def test_register_legacy_empty_topic_shaping_preserves_selected_rows(self) -> None:
         class DerivedTopic(str):
             __slots__ = ()

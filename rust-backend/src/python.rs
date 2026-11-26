@@ -394,6 +394,7 @@ mod _zulip_backend {
         module.add("SETTINGS_SNAPSHOT_API", 1)?;
         module.add("GROUP_ROSTER_REPLAY_API", 1)?;
         module.add("REGISTER_PROFILE_PRUNE_API", 1)?;
+        module.add("REGISTER_USER_PARTITION_API", 1)?;
         module.add("UNREAD_AGGREGATE_API", 1)?;
         module.add("UNREAD_DETAILS_API", 1)?;
         module.add("PREPARED_RECENT_DM_ROWS_API", 1)?;

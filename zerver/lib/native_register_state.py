@@ -37,10 +37,16 @@ def prune_profile_fields(raw: object, fields: object) -> bool:
     return callable(native) and cast(bool, native(raw, fields))
 
 
+_user_partition_backend = load_native_contract(
+    "ZULIP_RUST_REGISTER_USER_PARTITION", "REGISTER_USER_PARTITION_API"
+)
+
+
 def partition_users(
     raw: object,
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]] | None:
-    native = getattr(_backend, "partition_register_users", None)
+    backend = _user_partition_backend if _user_partition_backend is not None else _backend
+    native = getattr(backend, "partition_register_users", None)
     if native is None:
         return None
     return cast("tuple[list[dict[str, object]], list[dict[str, object]]] | None", native(raw))
