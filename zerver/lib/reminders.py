@@ -31,6 +31,9 @@ from zerver.models import Message, Stream, UserProfile
 from zerver.models.scheduled_jobs import ScheduledMessage
 from zerver.tornado.django_api import send_event_on_commit
 
+_rust_reminder_widget_label = load_native_contract(
+    "ZULIP_RUST_REMINDER_WIDGET_LABEL", "REMINDER_WIDGET_LABEL_API"
+)
 _rust_reminder_note_text = load_native_contract(
     "ZULIP_RUST_REMINDER_NOTE_TEXT", "REMINDER_NOTE_TEXT_API"
 )
@@ -94,6 +97,20 @@ class ReminderRecipientType(Enum):
     CHANNEL = "channel"
     PRIVATE = "private"
     NOTE_TO_SELF = "note to self"
+
+
+def _reminder_widget_label(body: str) -> str | None:
+    select = getattr(_rust_reminder_widget_label, "reminder_widget_label", None)
+    if select is not None and type(body) is str:
+        # An invalid UTF-8 prefix cannot spell an ASCII widget name.
+        return cast("str | None", select(body[:5]))
+    if _rust_reminder_context is not None:
+        return cast("str | None", _rust_reminder_context.reminder_widget_label(body[:5]))
+    if body.startswith("/poll"):
+        return "poll"
+    if body.startswith("/todo"):
+        return "todo list"
+    return None
 
 
 def get_reminder_formatted_content(
@@ -207,13 +224,7 @@ def get_reminder_formatted_content(
         },
     }
 
-    widget: str | None = None
-    if _rust_reminder_context is not None:
-        widget = _rust_reminder_context.reminder_widget_label(message.content[:5])
-    elif message.content.startswith("/poll"):
-        widget = "poll"
-    elif message.content.startswith("/todo"):
-        widget = "todo list"
+    widget = _reminder_widget_label(message.content)
 
     if widget is not None:
         context.update(widget=widget)

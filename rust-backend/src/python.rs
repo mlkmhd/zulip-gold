@@ -366,6 +366,7 @@ mod _zulip_backend {
         module.add("PRESENCE_LEGACY_DISPLAY_API", 1)?;
         module.add("PRESENCE_SINGLE_USER_RESPONSE_API", 1)?;
         module.add("REMINDER_NOTE_TEXT_API", 1)?;
+        module.add("REMINDER_WIDGET_LABEL_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
         module.add("MARKDOWN_HEADINGS_API", 1)?;
         module.add("MARKDOWN_HORIZONTAL_RULES_API", 1)?;
