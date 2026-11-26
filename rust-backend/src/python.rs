@@ -371,6 +371,7 @@ mod _zulip_backend {
         module.add("MOBILE_PUSH_TEXT_API", 1)?;
         module.add("MOBILE_SPOILER_HEADER_API", 1)?;
         module.add("MOBILE_QUOTE_COLLAPSE_API", 1)?;
+        module.add("MOBILE_PLAIN_PREVIEW_TREE_API", 1)?;
         module.add("MOBILE_ORDERED_LIST_API", 1)?;
         module.add("SEARCH_HIGHLIGHTS_API", 1)?;
         module.add("FENCED_CODE_HEADER_API", 1)?;
@@ -769,7 +770,7 @@ mod _zulip_backend {
     #[pymodule_export]
     use crate::python_push_text::{
         format_mobile_ordered_list, format_mobile_spoiler_header, plan_mobile_quote_collapse,
-        quote_mobile_push_text, truncate_mobile_push_text,
+        quote_mobile_push_text, render_plain_mobile_preview_tree, truncate_mobile_push_text,
     };
 
     #[pymodule_export]

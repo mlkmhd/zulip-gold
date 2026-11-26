@@ -3,12 +3,66 @@
 from collections.abc import Callable
 from typing import cast
 
+import lxml.html
+
 from zerver.lib.native_backend import load_native_contract
 
 _backend = load_native_contract("ZULIP_RUST_PUSH_TEXT", "MOBILE_PUSH_TEXT_API")
 _ordered_list_backend = load_native_contract(
     "ZULIP_RUST_MOBILE_ORDERED_LIST", "MOBILE_ORDERED_LIST_API"
 )
+
+
+_plain_preview_tree_backend = load_native_contract(
+    "ZULIP_RUST_MOBILE_PLAIN_PREVIEW_TREE", "MOBILE_PLAIN_PREVIEW_TREE_API"
+)
+_PLAIN_PREVIEW_TAGS = frozenset(
+    {
+        "div",
+        "p",
+        "br",
+        "span",
+        "a",
+        "b",
+        "strong",
+        "em",
+        "i",
+        "u",
+        "s",
+        "del",
+        "code",
+        "pre",
+        "li",
+        "ul",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+    }
+)
+_MAX_PREVIEW_NODES = 512
+
+
+def render_plain_preview_tree(element: lxml.html.HtmlElement) -> str | None:
+    native = getattr(_plain_preview_tree_backend, "render_plain_mobile_preview_tree", None)
+    if not callable(native):
+        return None
+    rows: list[tuple[int, str, str]] = []
+    pending = [(0, element)]
+    while pending:
+        depth, node = pending.pop()
+        if type(node) is not lxml.html.HtmlElement or node.tag not in _PLAIN_PREVIEW_TAGS:
+            return None
+        classes = node.get("class", "")
+        if "emoji" in classes or "spoiler-block" in classes:
+            return None
+        if depth > 128 or len(rows) + len(pending) + len(node) >= _MAX_PREVIEW_NODES:
+            return None
+        rows.append((depth, node.text or "", node.tail or ""))
+        pending.extend((depth + 1, child) for child in reversed(node))
+    return cast("str | None", native(rows))
 
 
 _quote_collapse_backend = load_native_contract(

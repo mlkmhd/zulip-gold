@@ -1042,8 +1042,10 @@ def get_mobile_push_content(rendered_content: str) -> str:
     )
     change_katex_to_raw_latex(elem)
     potentially_collapse_quotes(elem)
-    plain_text = process(elem)
-    return plain_text
+    prepared = native_push_text.render_plain_preview_tree(elem)
+    if prepared is not None:
+        return prepared
+    return process(elem)
 
 
 def truncate_content(content: str) -> tuple[str, bool]:

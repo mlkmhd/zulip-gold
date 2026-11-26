@@ -3,7 +3,7 @@
 use std::io::Write;
 
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyInt, PyList, PyString};
+use pyo3::types::{PyBool, PyInt, PyList, PyString, PyTuple};
 
 use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes, trim_python_text};
 
@@ -144,4 +144,47 @@ pub(crate) fn plan_mobile_quote_collapse(statuses: &Bound<'_, PyAny>) -> Option<
         actions.clear();
     }
     Some(actions)
+}
+
+#[pyfunction]
+pub(crate) fn render_plain_mobile_preview_tree<'py>(
+    rows: &Bound<'py, PyAny>,
+) -> Option<Bound<'py, PyString>> {
+    let rows = rows.cast_exact::<PyList>().ok()?;
+    if rows.is_empty() || rows.len() > 512 {
+        return None;
+    }
+    let mut output = Vec::new();
+    let mut tails: Vec<Bound<'py, PyString>> = Vec::new();
+    for (index, row) in rows.iter().enumerate() {
+        let row = row.cast_exact::<PyTuple>().ok()?;
+        if row.len() != 3 {
+            return None;
+        }
+        let depth: usize = row
+            .get_item(0)
+            .ok()?
+            .cast_exact::<PyInt>()
+            .ok()?
+            .extract()
+            .ok()?;
+        if (index == 0 && depth != 0)
+            || (index > 0 && depth == 0)
+            || depth > tails.len()
+            || depth > 128
+        {
+            return None;
+        }
+        while tails.len() > depth {
+            output.extend_from_slice(&python_string_bytes(&tails.pop()?)?);
+        }
+        let text = row.get_item(1).ok()?.cast_into_exact::<PyString>().ok()?;
+        let tail = row.get_item(2).ok()?.cast_into_exact::<PyString>().ok()?;
+        output.extend_from_slice(&python_string_bytes(&text)?);
+        tails.push(tail);
+    }
+    for tail in tails.iter().rev() {
+        output.extend_from_slice(&python_string_bytes(tail)?);
+    }
+    python_string_from_bytes(rows.py(), &output)
 }
