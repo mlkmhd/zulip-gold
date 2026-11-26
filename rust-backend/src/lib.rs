@@ -212,6 +212,9 @@ mod python_import_body;
 mod python_digest_rank;
 
 #[cfg(feature = "python")]
+mod python_edit_history;
+
+#[cfg(feature = "python")]
 mod python_topic_text;
 
 #[cfg(feature = "python")]

@@ -443,6 +443,7 @@ mod _zulip_backend {
         module.add("DRAFT_TOPIC_TEXT_API", 1)?;
         module.add("PREPARED_EMOJI_METADATA_API", 1)?;
         module.add("EMPTY_TOPIC_COMPAT_API", 1)?;
+        module.add("EDIT_HISTORY_ASSEMBLY_API", 1)?;
         module.add("DRAFT_BODY_TEXT_API", 1)?;
         module.add("DRAFT_TIMESTAMP_API", 1)?;
         module.add("PREPARED_DJANGO_DRAFT_INPUT_API", 1)?;
@@ -631,6 +632,9 @@ mod _zulip_backend {
         build_prepared_digest_teaser, collect_prepared_digest_recent_topics,
         rank_eligible_digest_topic_indices,
     };
+
+    #[pymodule_export]
+    use crate::python_edit_history::assemble_prepared_edit_history;
 
     #[pymodule_export]
     use crate::python_topic_text::{

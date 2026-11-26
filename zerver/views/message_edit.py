@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import cast
 
 import orjson
 from django.contrib.auth.models import AnonymousUser
@@ -21,6 +22,7 @@ from zerver.lib.message import (
     messages_for_ids,
     visible_edit_history_for_message,
 )
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.request import RequestNotes
 from zerver.lib.response import json_success
 from zerver.lib.streams import can_delete_any_message_in_channel, can_delete_own_message_in_channel
@@ -31,6 +33,10 @@ from zerver.lib.types import EditHistoryEvent, FormattedEditHistoryEvent, Propag
 from zerver.models import Message, UserProfile
 from zerver.models.realms import MessageEditHistoryVisibilityPolicyEnum
 from zerver.models.streams import Stream, get_stream_by_id_in_realm
+
+_rust_edit_history_assembly = load_native_contract(
+    "ZULIP_RUST_EDIT_HISTORY_ASSEMBLY", "EDIT_HISTORY_ASSEMBLY_API"
+)
 
 
 def fill_edit_history_entries(
@@ -63,6 +69,32 @@ def fill_edit_history_entries(
     if len(raw_edit_history) > 0:
         assert message.last_edit_time is not None
         assert datetime_to_timestamp(message.last_edit_time) == raw_edit_history[0]["timestamp"]
+
+    assemble = getattr(_rust_edit_history_assembly, "assemble_prepared_edit_history", None)
+    if callable(assemble):
+
+        def rename_topic(name: str) -> str:
+            return maybe_rename_empty_topic_to_general_chat(
+                name, is_channel_message, allow_empty_topic_name
+            )
+
+        def highlight_diff(previous: str, current: str) -> str:
+            return highlight_html_differences(previous, current, message.id)
+
+        def original_identity() -> tuple[int, int]:
+            return datetime_to_timestamp(message.date_sent), message.sender_id
+
+        prepared = cast(
+            "list[FormattedEditHistoryEvent] | None",
+            assemble(
+                raw_edit_history,
+                (prev_content, prev_rendered_content, prev_topic_name),
+                plain_reply_links,
+                (rename_topic, render_plain_reply_links, highlight_diff, original_identity),
+            ),
+        )
+        if prepared is not None:
+            return prepared
 
     formatted_edit_history: list[FormattedEditHistoryEvent] = []
     for edit_history_event in raw_edit_history:
