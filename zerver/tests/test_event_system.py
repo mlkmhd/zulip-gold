@@ -21,11 +21,12 @@ from zerver.actions.streams import do_change_stream_folder
 from zerver.actions.user_settings import do_change_avatar_fields, do_change_user_setting
 from zerver.actions.user_topics import do_set_user_topic_visibility_policy
 from zerver.actions.users import do_change_user_role, do_deactivate_user
-from zerver.lib import native_register_state
+from zerver.lib import native_register_state, native_settings_payload
 from zerver.lib.event_schema import check_web_reload_client_event
 from zerver.lib.events import fetch_initial_state_data, post_process_state
 from zerver.lib.exceptions import AccessDeniedError
 from zerver.lib.request import RequestVariableMissingError
+from zerver.lib.sounds import get_available_notification_sounds
 from zerver.lib.test_classes import ZulipTestCase
 from zerver.lib.test_helpers import (
     HostRequestMock,
@@ -468,6 +469,53 @@ class EventsEndpointTest(ZulipTestCase):
         self.assertEqual(
             personal["available_notification_sounds"], defaults["available_notification_sounds"]
         )
+
+    def test_settings_catalogs_preserve_order_and_filename_edge_cases(self) -> None:
+        ordinary = [
+            "zulip.ogg",
+            "آهنگ.ogg",
+            "ding.ogg",
+            "zulip.abc123.ogg",
+            ".ogg",
+            ".hidden.ogg",
+            "different.OGG",
+            "notes.txt",
+        ]
+        unusual = [*ordinary, "with\\slash.ogg"]
+        choices = UserProfile.EMOJISET_CHOICES
+        expected_emoji = [{"key": key, "text": text} for key, text in choices]
+        for filenames, expected in (
+            (ordinary, ["ding", "zulip", "آهنگ"]),
+            (unusual, ["ding", "with\\slash", "zulip", "آهنگ"]),
+        ):
+            with (
+                self.subTest(filenames=filenames),
+                mock.patch("zerver.lib.sounds.os.listdir", return_value=filenames) as listdir,
+            ):
+                self.assertEqual(get_available_notification_sounds(), expected)
+                listdir.assert_called_once()
+        self.assertEqual(UserProfile.emojiset_choices(), expected_emoji)
+
+        backend = native_settings_payload._catalog_backend
+        if backend is not None:
+            self.assertIsNone(backend.format_settings_notification_sounds(unusual))
+            with (
+                mock.patch("zerver.lib.sounds.os.listdir", return_value=ordinary),
+                mock.patch.object(
+                    backend,
+                    "format_settings_notification_sounds",
+                    wraps=backend.format_settings_notification_sounds,
+                ) as sounds,
+                mock.patch.object(
+                    backend,
+                    "format_settings_emoji_choices",
+                    wraps=backend.format_settings_emoji_choices,
+                ) as emoji,
+            ):
+                self.assertEqual(get_available_notification_sounds(), ["ding", "zulip", "آهنگ"])
+                self.assertEqual(UserProfile.emojiset_choices(), expected_emoji)
+            sounds.assert_called_once_with(ordinary)
+            emoji.assert_called_once_with(choices)
 
     def test_events_register_spectators(self) -> None:
         # Verify that POST /register works for spectators, but not for

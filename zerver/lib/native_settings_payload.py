@@ -1,9 +1,11 @@
-"""Opt-in shaping of settings and catalogs provided by Django."""
+"""Native shaping of settings and catalogs provided by Django."""
 
 import os
 from collections.abc import Mapping
 from importlib import import_module
 from typing import cast
+
+from zerver.lib.native_backend import load_native_contract
 
 try:
     _backend = (
@@ -17,6 +19,9 @@ except ModuleNotFoundError as error:
     _backend = None
 
 
+_catalog_backend = load_native_contract("ZULIP_RUST_SETTINGS_CATALOGS", "SETTINGS_CATALOGS_API")
+
+
 def snapshot_properties(source: object, schema: Mapping[str, object]) -> dict[str, object]:
     native = getattr(_backend, "snapshot_settings_properties", None)
     if native is not None:
@@ -27,14 +32,16 @@ def snapshot_properties(source: object, schema: Mapping[str, object]) -> dict[st
 
 
 def format_emoji_choices(choices: object) -> list[dict[str, str]] | None:
-    native = getattr(_backend, "format_settings_emoji_choices", None)
+    backend = _catalog_backend if _catalog_backend is not None else _backend
+    native = getattr(backend, "format_settings_emoji_choices", None)
     if native is None:
         return None
     return cast("list[dict[str, str]] | None", native(choices))
 
 
 def format_notification_sounds(filenames: list[str]) -> list[str] | None:
-    native = getattr(_backend, "format_settings_notification_sounds", None)
+    backend = _catalog_backend if _catalog_backend is not None else _backend
+    native = getattr(backend, "format_settings_notification_sounds", None)
     if native is None:
         return None
     return cast("list[str] | None", native(filenames))
