@@ -4,6 +4,7 @@ import os
 from importlib import import_module
 from typing import cast
 
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.topic import TOPIC_NAME
 
 try:
@@ -58,8 +59,12 @@ def plan_private_arrival(
     return None
 
 
+_remove_backend = load_native_contract("ZULIP_RUST_UNREAD_REMOVAL", "UNREAD_REMOVAL_API")
+
+
 def remove(raw: object, ids: object) -> bool:
-    native = getattr(_backend, "remove_unread_messages", None)
+    backend = _backend if _backend is not None else _remove_backend
+    native = getattr(backend, "remove_unread_messages", None)
     return callable(native) and cast(bool, native(raw, ids))
 
 

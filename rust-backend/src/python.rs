@@ -397,6 +397,7 @@ mod _zulip_backend {
         module.add("REGISTER_USER_PARTITION_API", 1)?;
         module.add("UNREAD_AGGREGATE_API", 1)?;
         module.add("UNREAD_DETAILS_API", 1)?;
+        module.add("UNREAD_REMOVAL_API", 1)?;
         module.add("PREPARED_RECENT_DM_ROWS_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
         module.add("MARKDOWN_HEADINGS_API", 1)?;

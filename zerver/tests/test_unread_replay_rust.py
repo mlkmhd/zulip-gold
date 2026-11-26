@@ -134,7 +134,10 @@ class UnreadReplayRustTest(ZulipTestCase):
         def timeline(candidate: object) -> list[str]:
             raw = empty_unread()
             history = []
-            with patch.object(native_unread_replay, "_backend", candidate):
+            with (
+                patch.object(native_unread_replay, "_backend", candidate),
+                patch.object(native_unread_replay, "_remove_backend", None),
+            ):
                 for event in events:
                     self.replay(raw, event)
                     # The dict/set representation also records iteration order.
@@ -160,6 +163,26 @@ class UnreadReplayRustTest(ZulipTestCase):
         decline = Mock(return_value=False)
         self.assertEqual(timeline(SimpleNamespace(**dict.fromkeys(METHODS, decline))), reference)
         self.assertEqual(decline.call_count, len(events))
+
+    def test_default_unread_removal_receives_only_selected_state(self) -> None:
+        raw = empty_unread()
+        raw["pm_dict"][7] = {"other_user_id": 2}
+        raw["stream_dict"][9] = {"stream_id": 4, "topic": "Keep"}
+        raw["mentions"].update({7, 9})
+        event = {"type": "update_message_flags", "flag": "read", "op": "add", "messages": [7]}
+        backend = native_unread_replay._remove_backend
+        if backend is not None:
+            with patch.object(
+                backend, "remove_unread_messages", wraps=backend.remove_unread_messages
+            ) as witness:
+                self.replay(raw, event)
+            witness.assert_called_once_with(raw, [7])
+            self.assertIs(witness.call_args.args[0], raw)
+        else:
+            self.replay(raw, event)
+        self.assertEqual(raw["pm_dict"], {})
+        self.assertEqual(raw["stream_dict"], {9: {"stream_id": 4, "topic": "Keep"}})
+        self.assertEqual(raw["mentions"], {9})
 
     def test_decline_leaves_the_selected_state_untouched(self) -> None:
         backend = extension()
