@@ -3809,8 +3809,8 @@ differences. This is neither exhaustive string testing nor a benchmark.
 
 ## Choose unused quote fences through Rust
 
-`ZULIP_RUST_MARKDOWN_FENCES=1` additionally opts `get_unused_fence` into
-`get_unused_markdown_fence(content)` when the wheel exports it. This reuses
+On Ubuntu 24.04 x86-64, a wheel with FENCED_QUOTE_DELIMITER_API selects
+the outer quote fence in Rust for exact Python strings. This reuses
 `reminder_quote::unused_fence_length`, the same native scanner already used by
 reminder quote construction. It finds backtick runs of at least three at the
 start of a line after zero to three ASCII spaces and returns one more backtick
@@ -3820,9 +3820,10 @@ Python regex behavior. Tildes and inline backticks do not affect the result.
 
 The helper's consumers include quote replies, reminders, moderation reports,
 onboarding and GitHub/GitLab webhook content. Their imports and formatting stay
-unchanged. The flag remains off by default; older wheels without this export,
-string subclasses, surrogate-containing text and input over 8 MiB use the
-original regex before any external effects. A native exception propagates
+unchanged. The matching wheel handles surrogates and large text.
+Older wheels and other platforms keep the previous behavior, including
+the optional legacy export. String subclasses and a customized regex
+stay on their existing paths. A native exception propagates
 without retrying. There is no new dependency, routing change or Python-file
 retirement, and this does not replace `close_unclosed_fences`.
 
@@ -3840,8 +3841,8 @@ PYTHONPATH="$PWD/var/unused-fence-python:$PWD" DJANGO_SETTINGS_MODULE=zproject.t
 Use the locked/offline build and no-index/no-dependency installation commands
 above, retaining earlier targets. The oracle compares the original Python
 helper with the native scanner, checks actual acceptance and delegation,
-enumerates short strings, tests every Unicode scalar in three fixed contexts
-and includes both sides of the size limit. `--mutant-short-fence` must report
+enumerates short strings, tests every Unicode code point in three fixed contexts
+and includes both sides of the legacy size limit. `--mutant-short-fence` must report
 differences. This is a compatibility corpus rather than exhaustive testing or
 a performance benchmark. Deferred TeX, previews and complete renderer/listener
 orchestration remain separate migration work.

@@ -29,6 +29,7 @@ def main() -> None:
         nonlocal checked, accepted, delegated
         expected = fenced_code.get_unused_fence(source)
         result = extension.get_unused_markdown_fence(source)
+        assert extension.choose_fenced_quote_delimiter(source) == expected, repr(source[:100])
         try:
             supported = len(source.encode("utf-8")) <= 8 * 1024 * 1024
         except UnicodeEncodeError:
@@ -49,7 +50,10 @@ def main() -> None:
                 }
             )
 
-    with patch.object(fenced_code, "_rust_markdown_fences", None):
+    with (
+        patch.object(fenced_code, "_rust_markdown_fences", None),
+        patch.object(fenced_code, "_rust_quote_delimiter", None),
+    ):
         for source in [
             "",
             "\ud800\n```",
@@ -70,8 +74,6 @@ def main() -> None:
             check(source)
         if args.unicode and not differences:
             for value in range(0x110000):
-                if 0xD800 <= value <= 0xDFFF:
-                    continue
                 char = chr(value)
                 for source in [f"{char}```", f"  {char}````", f"``{char}``"]:
                     check(source)

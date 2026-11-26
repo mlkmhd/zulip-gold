@@ -351,6 +351,7 @@ mod _zulip_backend {
         module.add("SEARCH_HIGHLIGHTS_API", 1)?;
         module.add("FENCED_CODE_HEADER_API", 1)?;
         module.add("FENCED_CODE_ESCAPE_API", 1)?;
+        module.add("FENCED_QUOTE_DELIMITER_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
         module.add("MARKDOWN_HEADINGS_API", 1)?;
         module.add("MARKDOWN_HORIZONTAL_RULES_API", 1)?;
@@ -1247,7 +1248,14 @@ mod _zulip_backend {
         if content.len() > 8 * 1024 * 1024 {
             return None;
         }
-        Some("`".repeat(reminder_quote::unused_fence_length(content)))
+        Some("`".repeat(reminder_quote::unused_fence_length(content.as_bytes())))
+    }
+
+    #[pyfunction]
+    fn choose_fenced_quote_delimiter(content: &Bound<'_, PyAny>) -> Option<String> {
+        let content = content.cast_exact::<PyString>().ok()?;
+        let content = python_string_bytes(content)?;
+        Some("`".repeat(reminder_quote::unused_fence_length(&content)))
     }
 
     #[pyfunction]

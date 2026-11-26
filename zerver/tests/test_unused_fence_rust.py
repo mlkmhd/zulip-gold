@@ -20,6 +20,9 @@ class UnusedFenceRustTest(SimpleTestCase):
             raise SkipTest("Rust extension is not installed") from None
         if not hasattr(self.extension, "get_unused_markdown_fence"):
             raise SkipTest("Rust extension does not support unused fences")
+        patcher = patch.object(fenced_code, "_rust_quote_delimiter", None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_fence_uses_only_backticks_after_up_to_three_ascii_spaces(self) -> None:
         for content, length in [
@@ -95,3 +98,29 @@ class UnusedFenceRustTest(SimpleTestCase):
         self.assertEqual(*results)
         self.assertIn("`````quote\n", results[0][0])
         self.assertTrue(results[0][1].endswith("</blockquote>\n<p>Thanks!</p>"))
+
+
+class FencedQuoteDelimiterContractTest(SimpleTestCase):
+    def test_quote_with_backticks_keeps_the_reply_outside_the_quote(self) -> None:
+        composed = compose_quote_and_reply_for_channel_message(
+            reply_content="Thanks!",
+            quote_content="```python\nprint('hello')\n```",
+            quote_message_sender_silent_mention="@_**Iago**",
+            quote_message_url="#narrow/channel/9-Verona/topic/hello/near/15",
+            quote_message_topic_pretty_link="#**Verona>hello**",
+        )
+        self.assertIn("````quote\n", composed)
+        rendered = Markdown(extensions=[fenced_code.FencedCodeExtension()]).convert(composed)
+        self.assertTrue(rendered.endswith("</blockquote>\n<p>Thanks!</p>"))
+
+    def test_default_uses_rust_for_surrogates_and_large_input(self) -> None:
+        backend = fenced_code._rust_quote_delimiter
+        if getattr(backend, "FENCED_QUOTE_DELIMITER_API", None) != 1:
+            self.skipTest("Matching fenced quote delimiter contract is not available")
+
+        source = "x" * (8 * 1024 * 1024) + "\ud800\n   ````"
+        with patch.object(
+            backend, "choose_fenced_quote_delimiter", wraps=backend.choose_fenced_quote_delimiter
+        ) as choose:
+            self.assertEqual(fenced_code.get_unused_fence(source), "`````")
+        choose.assert_called_once_with(source)

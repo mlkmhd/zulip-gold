@@ -106,6 +106,9 @@ _native_parse_hl_lines = parse_hl_lines
 
 _rust_code_header = load_native_contract("ZULIP_RUST_CODE_HEADER", "FENCED_CODE_HEADER_API")
 _rust_code_escape = load_native_contract("ZULIP_RUST_FENCED_CODE_ESCAPE", "FENCED_CODE_ESCAPE_API")
+_rust_quote_delimiter = load_native_contract(
+    "ZULIP_RUST_QUOTE_DELIMITER", "FENCED_QUOTE_DELIMITER_API"
+)
 
 _rust_code_highlight = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_CODE_HIGHLIGHT") == "1" else None
@@ -161,6 +164,7 @@ CODE_WRAP = "<pre><code{}>{}\n</code></pre>"
 LANG_TAG = ' class="{}"'
 
 _original_curl_re_search = re.search
+_original_fence_compile = re.compile
 
 
 def validate_curl_content(lines: list[str]) -> None:
@@ -191,7 +195,11 @@ CODE_VALIDATORS: dict[str | None, Callable[[list[str]], None]] = {
 
 # This function is similar to one used in fenced_code.ts
 def get_unused_fence(content: str) -> str:
-    choose_fence = getattr(_rust_markdown_fences, "get_unused_markdown_fence", None)
+    choose_fence = None
+    if re.compile is _original_fence_compile:
+        choose_fence = getattr(_rust_quote_delimiter, "choose_fenced_quote_delimiter", None)
+    if choose_fence is None:
+        choose_fence = getattr(_rust_markdown_fences, "get_unused_markdown_fence", None)
     if choose_fence is not None and type(content) is str:
         result = choose_fence(content)
         if result is not None:

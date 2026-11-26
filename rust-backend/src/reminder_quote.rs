@@ -1,16 +1,16 @@
 use crate::draft_text::{MESSAGE_TRUNCATION_SUFFIX, truncate};
 
-pub(crate) fn unused_fence_length(message: &str) -> usize {
+pub(crate) fn unused_fence_length(message: &[u8]) -> usize {
     let mut length = 3;
-    for line in message.split('\n') {
+    for line in message.split(|&byte| byte == b'\n') {
         let spaces = line
-            .bytes()
+            .iter()
             .take(3)
-            .take_while(|&byte| byte == b' ')
+            .take_while(|&&byte| byte == b' ')
             .count();
         let backticks = line[spaces..]
-            .bytes()
-            .take_while(|&byte| byte == b'`')
+            .iter()
+            .take_while(|&&byte| byte == b'`')
             .count();
         if backticks >= 3 {
             length = length.max(backticks + 1);
@@ -20,7 +20,7 @@ pub(crate) fn unused_fence_length(message: &str) -> usize {
 }
 
 pub(crate) fn append_quote(prefix: &str, message: &str, max_length: usize) -> Option<String> {
-    let fence_length = unused_fence_length(message);
+    let fence_length = unused_fence_length(message.as_bytes());
     let remaining = max_length
         .checked_sub(prefix.chars().count())?
         .checked_sub(2 * fence_length + "quote\n\n".len())?;
@@ -36,8 +36,9 @@ mod tests {
     #[test]
     fn chooses_a_fence_longer_than_indented_backticks() {
         let message = "x ```\n   `````js\n    ````````\u{2028}````````";
-        assert_eq!(unused_fence_length(message), 6);
-        assert_eq!(unused_fence_length("~~~\n  ``"), 3);
+        assert_eq!(unused_fence_length(message.as_bytes()), 6);
+        assert_eq!(unused_fence_length(b"~~~\n  ``"), 3);
+        assert_eq!(unused_fence_length(b"\xed\xa0\x80\n   ````"), 5);
         assert_eq!(
             append_quote("in topic:\n", message, 100).as_deref(),
             Some("in topic:\n``````quote\nx ```\n   `````js\n    ````````\u{2028}````````\n``````"),
