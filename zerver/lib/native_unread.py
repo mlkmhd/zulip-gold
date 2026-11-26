@@ -1,10 +1,12 @@
-"""Opt-in formatting of unread state already selected by Django."""
+"""Native formatting of unread state already selected by Django."""
 
 from __future__ import annotations
 
 import os
 from importlib import import_module
 from typing import TYPE_CHECKING, cast
+
+from zerver.lib.native_backend import load_native_contract
 
 if TYPE_CHECKING:
     from zerver.lib.event_types import MessageDetails
@@ -22,10 +24,14 @@ except ModuleNotFoundError as error:
     _backend = None
 
 
+_aggregate_backend = load_native_contract("ZULIP_RUST_UNREAD_AGGREGATE", "UNREAD_AGGREGATE_API")
+
+
 def aggregate(
     raw: RawUnreadMessagesResult, allow_empty_topic: bool, fallback: str
 ) -> UnreadMessagesResult | None:
-    native = getattr(_backend, "aggregate_unread_payload", None)
+    backend = _aggregate_backend if _aggregate_backend is not None else _backend
+    native = getattr(backend, "aggregate_unread_payload", None)
     if native is None:
         return None
     return cast("UnreadMessagesResult | None", native(raw, allow_empty_topic, fallback))
