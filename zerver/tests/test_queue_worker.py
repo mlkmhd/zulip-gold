@@ -485,7 +485,7 @@ class WorkerTest(ZulipTestCase):
             has_timeout = advance()
             self.assertFalse(has_timeout)
         self.assertIn(
-            "ERROR:root:Failed to process 2 missedmessage_emails for user 10",
+            f"ERROR:root:Failed to process 2 missedmessage_emails for user {hamlet.id}",
             error_logs.output[0],
         )
 

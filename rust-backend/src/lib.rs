@@ -340,6 +340,9 @@ mod python_activity_date_display;
 mod python_activity_worker;
 
 #[cfg(feature = "python")]
+mod python_missed_email_batch;
+
+#[cfg(feature = "python")]
 mod python_mattermost_display_name;
 
 #[cfg(feature = "python")]

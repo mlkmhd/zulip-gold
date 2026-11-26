@@ -3,7 +3,7 @@ import logging
 import threading
 from collections import defaultdict
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 import sentry_sdk
 from django.conf import settings
@@ -14,12 +14,48 @@ from typing_extensions import override
 
 from zerver.lib.db_connections import reset_queries
 from zerver.lib.email_notifications import MissedMessageData, handle_missedmessage_emails
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.per_request_cache import flush_per_request_caches
 from zerver.models import ScheduledMessageNotificationEmail
 from zerver.models.users import get_user_profile_by_id
 from zerver.worker.base import QueueProcessingWorker, assign_queue
 
 logger = logging.getLogger(__name__)
+
+_missed_email_backend = load_native_contract(
+    "ZULIP_RUST_PREPARED_MISSED_EMAIL_BATCH", "PREPARED_MISSED_EMAIL_BATCH_API"
+)
+
+
+def _group_locked_notification_rows(
+    rows: list[ScheduledMessageNotificationEmail],
+) -> tuple[list[int], dict[int, dict[int, MissedMessageData]]]:
+    native = getattr(_missed_email_backend, "group_prepared_missed_email_rows", None)
+    if callable(native):
+        groups = cast(
+            "list[list[int]] | None",
+            native([(row.user_profile_id, row.message_id) for row in rows]),
+        )
+        if groups is not None:
+            return [row.id for row in rows], {
+                rows[group[0]].user_profile_id: {
+                    rows[index].message_id: MissedMessageData(
+                        trigger=rows[index].trigger,
+                        mentioned_user_group_id=rows[index].mentioned_user_group_id,
+                    )
+                    for index in group
+                }
+                for group in groups
+            }
+
+    events_by_recipient: dict[int, dict[int, MissedMessageData]] = defaultdict(dict)
+    seen_events = []
+    for row in rows:
+        seen_events.append(row.id)
+        events_by_recipient[row.user_profile_id][row.message_id] = MissedMessageData(
+            trigger=row.trigger, mentioned_user_group_id=row.mentioned_user_group_id
+        )
+    return seen_events, events_by_recipient
 
 
 @assign_queue("missedmessage_emails")
@@ -238,14 +274,9 @@ class MissedMessageWorker(QueueProcessingWorker):
                 skip_locked=True,
             )
 
-            # Batch the entries by user
-            events_by_recipient: dict[int, dict[int, MissedMessageData]] = defaultdict(dict)
-            seen_events = []
-            for event in events_to_process:
-                seen_events.append(event.id)
-                events_by_recipient[event.user_profile_id][event.message_id] = MissedMessageData(
-                    trigger=event.trigger, mentioned_user_group_id=event.mentioned_user_group_id
-                )
+            seen_events, events_by_recipient = _group_locked_notification_rows(
+                list(events_to_process)
+            )
 
             for user_profile_id, events in events_by_recipient.items():
                 logging.info(
