@@ -470,6 +470,42 @@ class EventsEndpointTest(ZulipTestCase):
             personal["available_notification_sounds"], defaults["available_notification_sounds"]
         )
 
+    def test_settings_snapshot_uses_the_selected_schema_only(self) -> None:
+        user = self.example_user("hamlet")
+        defaults = RealmUserDefault.objects.get(realm=user.realm)
+        backend = native_settings_payload._snapshot_backend
+
+        for source, schema in (
+            (user, UserProfile.property_types),
+            (defaults, RealmUserDefault.property_types),
+        ):
+            expected = {name: getattr(source, name) for name in schema}
+            with self.subTest(source=source):
+                if backend is not None:
+                    with mock.patch.object(
+                        backend,
+                        "snapshot_settings_properties",
+                        wraps=backend.snapshot_settings_properties,
+                    ) as native:
+                        actual = native_settings_payload.snapshot_properties(source, schema)
+                    native.assert_called_once_with(source, schema)
+                else:
+                    actual = native_settings_payload.snapshot_properties(source, schema)
+                self.assertEqual(list(actual.items()), list(expected.items()))
+                self.assertNotIn("api_key", actual)
+
+        if backend is not None:
+            with (
+                mock.patch.object(native_settings_payload, "_backend", None),
+                mock.patch.object(backend, "snapshot_settings_properties") as native,
+            ):
+                custom_schema = {"timezone": str}
+                self.assertEqual(
+                    native_settings_payload.snapshot_properties(user, custom_schema),
+                    {"timezone": user.timezone},
+                )
+                native.assert_not_called()
+
     def test_settings_catalogs_preserve_order_and_filename_edge_cases(self) -> None:
         ordinary = [
             "zulip.ogg",
