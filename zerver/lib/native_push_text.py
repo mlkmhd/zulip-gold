@@ -1,7 +1,7 @@
 """Formatting of plaintext already prepared by Django for mobile push."""
 
 from collections.abc import Callable
-from typing import cast
+from typing import Literal, cast
 
 import lxml.html
 
@@ -46,6 +46,18 @@ _MAX_PREVIEW_NODES = 512
 _base_payload_backend = load_native_contract(
     "ZULIP_RUST_MOBILE_BASE_PAYLOAD", "MOBILE_BASE_PAYLOAD_API"
 )
+
+
+_message_identity_backend = load_native_contract(
+    "ZULIP_RUST_MOBILE_MESSAGE_IDENTITY", "MOBILE_MESSAGE_IDENTITY_API"
+)
+
+
+def format_message_identity(
+    payload: dict[str, object], message_id: int, mode: Literal["apns", "legacy", "modern"]
+) -> bool:
+    native = getattr(_message_identity_backend, "format_mobile_message_identity", None)
+    return cast(bool, native(payload, message_id, mode)) if callable(native) else False
 
 
 MobileBaseFormatter = Callable[[tuple[str, int, str] | None, str, str, int], dict[str, object]]

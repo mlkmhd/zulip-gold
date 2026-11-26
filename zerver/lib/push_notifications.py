@@ -1263,9 +1263,9 @@ def get_message_payload_apns(
 ) -> dict[str, Any]:
     """A `message` payload for iOS, via APNs."""
     message_payload = dict(copy.deepcopy(message_payload))
-    message_payload.update(
-        message_ids=[message.id],
-    )
+    message_id = message.id
+    if not native_push_text.format_message_identity(message_payload, message_id, "apns"):
+        message_payload.update(message_ids=[message_id])
     mentioned_user_group_name = message_payload.get("mentioned_user_group_name")
     remove_obsolete_fields_apns(message_payload)
 
@@ -1314,12 +1314,15 @@ def get_message_payload_gcm(
         sender_name = message.sender.full_name
 
     message_payload = dict(copy.deepcopy(message_payload))
-    if for_legacy_clients:
-        message_payload["event"] = "message"
-        message_payload["zulip_message_id"] = message.id  # message_id is reserved for CCS
-    else:
-        message_payload["type"] = "message"
-        message_payload["message_id"] = message.id
+    mode: Literal["legacy", "modern"] = "legacy" if for_legacy_clients else "modern"
+    message_id = message.id
+    if not native_push_text.format_message_identity(message_payload, message_id, mode):
+        if mode == "legacy":
+            message_payload["event"] = "message"
+            message_payload["zulip_message_id"] = message_id  # message_id is reserved for CCS
+        else:
+            message_payload["type"] = "message"
+            message_payload["message_id"] = message_id
 
     assert message.rendered_content is not None
     with override_language(user_profile.default_language):

@@ -249,3 +249,27 @@ pub(crate) fn format_mobile_base_payload<'py>(
     output.set_item("user_id", user_id)?;
     Ok(output)
 }
+
+#[pyfunction]
+pub(crate) fn format_mobile_message_identity(
+    payload: &Bound<'_, PyAny>,
+    id: &Bound<'_, PyAny>,
+    mode: &str,
+) -> PyResult<bool> {
+    let (Ok(payload), Ok(id)) = (payload.cast_exact::<PyDict>(), id.cast_exact::<PyInt>()) else {
+        return Ok(false);
+    };
+    match mode {
+        "apns" => payload.set_item("message_ids", PyList::new(payload.py(), [id])?)?,
+        "legacy" => {
+            payload.set_item("event", "message")?;
+            payload.set_item("zulip_message_id", id)?;
+        }
+        "modern" => {
+            payload.set_item("type", "message")?;
+            payload.set_item("message_id", id)?;
+        }
+        _ => return Ok(false),
+    }
+    Ok(true)
+}
