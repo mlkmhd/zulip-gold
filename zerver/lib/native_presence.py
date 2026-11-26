@@ -10,6 +10,9 @@ from zerver.lib.native_backend import load_native_contract
 _modern_backend = load_native_contract(
     "ZULIP_RUST_MODERN_PRESENCE_TIMESTAMPS", "PRESENCE_MODERN_TIMESTAMPS_API"
 )
+_legacy_display_backend = load_native_contract(
+    "ZULIP_RUST_LEGACY_PRESENCE_DISPLAY", "PRESENCE_LEGACY_DISPLAY_API"
+)
 
 LegacySpec: TypeAlias = tuple[int, str, str]
 _DATE_POLICY = (datetime, timezone.utc)
@@ -35,6 +38,21 @@ def format_modern_timestamps(active: datetime, connected: datetime) -> dict[str,
     if native is not None:
         return cast(dict[str, object] | None, native(active, connected, _DATE_POLICY))
     return format_information(active, connected)
+
+
+def legacy_display_enabled() -> bool:
+    return _legacy_display_backend is not None or _backend is not None
+
+
+def format_legacy_display(
+    active: datetime, connected: datetime, spec: LegacySpec, *, aggregate: bool = False
+) -> dict[str, object] | None:
+    native = getattr(_legacy_display_backend, "format_presence_information", None)
+    if native is not None:
+        return cast(
+            dict[str, object] | None, native(active, connected, _DATE_POLICY, spec, aggregate)
+        )
+    return format_information(active, connected, spec, aggregate=aggregate)
 
 
 def format_rows(rows: object, spec: LegacySpec | None) -> dict[str, dict[str, object]] | None:

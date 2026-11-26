@@ -363,6 +363,7 @@ mod _zulip_backend {
         module.add("THUMBNAIL_DISPLAY_RANK_API", 1)?;
         module.add("REMINDER_QUOTE_TEXT_API", 1)?;
         module.add("PRESENCE_MODERN_TIMESTAMPS_API", 1)?;
+        module.add("PRESENCE_LEGACY_DISPLAY_API", 1)?;
         module.add("REMINDER_NOTE_TEXT_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
         module.add("MARKDOWN_HEADINGS_API", 1)?;

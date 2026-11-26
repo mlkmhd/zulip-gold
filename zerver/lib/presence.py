@@ -7,7 +7,8 @@ from typing import Any
 from django.conf import settings
 from django.utils.timezone import now as timezone_now
 
-from zerver.lib import native_presence, timestamp
+from zerver.lib import native_presence
+from zerver.lib import timestamp as timestamp_module
 from zerver.lib.timestamp import datetime_to_timestamp
 from zerver.lib.users import check_user_can_access_all_users, get_accessible_user_ids
 from zerver.models import Realm, UserPresence, UserProfile
@@ -100,7 +101,7 @@ def get_modern_user_presence_info(
 ) -> dict[str, Any]:
     if (
         datetime_to_timestamp is _REFERENCE_TIMESTAMP
-        and timestamp.verify_UTC is _REFERENCE_VERIFY_UTC
+        and timestamp_module.verify_UTC is _REFERENCE_VERIFY_UTC
     ):
         native = native_presence.format_modern_timestamps(last_active_time, last_connected_time)
         if native is not None:
@@ -122,14 +123,15 @@ def get_legacy_user_presence_info(
     """
 
     if (
-        native_presence.is_enabled()
+        native_presence.legacy_display_enabled()
         and datetime_to_timestamp is _REFERENCE_TIMESTAMP
+        and timestamp_module.verify_UTC is _REFERENCE_VERIFY_UTC
         and timedelta is _REFERENCE_TIMEDELTA
         and format_legacy_presence_dict is _REFERENCE_LEGACY_DETAILS
     ):
         spec = _legacy_spec()
         if spec is not None:
-            native = native_presence.format_information(
+            native = native_presence.format_legacy_display(
                 last_active_time, last_connected_time, spec, aggregate=True
             )
             if native is not None:
@@ -165,13 +167,16 @@ def format_legacy_presence_dict(
     and is not meant to be used on old presence data.
     """
     if (
-        native_presence.is_enabled()
+        native_presence.legacy_display_enabled()
         and datetime_to_timestamp is _REFERENCE_TIMESTAMP
+        and timestamp_module.verify_UTC is _REFERENCE_VERIFY_UTC
         and timedelta is _REFERENCE_TIMEDELTA
     ):
         spec = _legacy_spec()
         if spec is not None:
-            native = native_presence.format_information(last_active_time, last_connected_time, spec)
+            native = native_presence.format_legacy_display(
+                last_active_time, last_connected_time, spec
+            )
             if native is not None:
                 return native
 
@@ -203,7 +208,7 @@ def _legacy_spec() -> native_presence.LegacySpec | None:
 
 
 _REFERENCE_TIMESTAMP = datetime_to_timestamp
-_REFERENCE_VERIFY_UTC = timestamp.verify_UTC
+_REFERENCE_VERIFY_UTC = timestamp_module.verify_UTC
 _REFERENCE_TIMEDELTA = timedelta
 _REFERENCE_DATE_DEFAULT = user_presence_datetime_with_date_joined_default
 _REFERENCE_MODERN = get_modern_user_presence_info
