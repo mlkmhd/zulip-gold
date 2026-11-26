@@ -1,14 +1,23 @@
-"""Opt-in operations on events that Tornado has already selected."""
+"""Native operations on events that Tornado has already selected."""
 
 import os
 from collections import deque
 from importlib import import_module
 from typing import cast
 
-try:
-    _backend = (
-        import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_EVENT_QUEUE") == "1" else None
+from zerver.lib.native_backend import load_native_contract
+
+_legacy_requested = os.environ.get("ZULIP_RUST_EVENT_QUEUE") == "1"
+_classification_backend = (
+    None
+    if _legacy_requested or os.environ.get("ZULIP_RUST_PREPARED_EVENT_CLASSIFICATION") == "0"
+    else load_native_contract(
+        "ZULIP_RUST_PREPARED_EVENT_CLASSIFICATION", "PREPARED_EVENT_CLASSIFICATION_API"
     )
+)
+
+try:
+    _backend = import_module("_zulip_backend") if _legacy_requested else None
 except ModuleNotFoundError as error:
     if error.name != "_zulip_backend":
         raise
@@ -16,7 +25,8 @@ except ModuleNotFoundError as error:
 
 
 def classify(event: object) -> str | None:
-    native = getattr(_backend, "classify_queued_event", None)
+    backend = _backend if _legacy_requested else _classification_backend
+    native = getattr(backend, "classify_queued_event", None)
     if native is None:
         return None
     return cast("str | None", native(event))

@@ -14,6 +14,7 @@ from zerver.actions.streams import do_change_subscription_property
 from zerver.actions.user_groups import check_add_user_group
 from zerver.actions.user_settings import do_change_user_setting
 from zerver.actions.user_topics import do_set_user_topic_visibility_policy
+from zerver.lib import native_event_queue
 from zerver.lib.cache import cache_delete, get_muting_users_cache_key
 from zerver.lib.test_classes import ZulipTestCase
 from zerver.lib.test_helpers import HostRequestMock, dummy_handler, mock_queue_publish
@@ -29,6 +30,7 @@ from zerver.tornado.event_queue import (
     add_client_gc_hook,
     allocate_client_descriptor,
     clients,
+    compute_full_event_type,
     gc_event_queues,
     mark_clients_offline,
     maybe_enqueue_notifications,
@@ -1368,6 +1370,43 @@ class EventQueueTest(ZulipTestCase):
         self.verify_to_dict_end_to_end(client)
         self.assertEqual(queue.contents(), [out_dict])
         self.verify_to_dict_end_to_end(client)
+
+    def test_default_rust_classification_keeps_queue_contract(self) -> None:
+        backend = native_event_queue._classification_backend
+        if backend is None:
+            self.skipTest("No prepared event classification ABI")
+        self.assertIsNone(native_event_queue._backend)
+        kind = "unknown-" + chr(0xD800)
+        ordinary = {"type": kind}
+        flag = {
+            "type": "update_message_flags",
+            "all": False,
+            "flag": "read",
+            "operation": "add",
+            "messages": [1],
+        }
+        flags = [flag, dict(flag, all=True), dict(flag, all=1), dict(flag, flag=chr(0xD800))]
+        self.assertIsNone(backend.classify_queued_event(flags[2]))
+        self.assertIsNone(backend.classify_queued_event(flags[3]))
+        with mock.patch.object(native_event_queue, "_classification_backend", None):
+            expected = [compute_full_event_type(event) for event in flags]
+        with mock.patch.object(
+            backend, "classify_queued_event", wraps=backend.classify_queued_event
+        ) as witness:
+            self.assertIs(compute_full_event_type(ordinary), kind)
+            self.assertEqual([compute_full_event_type(event) for event in flags], expected)
+            with self.assertRaisesRegex(KeyError, "operation"):
+                compute_full_event_type(
+                    {"type": "update_message_flags", "all": True, "flag": "read"}
+                )
+            self.assertEqual(witness.call_count, 6)
+            queue = self.get_client_descriptor().event_queue
+            queue.push(dict(flag, messages=[1], timestamp=2))
+            queue.push(dict(flag, messages=[2], timestamp=4))
+            self.assertEqual(
+                queue.contents(),
+                [dict(flag, id=1, messages=[1, 2], timestamp=4)],
+            )
 
     def test_event_collapsing(self) -> None:
         client = self.get_client_descriptor()

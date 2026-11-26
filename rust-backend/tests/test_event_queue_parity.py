@@ -22,7 +22,13 @@ def load_bridge(*, enabled: bool) -> ModuleType:
     spec = util.spec_from_file_location("native_event_queue", path)
     assert spec is not None and spec.loader is not None
     module = util.module_from_spec(spec)
-    with patch.dict(os.environ, {"ZULIP_RUST_EVENT_QUEUE": str(int(enabled))}):
+    with patch.dict(
+        os.environ,
+        {
+            "ZULIP_RUST_EVENT_QUEUE": str(int(enabled)),
+            "ZULIP_RUST_PREPARED_EVENT_CLASSIFICATION": "0",
+        },
+    ):
         spec.loader.exec_module(module)
     return module
 
