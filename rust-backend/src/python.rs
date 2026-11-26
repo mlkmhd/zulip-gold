@@ -377,6 +377,7 @@ mod _zulip_backend {
         module.add("DRAFT_TOPIC_TEXT_API", 1)?;
         module.add("DRAFT_BODY_TEXT_API", 1)?;
         module.add("DRAFT_TIMESTAMP_API", 1)?;
+        module.add("CHANNEL_FOLDER_REPLAY_API", 1)?;
         module.add("DRAFT_REPLAY_API", 1)?;
         module.add("PERSONAL_LIST_REPLAY_API", 1)?;
         module.add("SCHEDULED_RECIPIENT_SHAPE_API", 1)?;
