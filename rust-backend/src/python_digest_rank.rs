@@ -168,3 +168,29 @@ pub(crate) fn build_prepared_digest_teaser<'py>(
     teaser_kwargs.set_item("first_few_messages", rendered)?;
     create_teaser.call((), Some(&teaser_kwargs))
 }
+
+#[pyfunction]
+pub(crate) fn collect_prepared_digest_recent_topics<'py>(
+    stream_ids: &Bound<'py, PyAny>,
+    muted_topics: &Bound<'py, PyAny>,
+    realm_id: &Bound<'py, PyAny>,
+    cutoff: &Bound<'py, PyAny>,
+    query_topics: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyList>> {
+    let recent = PyList::empty(stream_ids.py());
+    for stream_id in stream_ids.try_iter()? {
+        let topics = query_topics.call1((realm_id, stream_id?, cutoff))?;
+        for topic in topics.try_iter()? {
+            let topic = topic?;
+            let key_stream = topic.call_method0("stream_id")?;
+            // Preserve the Python Unicode version and exact lower() behavior used
+            // when the existing preferences become (stream_id, topic) keys.
+            let key_name = topic.call_method0("topic_name")?.call_method0("lower")?;
+            let key = PyTuple::new(stream_ids.py(), [key_stream, key_name])?;
+            if !muted_topics.contains(key)? {
+                recent.append(topic)?;
+            }
+        }
+    }
+    Ok(recent)
+}

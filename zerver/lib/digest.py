@@ -62,6 +62,10 @@ _rust_topic_teaser = load_native_contract(
     "ZULIP_RUST_DIGEST_TOPIC_TEASER", "DIGEST_TOPIC_TEASER_API"
 )
 
+_rust_recent_topic_selection = load_native_contract(
+    "ZULIP_RUST_DIGEST_RECENT_SELECTION", "DIGEST_RECENT_SELECTION_API"
+)
+
 TopicKey: TypeAlias = tuple[int, str]
 
 
@@ -468,6 +472,27 @@ def get_slim_stream_id_map(stream_ids: set[int]) -> dict[int, Stream]:
     return {stream.id: stream for stream in streams}
 
 
+def _collect_recent_digest_topics(
+    realm_id: int, stream_ids: set[int], muted_topics: set[TopicKey], cutoff_date: datetime
+) -> list[DigestTopic]:
+    native = getattr(_rust_recent_topic_selection, "collect_prepared_digest_recent_topics", None)
+    if callable(native):
+        return cast(
+            "list[DigestTopic]",
+            native(stream_ids, muted_topics, realm_id, cutoff_date, get_recent_topics),
+        )
+
+    recent_topics = []
+    for stream_id in stream_ids:
+        recent_topics += [
+            digest_topic
+            for digest_topic in get_recent_topics(realm_id, stream_id, cutoff_date)
+            # Topics the user has muted should not be featured in their digest.
+            if (digest_topic.stream_id(), digest_topic.topic_name().lower()) not in muted_topics
+        ]
+    return recent_topics
+
+
 def bulk_get_digest_context(
     users: Collection[UserProfile] | QuerySet[UserProfile], cutoff: float
 ) -> Iterator[tuple[UserProfile, dict[str, Any]]]:
@@ -530,16 +555,9 @@ def bulk_get_digest_context(
             # Otherwise, get context data for hot conversations.
             stream_ids = user_stream_map[user.id]
             muted_topics = user_muted_topics_map[user.id]
-            recent_topics = []
-            for stream_id in stream_ids:
-                recent_topics += [
-                    digest_topic
-                    for digest_topic in get_recent_topics(realm.id, stream_id, cutoff_date)
-                    # Topics the user has muted should not be featured
-                    # in their digest.
-                    if (digest_topic.stream_id(), digest_topic.topic_name().lower())
-                    not in muted_topics
-                ]
+            recent_topics = _collect_recent_digest_topics(
+                realm.id, stream_ids, muted_topics, cutoff_date
+            )
             hot_topics = get_hot_topics(recent_topics, stream_ids)
 
             context["hot_conversations"] = [
