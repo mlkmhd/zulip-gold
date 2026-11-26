@@ -368,6 +368,7 @@ mod _zulip_backend {
         module.add("PREPARED_PRESENCE_ROWS_API", 1)?;
         module.add("REMINDER_NOTE_TEXT_API", 1)?;
         module.add("REMINDER_WIDGET_LABEL_API", 1)?;
+        module.add("REMINDER_TOPIC_CAPTION_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
         module.add("MARKDOWN_HEADINGS_API", 1)?;
         module.add("MARKDOWN_HORIZONTAL_RULES_API", 1)?;
@@ -2200,6 +2201,23 @@ mod _zulip_backend {
             topic.to_str().ok()?,
             url,
         ))
+    }
+
+    #[pyfunction]
+    fn render_exact_reminder_topic_caption<'py>(
+        channel: &Bound<'py, PyAny>,
+        topic: &Bound<'py, PyAny>,
+        url: &Bound<'py, PyAny>,
+    ) -> Option<Bound<'py, PyString>> {
+        let channel = channel.cast_exact::<PyString>().ok()?;
+        let topic = topic.cast_exact::<PyString>().ok()?;
+        let url = url.cast_exact::<PyString>().ok()?;
+        let link = reminder_context::channel_topic_link_bytes(
+            &python_string_bytes(channel)?,
+            &python_string_bytes(topic)?,
+            &python_string_bytes(url)?,
+        );
+        python_string_from_bytes(channel.py(), &link)
     }
 
     #[pyfunction]

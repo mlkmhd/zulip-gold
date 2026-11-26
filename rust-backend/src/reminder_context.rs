@@ -43,35 +43,44 @@ pub(crate) fn widget_label(content: &str) -> Option<&'static str> {
     }
 }
 
-fn append_topic_link_label(output: &mut String, label: &str) {
-    let mut characters = label.chars().peekable();
-    while let Some(character) = characters.next() {
-        let escaped = match character {
-            '`' => "&#96;",
-            '>' => "&gt;",
-            '*' => "&#42;",
-            '&' => "&amp;",
-            '[' => "&#91;",
-            ']' => "&#93;",
-            '$' if characters.next_if_eq(&'$').is_some() => "&#36;&#36;",
+fn append_topic_link_label(output: &mut Vec<u8>, label: &[u8]) {
+    let mut bytes = label.iter().copied().peekable();
+    while let Some(byte) = bytes.next() {
+        let escaped: &[u8] = match byte {
+            b'`' => b"&#96;",
+            b'>' => b"&gt;",
+            b'*' => b"&#42;",
+            b'&' => b"&amp;",
+            b'[' => b"&#91;",
+            b']' => b"&#93;",
+            b'$' if bytes.next_if_eq(&b'$').is_some() => b"&#36;&#36;",
             _ => {
-                output.push(character);
+                output.push(byte);
                 continue;
             }
         };
-        output.push_str(escaped);
+        output.extend_from_slice(escaped);
     }
 }
 
-pub(crate) fn channel_topic_link(channel: &str, topic: &str, url: &str) -> String {
-    let mut link = String::from("[#");
+pub(crate) fn channel_topic_link_bytes(channel: &[u8], topic: &[u8], url: &[u8]) -> Vec<u8> {
+    let mut link = b"[#".to_vec();
     append_topic_link_label(&mut link, channel);
-    link.push_str(" > ");
+    link.extend_from_slice(b" > ");
     append_topic_link_label(&mut link, topic);
-    link.push_str("](");
-    link.push_str(url);
-    link.push(')');
+    link.extend_from_slice(b"](");
+    link.extend_from_slice(url);
+    link.push(b')');
     link
+}
+
+pub(crate) fn channel_topic_link(channel: &str, topic: &str, url: &str) -> String {
+    String::from_utf8(channel_topic_link_bytes(
+        channel.as_bytes(),
+        topic.as_bytes(),
+        url.as_bytes(),
+    ))
+    .expect("replacing ASCII characters preserves valid UTF-8")
 }
 
 pub(crate) fn direct_recipient_mentions<'a>(

@@ -8,6 +8,7 @@ from django.conf import settings
 from django.utils.translation import gettext as _
 from django_stubs_ext import StrPromise
 
+from zerver.lib import topic_link_util
 from zerver.lib.compose_reply import (
     CHANNEL_MESSAGE_QUOTE_CONTEXT,
     DIRECT_MESSAGE_QUOTE_CONTEXT,
@@ -30,6 +31,15 @@ from zerver.lib.url_encoding import message_link_url, stream_message_url
 from zerver.models import Message, Stream, UserProfile
 from zerver.models.scheduled_jobs import ScheduledMessage
 from zerver.tornado.django_api import send_event_on_commit
+
+_rust_reminder_topic_caption = load_native_contract(
+    "ZULIP_RUST_REMINDER_TOPIC_CAPTION", "REMINDER_TOPIC_CAPTION_API"
+)
+_reference_topic_escape = escape_invalid_stream_topic_characters
+_reference_topic_regex = topic_link_util.invalid_stream_topic_regex
+_reference_topic_mapping = topic_link_util.escape_mapping.copy()
+_reference_topic_re_sub = topic_link_util.re.sub
+_reference_topic_caption_template = TOPIC_LINK_SYNTAX_FOR_DISPLAY
 
 _rust_reminder_widget_label = load_native_contract(
     "ZULIP_RUST_REMINDER_WIDGET_LABEL", "REMINDER_WIDGET_LABEL_API"
@@ -113,6 +123,35 @@ def _reminder_widget_label(body: str) -> str | None:
     return None
 
 
+def _reminder_topic_link(channel: str, topic: str, url: str) -> str:
+    render = getattr(_rust_reminder_topic_caption, "render_exact_reminder_topic_caption", None)
+    mapping = topic_link_util.escape_mapping
+    if (
+        render is not None
+        and escape_invalid_stream_topic_characters is _reference_topic_escape
+        and TOPIC_LINK_SYNTAX_FOR_DISPLAY is _reference_topic_caption_template
+        and topic_link_util.invalid_stream_topic_regex is _reference_topic_regex
+        and topic_link_util.re.sub is _reference_topic_re_sub
+        and type(mapping) is dict
+        and len(mapping) == len(_reference_topic_mapping)
+        and all(type(k) is str and type(v) is str for k, v in mapping.items())
+        and mapping == _reference_topic_mapping
+    ):
+        result = render(channel, topic, url)
+        if result is not None:
+            return cast(str, result)
+    if _rust_reminder_context is not None:
+        old = _rust_reminder_context.reminder_channel_topic_link(channel, topic, url)
+        if old is not None:
+            return cast(str, old)
+    escape = escape_invalid_stream_topic_characters
+    label = TOPIC_LINK_SYNTAX_FOR_DISPLAY.format(
+        channel_name=escape(channel),
+        topic_name=escape(topic),
+    )
+    return f"[{label}]({url})"
+
+
 def get_reminder_formatted_content(
     message: Message, current_user: UserProfile, note: str | None = None
 ) -> str:
@@ -140,18 +179,7 @@ def get_reminder_formatted_content(
             },
             conversation_link=True,
         )
-        topic_pretty_link: str | None = None
-        if _rust_reminder_context is not None:
-            topic_pretty_link = _rust_reminder_context.reminder_channel_topic_link(
-                stream.name, message.topic_name(), url
-            )
-        if topic_pretty_link is None:
-            escape = escape_invalid_stream_topic_characters
-            label = TOPIC_LINK_SYNTAX_FOR_DISPLAY.format(
-                channel_name=escape(stream.name),
-                topic_name=escape(message.topic_name()),
-            )
-            topic_pretty_link = f"[{label}]({url})"
+        topic_pretty_link = _reminder_topic_link(stream.name, message.topic_name(), url)
         if note:
             content = _(
                 "You requested a reminder for the following message. Note:\n > {note}"
