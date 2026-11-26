@@ -7,7 +7,7 @@ from typing import Any
 from django.conf import settings
 from django.utils.timezone import now as timezone_now
 
-from zerver.lib import native_presence
+from zerver.lib import native_presence, timestamp
 from zerver.lib.timestamp import datetime_to_timestamp
 from zerver.lib.users import check_user_can_access_all_users, get_accessible_user_ids
 from zerver.models import Realm, UserPresence, UserProfile
@@ -98,8 +98,11 @@ def user_presence_datetime_with_date_joined_default(
 def get_modern_user_presence_info(
     last_active_time: datetime, last_connected_time: datetime
 ) -> dict[str, Any]:
-    if native_presence.is_enabled() and datetime_to_timestamp is _REFERENCE_TIMESTAMP:
-        native = native_presence.format_information(last_active_time, last_connected_time)
+    if (
+        datetime_to_timestamp is _REFERENCE_TIMESTAMP
+        and timestamp.verify_UTC is _REFERENCE_VERIFY_UTC
+    ):
+        native = native_presence.format_modern_timestamps(last_active_time, last_connected_time)
         if native is not None:
             return native
     # TODO: Do further bandwidth optimizations to this structure.
@@ -200,6 +203,7 @@ def _legacy_spec() -> native_presence.LegacySpec | None:
 
 
 _REFERENCE_TIMESTAMP = datetime_to_timestamp
+_REFERENCE_VERIFY_UTC = timestamp.verify_UTC
 _REFERENCE_TIMEDELTA = timedelta
 _REFERENCE_DATE_DEFAULT = user_presence_datetime_with_date_joined_default
 _REFERENCE_MODERN = get_modern_user_presence_info

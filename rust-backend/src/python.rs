@@ -362,6 +362,7 @@ mod _zulip_backend {
         module.add("COMPOSE_QUOTE_BUDGET_API", 1)?;
         module.add("THUMBNAIL_DISPLAY_RANK_API", 1)?;
         module.add("REMINDER_QUOTE_TEXT_API", 1)?;
+        module.add("PRESENCE_MODERN_TIMESTAMPS_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
         module.add("MARKDOWN_HEADINGS_API", 1)?;
         module.add("MARKDOWN_HORIZONTAL_RULES_API", 1)?;
@@ -389,7 +390,8 @@ mod _zulip_backend {
 
     #[pymodule_export]
     use crate::python_presence::{
-        finish_single_user_presence, format_presence_information, format_presence_rows,
+        finish_single_user_presence, format_modern_presence_timestamps,
+        format_presence_information, format_presence_rows,
     };
 
     #[pymodule_export]

@@ -5,6 +5,12 @@ from datetime import datetime, timezone
 from importlib import import_module
 from typing import TypeAlias, cast
 
+from zerver.lib.native_backend import load_native_contract
+
+_modern_backend = load_native_contract(
+    "ZULIP_RUST_MODERN_PRESENCE_TIMESTAMPS", "PRESENCE_MODERN_TIMESTAMPS_API"
+)
+
 LegacySpec: TypeAlias = tuple[int, str, str]
 _DATE_POLICY = (datetime, timezone.utc)
 
@@ -22,6 +28,13 @@ except ModuleNotFoundError as error:
 
 def is_enabled() -> bool:
     return _backend is not None
+
+
+def format_modern_timestamps(active: datetime, connected: datetime) -> dict[str, object] | None:
+    native = getattr(_modern_backend, "format_modern_presence_timestamps", None)
+    if native is not None:
+        return cast(dict[str, object] | None, native(active, connected, _DATE_POLICY))
+    return format_information(active, connected)
 
 
 def format_rows(rows: object, spec: LegacySpec | None) -> dict[str, dict[str, object]] | None:

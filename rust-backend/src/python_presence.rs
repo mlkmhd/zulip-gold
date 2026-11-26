@@ -96,6 +96,21 @@ fn legacy<'py>(
 }
 
 #[pyfunction]
+pub(crate) fn format_modern_presence_timestamps<'py>(
+    active: &Bound<'py, PyAny>,
+    connected: &Bound<'py, PyAny>,
+    policy: DatePolicy<'py>,
+) -> PyResult<Option<Bound<'py, PyDict>>> {
+    let (Some(active_time), Some(connected_time)) = (
+        utc_instant(active, &policy),
+        utc_instant(connected, &policy),
+    ) else {
+        return Ok(None);
+    };
+    modern(active.py(), active_time, connected_time).map(Some)
+}
+
+#[pyfunction]
 #[pyo3(signature = (active, connected, policy, spec, aggregate))]
 pub(crate) fn format_presence_information<'py>(
     py: Python<'py>,
