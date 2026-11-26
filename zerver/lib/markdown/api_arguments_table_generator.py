@@ -41,6 +41,7 @@ except ImportError:
     _rust_api_type_tree = None
 
 _rust_render_api_doc_type_tree = getattr(_rust_api_type_tree, "render_api_doc_type_tree", None)
+_rust_render_prepared_api_oneof = getattr(_rust_api_type_tree, "render_prepared_api_oneof", None)
 
 try:
     _rust_api_enum_display = load_native_contract(
@@ -166,6 +167,15 @@ class APIArgumentsTablePreprocessor(Preprocessor):
 
     def render_oneof_block(self, object_schema: dict[str, Any], name: str) -> str:
         md_engine = markdown.Markdown(extensions=[])
+        if _rust_render_prepared_api_oneof is not None:
+            return _rust_render_prepared_api_oneof(
+                object_schema,
+                name,
+                self,
+                md_engine,
+                ONEOF_LIST_ITEM_TEMPLATE,
+                ONEOF_DETAILS_TEMPLATE,
+            )
         content = ""
         for element in object_schema["oneOf"]:
             if "items" in element and "properties" in element["items"]:

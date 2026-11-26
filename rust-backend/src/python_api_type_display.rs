@@ -121,3 +121,52 @@ pub(crate) fn render_api_doc_type_tree<'py>(
     let mut budget = MAX_TREE_NODES;
     render_type(schema, 0, &mut budget)
 }
+
+#[pyfunction]
+pub(crate) fn render_prepared_api_oneof<'py>(
+    schema: &Bound<'py, PyAny>,
+    name: &Bound<'py, PyAny>,
+    renderer: &Bound<'py, PyAny>,
+    markdown: &Bound<'py, PyAny>,
+    item_template: &Bound<'py, PyAny>,
+    outer_template: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let py = schema.py();
+    let mut html = PyString::new(py, "").into_any();
+    let concat = py.import("operator")?.getattr("iadd")?;
+    for variant in schema.get_item("oneOf")?.try_iter()? {
+        let variant = variant?;
+        let (format, item) = if variant.contains("items")?
+            && variant.get_item("items")?.contains("properties")?
+        {
+            let format = item_template.getattr("format")?;
+            let item = renderer.getattr("render_object_details")?.call1((
+                variant.get_item("items")?,
+                name.str()?,
+                true,
+            ))?;
+            (format, item)
+        } else if variant.contains("properties")? {
+            let format = item_template.getattr("format")?;
+            let item =
+                renderer
+                    .getattr("render_object_details")?
+                    .call1((&variant, name.str()?, true))?;
+            (format, item)
+        } else if variant.contains("description")? {
+            let format = item_template.getattr("format")?;
+            let item = markdown
+                .getattr("convert")?
+                .call1((variant.get_item("description")?,))?;
+            (format, item)
+        } else {
+            continue;
+        };
+        let kwargs = PyDict::new(py);
+        kwargs.set_item("item", item)?;
+        html = concat.call1((html, format.call((), Some(&kwargs))?))?;
+    }
+    let kwargs = PyDict::new(py);
+    kwargs.set_item("values", html)?;
+    outer_template.call_method("format", (), Some(&kwargs))
+}
