@@ -705,7 +705,8 @@ mod _zulip_backend {
 
     #[pymodule_export]
     use crate::python_analytics_time_buckets::{
-        make_prepared_utc_floor, plan_analytics_time_buckets, walk_prepared_analytics_time_grid,
+        make_prepared_utc_ceiling, make_prepared_utc_floor, plan_analytics_time_buckets,
+        walk_prepared_analytics_time_grid,
     };
 
     #[pymodule_export]

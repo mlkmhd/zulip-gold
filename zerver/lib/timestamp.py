@@ -21,6 +21,7 @@ try:
 except ImportError:
     _rust_utc_floor = None
 _make_prepared_utc_floor = getattr(_rust_utc_floor, "make_prepared_utc_floor", None)
+_make_prepared_utc_ceiling = getattr(_rust_utc_floor, "make_prepared_utc_ceiling", None)
 
 
 class TimeZoneNotUTCError(Exception):
@@ -57,6 +58,8 @@ def floor_to_day(dt: datetime) -> datetime:
 
 
 def ceiling_to_hour(dt: datetime) -> datetime:
+    if _make_prepared_utc_ceiling is not None:
+        return _make_prepared_utc_ceiling(dt, floor_to_hour, timedelta, False)
     floor = floor_to_hour(dt)
     if floor == dt:
         return floor
@@ -64,6 +67,8 @@ def ceiling_to_hour(dt: datetime) -> datetime:
 
 
 def ceiling_to_day(dt: datetime) -> datetime:
+    if _make_prepared_utc_ceiling is not None:
+        return _make_prepared_utc_ceiling(dt, floor_to_day, timedelta, True)
     floor = floor_to_day(dt)
     if floor == dt:
         return floor

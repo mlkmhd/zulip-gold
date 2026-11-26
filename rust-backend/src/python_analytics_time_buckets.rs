@@ -89,3 +89,19 @@ pub(crate) fn make_prepared_utc_floor<'py>(
     kwargs.set_item("tzinfo", utc)?;
     constructor.call(fields, Some(&kwargs))
 }
+
+#[pyfunction]
+pub(crate) fn make_prepared_utc_ceiling<'py>(
+    dt: &Bound<'py, PyAny>,
+    floor: &Bound<'py, PyAny>,
+    delta: &Bound<'py, PyAny>,
+    day: bool,
+) -> PyResult<Bound<'py, PyAny>> {
+    let base = floor.call1((dt,))?;
+    if base.eq(dt)? {
+        return Ok(base);
+    }
+    let kwargs = PyDict::new(dt.py());
+    kwargs.set_item(if day { "days" } else { "hours" }, 1)?;
+    base.add(delta.call((), Some(&kwargs))?)
+}
