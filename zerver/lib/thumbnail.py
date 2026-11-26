@@ -539,11 +539,14 @@ class AttachmentData:
 def select_transcoded_formats(
     image_attachments: Iterable[ImageAttachment],
 ) -> dict[str, StoredThumbnailFormat] | None:
-    candidates = [
-        (image_attachment.path_id, image_attachment.thumbnail_metadata)
-        for image_attachment in image_attachments
-        if image_attachment.thumbnail_metadata != [] and needs_transcoded_format(image_attachment)
-    ]
+    candidates = []
+    for image_attachment in image_attachments:
+        if not _ordinary_thumbnail_plan_inputs(image_attachment) or "path_id" not in vars(
+            image_attachment
+        ):
+            return None
+        if image_attachment.thumbnail_metadata != [] and needs_transcoded_format(image_attachment):
+            candidates.append((image_attachment.path_id, image_attachment.thumbnail_metadata))
     if not candidates:
         return {}
     indexes = native_thumbnail_status.transcode_indexes([metadata for _, metadata in candidates])
@@ -581,6 +584,8 @@ def manifest_and_get_user_upload_previews(
         select_transcoded_formats(image_attachments)
         if len(path_ids) >= MIN_TRANSCODE_BATCH_SIZE
         and native_thumbnail_status.selection_available()
+        and get_default_thumbnail_url is _reference_default_thumbnail_url
+        and get_transcoded_format is _reference_transcoded_format
         and len(image_attachments) >= MIN_TRANSCODE_BATCH_SIZE
         else None
     )
@@ -677,6 +682,10 @@ def get_transcoded_format(
         key=lambda t: t.width * t.height,
     )
     return thumbs_by_size.pop() if thumbs_by_size else None
+
+
+_reference_default_thumbnail_url = get_default_thumbnail_url
+_reference_transcoded_format = get_transcoded_format
 
 
 # Like HTMLFormatter.REGISTRY["html5"], this formatter avoids producing

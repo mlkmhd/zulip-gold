@@ -893,7 +893,10 @@ class TestStoreThumbnail(ZulipTestCase):
         paths = [pending.path_id, tie.path_id, inline.path_id, largest_first.path_id]
 
         def manifest() -> AttachmentData:
-            with patch("zerver.lib.thumbnail.queue_event_on_commit") as queued:
+            with (
+                patch("zerver.lib.thumbnail.queue_event_on_commit") as queued,
+                self.assert_database_query_count(1),
+            ):
                 data = manifest_and_get_user_upload_previews(realm.id, "", path_ids=paths)
             queued.assert_called_once_with(
                 "thumbnail", {"id": pending.id, "path_id": pending.path_id}
@@ -910,6 +913,16 @@ class TestStoreThumbnail(ZulipTestCase):
         self.assertEqual(
             asdict(expected.image_metadata[largest_first.path_id])["transcoded_image"], first
         )
+        with patch.object(
+            native_thumbnail_status,
+            "transcode_indexes",
+            wraps=native_thumbnail_status.transcode_indexes,
+        ) as pick:
+            self.assertEqual(asdict(manifest()), asdict(expected))
+        if native_thumbnail_status.selection_available():
+            pick.assert_called_once()
+        else:
+            pick.assert_not_called()
         self.assertIsNone(expected.image_metadata[inline.path_id].transcoded_image)
         self.assertIsNone(expected.image_metadata[pending.path_id].url)
         with patch.object(native_thumbnail_status, "_selection_backend", SimpleNamespace()):

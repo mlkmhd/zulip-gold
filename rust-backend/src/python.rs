@@ -364,6 +364,7 @@ mod _zulip_backend {
         module.add("THUMBNAIL_STORED_VARIANT_API", 1)?;
         module.add("THUMBNAIL_READINESS_API", 1)?;
         module.add("THUMBNAIL_MISSING_PLAN_API", 1)?;
+        module.add("PREPARED_TRANSCODE_SELECTION_API", 1)?;
         module.add("REMINDER_QUOTE_TEXT_API", 1)?;
         module.add("PRESENCE_MODERN_TIMESTAMPS_API", 1)?;
         module.add("PRESENCE_LEGACY_DISPLAY_API", 1)?;
