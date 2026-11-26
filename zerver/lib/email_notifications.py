@@ -907,17 +907,29 @@ def get_onboarding_email_schedule(
     return onboarding_emails
 
 
+_rust_org_guide = load_native_contract("ZULIP_RUST_ORG_GUIDE", "ORG_GUIDE_API")
+
+
 def get_org_type_zulip_guide(realm: Realm) -> tuple[Any, str]:
-    for realm_type, realm_type_details in Realm.ORG_TYPES.items():
-        if realm_type_details["id"] == realm.org_type:
-            organization_type_in_template = realm_type
+    native = getattr(_rust_org_guide, "select_prepared_organization_guide", None)
+    if callable(native):
+        result = native(realm, Realm.ORG_TYPES)
+        if result is not None:
+            return result
+    else:
+        for realm_type, realm_type_details in Realm.ORG_TYPES.items():
+            if realm_type_details["id"] == realm.org_type:
+                organization_type_in_template = realm_type
 
-            # There are two education organization types that receive the same email
-            # content, so we simplify to one shared template context value here.
-            if organization_type_in_template == "education_nonprofit":
-                organization_type_in_template = "education"
+                # There are two education organization types that receive the same email
+                # content, so we simplify to one shared template context value here.
+                if organization_type_in_template == "education_nonprofit":
+                    organization_type_in_template = "education"
 
-            return (realm_type_details["onboarding_zulip_guide_url"], organization_type_in_template)
+                return (
+                    realm_type_details["onboarding_zulip_guide_url"],
+                    organization_type_in_template,
+                )
 
     # Log problem, and return values that will not send onboarding_zulip_guide email.
     logging.error("Unknown organization type '%s'", realm.org_type)

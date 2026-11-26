@@ -1,7 +1,7 @@
 //! Format prepared onboarding text and calculate welcome email offsets.
 
 use pyo3::prelude::*;
-use pyo3::types::PyString;
+use pyo3::types::{PyString, PyTuple};
 
 use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes};
 
@@ -110,4 +110,25 @@ pub(crate) fn classify_prepared_welcome_bot_reply(
         "help" | "?" => "help",
         _ => "unknown",
     })
+}
+
+#[pyfunction]
+pub(crate) fn select_prepared_organization_guide<'py>(
+    realm: &Bound<'py, PyAny>,
+    catalog: &Bound<'py, PyAny>,
+) -> PyResult<Option<Bound<'py, PyTuple>>> {
+    for entry in catalog.call_method0("items")?.try_iter()? {
+        let entry = entry?;
+        let (kind, details): (Bound<'_, PyAny>, Bound<'_, PyAny>) = entry.extract()?;
+        if details.get_item("id")?.eq(realm.getattr("org_type")?)? {
+            let label = if kind.eq("education_nonprofit")? {
+                PyString::new(realm.py(), "education").into_any()
+            } else {
+                kind
+            };
+            let url = details.get_item("onboarding_zulip_guide_url")?;
+            return PyTuple::new(realm.py(), [url, label]).map(Some);
+        }
+    }
+    Ok(None)
 }
