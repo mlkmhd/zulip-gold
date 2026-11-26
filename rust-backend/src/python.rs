@@ -402,6 +402,7 @@ mod _zulip_backend {
         module.add("UNREAD_REPLAY_API", 1)?;
         module.add("PRIVATE_UNREAD_ARRIVAL_API", 1)?;
         module.add("CLIENT_READ_DEFAULTS_API", 1)?;
+        module.add("EXACT_CHANNEL_TOPIC_API", 1)?;
         module.add("EXACT_MESSAGE_BODY_API", 1)?;
         module.add("PREPARED_RECENT_DM_ROWS_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
@@ -2205,6 +2206,23 @@ mod _zulip_backend {
         empty_topic: bool,
     ) -> Option<i16> {
         message_topic::channel_topic_policy_violation(channel_policy, realm_policy, empty_topic)
+    }
+
+    #[pyfunction]
+    fn normalize_exact_channel_message_topic<'py>(
+        topic: &Bound<'py, PyAny>,
+        fallback: &Bound<'py, PyAny>,
+    ) -> Option<(Option<Bound<'py, PyString>>, Option<usize>)> {
+        let topic = topic.cast_exact::<PyString>().ok()?;
+        let original = topic.to_str().ok()?;
+        let fallback = fallback.cast_exact::<PyString>().ok()?.to_str().ok()?;
+        Some(
+            match message_topic::normalize_channel_topic(original, fallback) {
+                Ok(result) if result == original => (Some(topic.clone()), None),
+                Ok(result) => (Some(PyString::new(topic.py(), result)), None),
+                Err(position) => (None, Some(position)),
+            },
+        )
     }
 
     #[pyfunction]

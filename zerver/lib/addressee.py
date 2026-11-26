@@ -6,6 +6,7 @@ from typing import cast
 from django.utils.translation import gettext as _
 
 from zerver.lib.exceptions import JsonableError
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.string_validation import check_stream_topic
 from zerver.lib.topic import (
     maybe_rename_general_chat_to_empty_topic,
@@ -24,7 +25,18 @@ _rust_channel_message_topic = (
 )
 
 
+_rust_exact_channel_topic = load_native_contract(
+    "ZULIP_RUST_EXACT_CHANNEL_TOPIC", "EXACT_CHANNEL_TOPIC_API"
+)
+_reference_topic_callbacks = (
+    maybe_rename_general_chat_to_empty_topic,
+    maybe_rename_no_topic_to_empty_topic,
+    check_stream_topic,
+)
+
+
 def _normalize_channel_message_topic(topic_name: str) -> str:
+    result: tuple[str | None, int | None] | None = None
     if _rust_channel_message_topic is not None:
         result = cast(
             tuple[str | None, int | None] | None,
@@ -32,16 +44,28 @@ def _normalize_channel_message_topic(topic_name: str) -> str:
                 topic_name, Message.EMPTY_TOPIC_FALLBACK_NAME
             ),
         )
-        if result is not None:
-            topic, invalid_character_pos = result
-            if invalid_character_pos is not None:
-                raise JsonableError(
-                    _("Invalid character in topic, at position {position}!").format(
-                        position=invalid_character_pos
-                    )
+    elif (
+        _rust_exact_channel_topic is not None
+        and type(topic_name) is str
+        and maybe_rename_general_chat_to_empty_topic is _reference_topic_callbacks[0]
+        and maybe_rename_no_topic_to_empty_topic is _reference_topic_callbacks[1]
+        and check_stream_topic is _reference_topic_callbacks[2]
+    ):
+        normalize = getattr(
+            _rust_exact_channel_topic, "normalize_exact_channel_message_topic", None
+        )
+        if normalize is not None:
+            result = normalize(topic_name, Message.EMPTY_TOPIC_FALLBACK_NAME)
+    if result is not None:
+        topic, invalid_character_pos = result
+        if invalid_character_pos is not None:
+            raise JsonableError(
+                _("Invalid character in topic, at position {position}!").format(
+                    position=invalid_character_pos
                 )
-            assert topic is not None
-            return topic
+            )
+        assert topic is not None
+        return topic
 
     topic_name = topic_name.strip()
     topic_name = maybe_rename_general_chat_to_empty_topic(topic_name)
