@@ -410,6 +410,7 @@ mod _zulip_backend {
         module.add("PREPARED_SEND_RECEIPT_MASKS_API", 1)?;
         module.add("PREPARED_ALERT_WORD_ADDITIONS_API", 1)?;
         module.add("PREPARED_CHANNEL_LINK_FIELDS_API", 1)?;
+        module.add("PREPARED_BOT_STORAGE_DELTA_API", 1)?;
         module.add("EXACT_MESSAGE_BODY_API", 1)?;
         module.add("PREPARED_RECENT_DM_ROWS_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
@@ -1911,6 +1912,41 @@ mod _zulip_backend {
             ),
         )?;
         cursor.call_method0("fetchone")?.extract()
+    }
+
+    #[pyfunction]
+    fn prepared_bot_storage_delta(entries: &Bound<'_, PyAny>) -> PyResult<Option<i128>> {
+        let Ok(entries) = entries.cast_exact::<PyList>() else {
+            return Ok(None);
+        };
+        let mut delta = 0i128;
+        for entry in entries.iter() {
+            let Ok(entry) = entry.cast_exact::<PyTuple>() else {
+                return Ok(None);
+            };
+            if entry.len() != 3 {
+                return Ok(None);
+            }
+            let (key, value, previous) =
+                (entry.get_item(0)?, entry.get_item(1)?, entry.get_item(2)?);
+            let (Ok(key), Ok(value), Ok(previous)) = (
+                key.cast_exact::<PyString>(),
+                value.cast_exact::<PyString>(),
+                previous.cast_exact::<PyInt>(),
+            ) else {
+                return Ok(None);
+            };
+            let Ok(previous) = previous.extract::<u64>() else {
+                return Ok(None);
+            };
+            // Count Python code points directly, including any lone surrogate.
+            let current = key.as_any().len()? as i128 + value.as_any().len()? as i128;
+            let Some(updated) = delta.checked_add(current - i128::from(previous)) else {
+                return Ok(None);
+            };
+            delta = updated;
+        }
+        Ok(Some(delta))
     }
 
     #[pyfunction]

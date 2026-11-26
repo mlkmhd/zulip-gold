@@ -5,17 +5,21 @@ from contextlib import ExitStack, nullcontext
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Barrier
+from unittest import mock
 from unittest.mock import patch
 from urllib.parse import urlencode, urlsplit
 
 import orjson
 from django.conf import settings
 from django.contrib.sessions.backends.db import SessionStore
+from django.db import connection
 from django.middleware.csrf import _get_new_csrf_string
 from django.test import LiveServerTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from typing_extensions import override
 
 from zerver.actions.create_user import do_create_user
+from zerver.lib import bot_storage
 from zerver.lib.bot_config import ConfigError, load_bot_config_template, set_bot_config
 from zerver.lib.bot_lib import (
     EmbeddedBotEmptyRecipientsListError,
@@ -658,6 +662,44 @@ class TestEmbeddedBotStateHandler(ZulipTestCase):
         self.assert_json_success(result)
         result = self.api_get(self.bot_profile, endpoint)
         self.assertEqual(self.assert_json_success(result)["storage"], updated_storage)
+
+    @override_settings(USER_STATE_SIZE_LIMIT=4)
+    def test_prepared_bot_quota_preserves_sql_and_rollback(self) -> None:
+        bot_storage.set_bot_storage(self.bot_profile, [("🦀", "e\u0301🤝")])
+        backend = bot_storage._prepared_quota_backend
+        seen_sql: list[list[str]] = []
+
+        def normalized(sql: str) -> str:
+            if sql.startswith(("SAVEPOINT ", "ROLLBACK TO SAVEPOINT ", "RELEASE SAVEPOINT ")):
+                return sql.rsplit(' "', 1)[0]
+            return sql
+
+        for candidate in (None, backend):
+            with (
+                mock.patch.object(bot_storage, "_rust_bot_storage", None),
+                mock.patch.object(bot_storage, "_prepared_quota_backend", candidate),
+                CaptureQueriesContext(connection) as queries,
+                self.assertRaisesMessage(
+                    StateError,
+                    "Request exceeds storage limit by 1 characters. The limit is 4 characters.",
+                ),
+            ):
+                bot_storage.set_bot_storage(self.bot_profile, [("🦀", "β"), ("名", "x界")])
+            seen_sql.append([normalized(query["sql"]) for query in queries.captured_queries])
+            self.assertEqual(bot_storage.get_bot_storage(self.bot_profile, "🦀"), "e\u0301🤝")
+            self.assertFalse(bot_storage.is_key_in_bot_storage(self.bot_profile, "名"))
+        self.assertEqual(seen_sql[0], seen_sql[1])
+        self.assertTrue(any("pg_advisory_xact_lock" in sql for sql in seen_sql[0]))
+
+    def test_prepared_bot_quota_exact_codepoint_and_range_behavior(self) -> None:
+        backend = bot_storage._prepared_quota_backend
+        if backend is None:
+            self.skipTest("Prepared bot storage quota extension is unavailable")
+        delta = backend.prepared_bot_storage_delta
+        self.assertEqual(delta([("🦀", "e\u0301🤝", 8), ("名", "\ud800", 0)]), -2)
+        self.assertEqual(delta([("x", "β", 2), ("x", "ββ", 2)]), 1)
+        self.assertIsNone(delta([("x", "y", True)]))
+        self.assertIsNone(delta([("x", "y", 2**100)]))
 
     def test_bot_storage_endpoint(self) -> None:
         bot_storage_url = "/api/v1/bot_storage"

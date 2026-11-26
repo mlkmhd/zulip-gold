@@ -6,10 +6,16 @@ from django.db import connection, transaction
 from django.db.models import F, Sum
 from django.db.models.functions import Length
 
+from zerver.lib.native_backend import load_native_contract
 from zerver.models import BotStorageData, UserProfile
 
 _rust_bot_storage = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_BOT_STORAGE") == "1" else None
+)
+
+
+_prepared_quota_backend = load_native_contract(
+    "ZULIP_RUST_PREPARED_BOT_STORAGE_DELTA", "PREPARED_BOT_STORAGE_DELTA_API"
 )
 
 
@@ -56,16 +62,33 @@ def set_bot_storage(bot_profile: UserProfile, entries: list[tuple[str, str]]) ->
     storage_size_limit = settings.USER_STATE_SIZE_LIMIT
     measured_entries: list[tuple[str, str, int]] = []
     storage_size_difference = 0
+    measure = getattr(_prepared_quota_backend, "prepared_bot_storage_delta", None)
+    prepared = (
+        _rust_bot_storage is None
+        and measure is not None
+        and type(entries) is list
+        and all(
+            type(entry) is tuple and len(entry) == 2 and all(type(item) is str for item in entry)
+            for entry in entries
+        )
+    )
     for key, value in entries:
         assert isinstance(key, str), "Key type should be str."
         assert isinstance(value, str), "Value type should be str."
         previous_size = get_bot_storage_size(bot_profile, key)
-        if _rust_bot_storage is None:
+        if _rust_bot_storage is None and not prepared:
             storage_size_difference += len(key) + len(value) - previous_size
         else:
             measured_entries.append((key, value, previous_size))
     if _rust_bot_storage is not None:
         storage_size_difference = _rust_bot_storage.storage_size_difference(measured_entries)
+    elif prepared and measure is not None:
+        delta = measure(measured_entries)
+        if delta is None:
+            delta = sum(
+                len(key) + len(value) - previous for key, value, previous in measured_entries
+            )
+        storage_size_difference = delta
     new_storage_size = get_bot_storage_size(bot_profile) + storage_size_difference
     if new_storage_size > storage_size_limit:
         raise StateError(
