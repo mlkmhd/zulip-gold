@@ -22,6 +22,7 @@ except ImportError:
     _rust_utc_floor = None
 _make_prepared_utc_floor = getattr(_rust_utc_floor, "make_prepared_utc_floor", None)
 _make_prepared_utc_ceiling = getattr(_rust_utc_floor, "make_prepared_utc_ceiling", None)
+_convert_prepared_utc = getattr(_rust_utc_floor, "convert_prepared_utc", None)
 
 
 class TimeZoneNotUTCError(Exception):
@@ -38,6 +39,8 @@ def verify_UTC(dt: datetime) -> None:
 
 
 def convert_to_UTC(dt: datetime) -> datetime:
+    if _convert_prepared_utc is not None:
+        return _convert_prepared_utc(dt, timezone.utc)
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)

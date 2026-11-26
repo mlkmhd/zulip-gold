@@ -105,3 +105,16 @@ pub(crate) fn make_prepared_utc_ceiling<'py>(
     kwargs.set_item(if day { "days" } else { "hours" }, 1)?;
     base.add(delta.call((), Some(&kwargs))?)
 }
+
+#[pyfunction]
+pub(crate) fn convert_prepared_utc<'py>(
+    dt: &Bound<'py, PyAny>,
+    utc: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    if dt.getattr("tzinfo")?.is_none() {
+        let kwargs = PyDict::new(dt.py());
+        kwargs.set_item("tzinfo", utc)?;
+        return dt.call_method("replace", (), Some(&kwargs));
+    }
+    dt.call_method1("astimezone", (utc,))
+}
