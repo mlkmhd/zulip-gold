@@ -1,11 +1,13 @@
 import os
 import re
 from datetime import datetime, timedelta, timezone
+from typing import cast
 
 from django.conf import settings
 from django.utils.timezone import now as timezone_now
 
 from version import DESKTOP_MINIMUM_VERSION, DESKTOP_WARNING_VERSION
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.user_agent import parse_user_agent
 from zerver.models import UserProfile
 from zerver.signals import get_device_browser
@@ -50,6 +52,13 @@ def pop_numerals(ver: str) -> tuple[list[int], str]:
     return numbers, rest
 
 
+_reference_pop_numerals = pop_numerals
+_reference_re_search = re.search
+_numeric_version_backend = load_native_contract(
+    "ZULIP_RUST_CLIENT_NUMERIC_VERSION", "CLIENT_NUMERIC_VERSION_API"
+)
+
+
 def version_lt(ver1: str, ver2: str) -> bool | None:
     """
     Compare two Zulip-style version strings.
@@ -65,6 +74,16 @@ def version_lt(ver1: str, ver2: str) -> bool | None:
       False if ver1 >= ver2
       None if can't tell.
     """
+    compare = getattr(_numeric_version_backend, "compare_numeric_client_versions", None)
+    if (
+        callable(compare)
+        and pop_numerals is _reference_pop_numerals
+        and re.search is _reference_re_search
+    ):
+        result = cast("bool | None", compare(ver1, ver2))
+        if result is not None:
+            return result
+
     num1, rest1 = pop_numerals(ver1)
     num2, rest2 = pop_numerals(ver2)
     if not num1 or not num2:

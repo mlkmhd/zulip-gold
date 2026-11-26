@@ -417,6 +417,7 @@ mod _zulip_backend {
         module.add("SETTINGS_SNAPSHOT_API", 1)?;
         module.add("PUBLIC_SERVER_SETTINGS_RESPONSE_API", 1)?;
         module.add("USER_AGENT_PARSE_API", 1)?;
+        module.add("CLIENT_NUMERIC_VERSION_API", 1)?;
         module.add("GROUP_ROSTER_REPLAY_API", 1)?;
         module.add("PREPARED_GROUP_MEMBERSHIP_API", 1)?;
         module.add("REGISTER_PROFILE_PRUNE_API", 1)?;
@@ -2478,6 +2479,16 @@ mod _zulip_backend {
             topic.to_str().ok()?,
             url,
         ))
+    }
+
+    #[pyfunction]
+    fn compare_numeric_client_versions(
+        first: &Bound<'_, PyAny>,
+        second: &Bound<'_, PyAny>,
+    ) -> Option<bool> {
+        let first = first.cast_exact::<PyString>().ok()?.to_str().ok()?;
+        let second = second.cast_exact::<PyString>().ok()?.to_str().ok()?;
+        crate::user_agent::numeric_version_lt(first, second)
     }
 
     #[pyfunction]
