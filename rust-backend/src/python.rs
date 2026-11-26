@@ -373,6 +373,7 @@ mod _zulip_backend {
         module.add("REMINDER_RECIPIENT_LABELS_API", 1)?;
         module.add("DRAFT_TOPIC_TEXT_API", 1)?;
         module.add("DRAFT_BODY_TEXT_API", 1)?;
+        module.add("DRAFT_TIMESTAMP_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
         module.add("MARKDOWN_HEADINGS_API", 1)?;
         module.add("MARKDOWN_HORIZONTAL_RULES_API", 1)?;

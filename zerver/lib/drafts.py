@@ -42,6 +42,13 @@ _UNIX_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 _rust_draft_topic_text = load_native_contract("ZULIP_RUST_DRAFT_TOPIC_TEXT", "DRAFT_TOPIC_TEXT_API")
 _rust_draft_body_text = load_native_contract("ZULIP_RUST_DRAFT_BODY_TEXT", "DRAFT_BODY_TEXT_API")
+_rust_default_draft_timestamp = load_native_contract(
+    "ZULIP_RUST_DRAFT_TIMESTAMP_TEXT", "DRAFT_TIMESTAMP_API"
+)
+_reference_timestamp_to_datetime = timestamp_to_datetime
+_reference_timedelta = timedelta
+_reference_epoch = _UNIX_EPOCH
+_reference_round = round
 _reference_body_normalizer = normalize_body
 _reference_topic_truncator = truncate_topic
 _reference_content_truncator = message_lib.truncate_content
@@ -133,11 +140,20 @@ def normalize_draft_topic(topic: str) -> str:
 
 
 def normalize_draft_timestamp(timestamp: float) -> datetime:
-    if _rust_draft_timestamp is not None:
+    backend = _rust_draft_timestamp
+    if (
+        _rust_default_draft_timestamp is not None
+        and type(timestamp) is float
+        and timestamp_to_datetime is _reference_timestamp_to_datetime
+        and timedelta is _reference_timedelta
+        and _UNIX_EPOCH is _reference_epoch
+        and round is _reference_round
+    ):
+        backend = _rust_default_draft_timestamp
+    native = getattr(backend, "normalize_draft_timestamp", None)
+    if native is not None:
         try:
-            micros, negative = cast(
-                tuple[int | None, bool], _rust_draft_timestamp.normalize_draft_timestamp(timestamp)
-            )
+            micros, negative = cast(tuple[int | None, bool], native(timestamp))
         except OverflowError:
             # An arbitrary-size integer can overflow while crossing into Rust.
             pass
