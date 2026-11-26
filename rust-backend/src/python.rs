@@ -313,6 +313,7 @@ mod _zulip_backend {
         module.add("PREPARED_ACTIVITY_BATCH_API", 1)?;
         module.add("PREPARED_ACTIVITY_UPSERT_VALUES_API", 1)?;
         module.add("SCHEDULED_ORM_CLAIM_API", 1)?;
+        module.add("SCHEDULED_ORM_RESULT_API", 1)?;
         module.add("PREPARED_ACTIVITY_INTERVAL_API", 1)?;
         module.add("PREPARED_MISSED_EMAIL_BATCH_API", 1)?;
         module.add("PREPARED_MATTERMOST_NAME_API", 1)?;
@@ -3103,6 +3104,28 @@ mod _zulip_backend {
             .call_method("filter", (), Some(&filter))?
             .call_method("select_for_update", (), Some(&locking))?
             .call_method0("first")
+    }
+
+    fn save_scheduled_job_fields(job: &Bound<'_, PyAny>, fields: [&str; 2]) -> PyResult<()> {
+        let kwargs = PyDict::new(job.py());
+        kwargs.set_item("update_fields", fields.to_vec())?;
+        job.call_method("save", (), Some(&kwargs))?;
+        Ok(())
+    }
+
+    #[pyfunction]
+    fn save_delivered_scheduled_job_with_orm(
+        job: &Bound<'_, PyAny>,
+        message_id: &Bound<'_, PyAny>,
+    ) -> PyResult<()> {
+        job.setattr("delivered_message_id", message_id)?;
+        job.setattr("delivered", true)?;
+        save_scheduled_job_fields(job, ["delivered", "delivered_message_id"])
+    }
+
+    #[pyfunction]
+    fn save_failed_scheduled_job_with_orm(job: &Bound<'_, PyAny>) -> PyResult<()> {
+        save_scheduled_job_fields(job, ["failed", "failure_message"])
     }
 
     #[pyfunction]

@@ -18,6 +18,7 @@ import time_machine
 from django.conf import settings
 from django.contrib.sessions.backends.db import SessionStore
 from django.db import connection, transaction
+from django.db.models.signals import post_save
 from django.test import LiveServerTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now as timezone_now
@@ -965,6 +966,54 @@ class ScheduledMessageTest(ZulipTestCase):
             [query["sql"] for query in native_queries],
             [query["sql"] for query in reference_queries],
         )
+
+    def test_native_orm_result_keeps_query_signals_and_persisted_fields(self) -> None:
+        if scheduled_messages._scheduled_orm_result_backend is None:
+            self.skipTest("No scheduled ORM result ABI")
+        self.create_scheduled_message()
+        job = self.last_scheduled_message()
+        delivered_id = self.send_personal_message(job.sender, job.sender, "Scheduled result")
+        observer = mock.Mock()
+        post_save.connect(observer, sender=ScheduledMessage, weak=False)
+        self.addCleanup(post_save.disconnect, observer, sender=ScheduledMessage)
+        failure_message = "خطای ارسال • ℤ"
+        for failed in (False, True):
+            with self.subTest(failed=failed):
+                results = []
+                for native in (False, True):
+                    with transaction.atomic():
+                        job.refresh_from_db()
+                        if failed:
+                            job.failed = True
+                            job.failure_message = failure_message
+                        observer.reset_mock()
+                        dispatch = (
+                            nullcontext()
+                            if native
+                            else mock.patch.object(
+                                scheduled_messages, "_scheduled_orm_result_backend", None
+                            )
+                        )
+                        with dispatch, CaptureQueriesContext(connection) as queries:
+                            if failed:
+                                scheduled_messages._persist_failed_scheduled_job(job)
+                            else:
+                                scheduled_messages.mark_scheduled_job_delivered(job, delivered_id)
+                        self.assertEqual(len(queries), 1)
+                        observer.assert_called_once()
+                        signal = observer.call_args.kwargs
+                        self.assertFalse(signal["created"])
+                        self.assertIs(signal["instance"], job)
+                        job.refresh_from_db()
+                        self.assertEqual(job.failed, failed)
+                        self.assertEqual(job.delivered, not failed)
+                        self.assertEqual(job.failure_message, failure_message if failed else None)
+                        self.assertEqual(job.delivered_message_id, None if failed else delivered_id)
+                        results.append(
+                            (queries[0]["sql"], signal["using"], signal["update_fields"])
+                        )
+                        transaction.set_rollback(True)
+                self.assertEqual(results[0], results[1])
 
     def test_claim_due_jobs_in_id_order(self) -> None:
         self.create_scheduled_message()

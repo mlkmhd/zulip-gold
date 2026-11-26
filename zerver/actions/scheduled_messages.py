@@ -74,6 +74,9 @@ _rust_scheduled_job_claim = (
 _scheduled_orm_claim_backend = load_native_contract(
     "ZULIP_RUST_SCHEDULED_ORM_CLAIM", "SCHEDULED_ORM_CLAIM_API"
 )
+_scheduled_orm_result_backend = load_native_contract(
+    "ZULIP_RUST_SCHEDULED_ORM_RESULT", "SCHEDULED_ORM_RESULT_API"
+)
 _rust_scheduled_job_result = (
     import_module("_zulip_backend")
     if os.environ.get("ZULIP_RUST_SCHEDULED_JOB_RESULT") == "1"
@@ -406,6 +409,10 @@ def delete_scheduled_message(user_profile: UserProfile, scheduled_message_id: in
 
 
 def mark_scheduled_job_delivered(scheduled_message: ScheduledMessage, message_id: int) -> None:
+    native = getattr(_scheduled_orm_result_backend, "save_delivered_scheduled_job_with_orm", None)
+    if _rust_scheduled_job_result is None and callable(native):
+        native(scheduled_message, message_id)
+        return
     scheduled_message.delivered_message_id = message_id
     scheduled_message.delivered = True
     if _rust_scheduled_job_result is None:
@@ -417,6 +424,22 @@ def mark_scheduled_job_delivered(scheduled_message: ScheduledMessage, message_id
             )
         if not updated:
             raise DatabaseError("Scheduled job delivery update did not affect any rows.")
+
+
+def _persist_failed_scheduled_job(scheduled_message: ScheduledMessage) -> None:
+    if _rust_scheduled_job_result is not None:
+        with connection.cursor() as cursor:
+            updated = _rust_scheduled_job_result.mark_scheduled_job_failed(
+                cursor, scheduled_message.id, scheduled_message.failure_message
+            )
+        if not updated:
+            raise DatabaseError("Scheduled job failure update did not affect any rows.")
+        return
+    native = getattr(_scheduled_orm_result_backend, "save_failed_scheduled_job_with_orm", None)
+    if callable(native):
+        native(scheduled_message)
+    else:
+        scheduled_message.save(update_fields=["failed", "failure_message"])
 
 
 def send_reminder(scheduled_message: ScheduledMessage) -> None:
@@ -607,15 +630,7 @@ def try_deliver_one_scheduled_message() -> bool:
                     stack_info=True,
                 )
 
-            if _rust_scheduled_job_result is None:
-                scheduled_message.save(update_fields=["failed", "failure_message"])
-            else:
-                with connection.cursor() as cursor:
-                    updated = _rust_scheduled_job_result.mark_scheduled_job_failed(
-                        cursor, scheduled_message.id, scheduled_message.failure_message
-                    )
-                if not updated:
-                    raise DatabaseError("Scheduled job failure update did not affect any rows.")
+            _persist_failed_scheduled_job(scheduled_message)
 
             if (
                 not was_delivered
