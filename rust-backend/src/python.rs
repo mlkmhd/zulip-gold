@@ -381,6 +381,7 @@ mod _zulip_backend {
         module.add("SEARCH_HIGHLIGHTS_API", 1)?;
         module.add("FENCED_CODE_HEADER_API", 1)?;
         module.add("FENCED_CODE_ESCAPE_API", 1)?;
+        module.add("FENCED_CURL_VALIDATION_API", 1)?;
         module.add("FENCED_QUOTE_DELIMITER_API", 1)?;
         module.add("FENCED_QUOTE_TEXT_API", 1)?;
         module.add("EMOJI_PRESENTATION_SELECTOR_API", 1)?;

@@ -456,6 +456,7 @@ def load_fence_stack(
     )
     namespace = {
         "_rust_markdown_fences": backend,
+        "_rust_fenced_curl": None,
         "_rust_markdown_blocks": None,
         "_rust_code_escape": None,
         "_rust_fenced_quote_text": None,
@@ -794,6 +795,10 @@ class FencedCurlValidationParity(unittest.TestCase):
     def test_original_validator_matches_native(self) -> None:
         native = Mock(wraps=EXTENSION.find_invalid_fenced_curl_line)
         validator = self.load(SimpleNamespace(find_invalid_fenced_curl_line=native))
+        prepared = load_fence_stack(
+            None, extra={"_rust_fenced_curl": SimpleNamespace(find_invalid_fenced_curl_line=native)}
+        )
+        default_validator = cast(Callable[..., object], prepared["validate_curl_content"])
         original = self.load(None)
         old = self.load(SimpleNamespace())
         cases = [
@@ -834,7 +839,8 @@ class FencedCurlValidationParity(unittest.TestCase):
             expected = self.run_validator(original, lines)
             self.assertEqual(self.run_validator(old, lines), expected)
             self.assertEqual(self.run_validator(validator, lines), expected)
-        self.assertEqual(native.call_count, len(cases))
+            self.assertEqual(self.run_validator(default_validator, lines), expected)
+        self.assertEqual(native.call_count, 2 * len(cases))
 
     def test_custom_types_and_search_keep_python_behavior(self) -> None:
         native = Mock(wraps=EXTENSION.find_invalid_fenced_curl_line)

@@ -4450,6 +4450,35 @@ class MarkdownErrorTests(ZulipTestCase):
         with self.assertRaises(MarkdownRenderingError):
             processor.run(markdown_input)
 
+    def test_curl_code_block_uses_matching_native_validator(self) -> None:
+        from zerver.lib.markdown import fenced_code
+
+        backend = fenced_code._rust_fenced_curl
+        if backend is None:
+            self.skipTest("No fenced curl validation ABI")
+
+        def render(lines: list[str]) -> list[str]:
+            processor = SimulatedFencedBlockPreprocessor(Markdown())
+            processor.run_content_validators = True
+            return processor.run(["```curl", *lines, "```"])
+
+        accepted = ['curl -X "GET" example.invalid', "  curl indented text"]
+        rejected = [*accepted, "curl missing method • فارسی", "curl also invalid"]
+        with mock.patch.object(fenced_code, "_rust_fenced_curl", None):
+            expected = render(accepted)
+            with self.assertRaises(MarkdownRenderingError) as reference:
+                render(rejected)
+        with mock.patch.object(
+            backend, "find_invalid_fenced_curl_line", wraps=backend.find_invalid_fenced_curl_line
+        ) as validate:
+            self.assertEqual(render(accepted), expected)
+            with self.assertRaises(MarkdownRenderingError) as actual:
+                render(rejected)
+        self.assertEqual(validate.call_count, 2)
+        self.assertEqual(str(actual.exception), str(reference.exception))
+        self.assertIn(rejected[-2], str(actual.exception))
+        self.assertNotIn(rejected[-1], str(actual.exception))
+
     def test_curl_code_block_without_validation(self) -> None:
         processor = SimulatedFencedBlockPreprocessor(Markdown())
 

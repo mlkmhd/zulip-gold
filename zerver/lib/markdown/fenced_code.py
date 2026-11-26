@@ -106,6 +106,7 @@ _native_parse_hl_lines = parse_hl_lines
 
 _rust_code_header = load_native_contract("ZULIP_RUST_CODE_HEADER", "FENCED_CODE_HEADER_API")
 _rust_code_escape = load_native_contract("ZULIP_RUST_FENCED_CODE_ESCAPE", "FENCED_CODE_ESCAPE_API")
+_rust_fenced_curl = load_native_contract("ZULIP_RUST_FENCED_CURL", "FENCED_CURL_VALIDATION_API")
 _rust_quote_delimiter = load_native_contract(
     "ZULIP_RUST_QUOTE_DELIMITER", "FENCED_QUOTE_DELIMITER_API"
 )
@@ -187,7 +188,9 @@ Missing required -X argument in curl command:
 {command}
 """.strip()
 
-    find_invalid = getattr(_rust_markdown_fences, "find_invalid_fenced_curl_line", None)
+    find_invalid = getattr(_rust_fenced_curl, "find_invalid_fenced_curl_line", None)
+    if find_invalid is None:
+        find_invalid = getattr(_rust_markdown_fences, "find_invalid_fenced_curl_line", None)
     if find_invalid is not None and re.search is _original_curl_re_search:
         index = find_invalid(lines)
         if index is not None:
