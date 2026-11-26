@@ -3188,6 +3188,27 @@ mod _zulip_backend {
     }
 
     #[pyfunction]
+    fn build_prepared_channel_topic_url<'py>(
+        realm: &Bound<'py, PyAny>,
+        stream: &Bound<'py, PyAny>,
+        topic: &Bound<'py, PyAny>,
+        encode_channel: &Bound<'py, PyAny>,
+        encode_topic: &Bound<'py, PyAny>,
+        include_topic: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let py = realm.py();
+        let base = pyo3::types::PyString::new(py, "{}/#narrow/channel/")
+            .call_method1("format", (realm.getattr("url")?,))?;
+        let channel = encode_channel.call1((stream.getattr("id")?, stream.getattr("name")?))?;
+        if !include_topic {
+            return base.add(channel);
+        }
+        let topic = encode_topic.call1((topic,))?;
+        pyo3::types::PyString::new(py, "{}{}/topic/{}")
+            .call_method1("format", (base, channel, topic))
+    }
+
+    #[pyfunction]
     fn build_prepared_pm_message_url<'py>(
         realm: &Bound<'py, PyAny>,
         message: &Bound<'py, PyAny>,

@@ -13,6 +13,9 @@ from zerver.models import Realm, Stream, UserProfile
 
 _rust_url_fragments = load_native_contract("ZULIP_RUST_URL_FRAGMENTS", "URL_FRAGMENTS_API")
 _build_prepared_pm_message_url = getattr(_rust_url_fragments, "build_prepared_pm_message_url", None)
+_build_prepared_channel_topic_url = getattr(
+    _rust_url_fragments, "build_prepared_channel_topic_url", None
+)
 
 _rust_channel_narrow_slug = load_native_contract(
     "ZULIP_RUST_CHANNEL_NARROW_SLUG", "CHANNEL_NARROW_SLUG_API"
@@ -163,11 +166,19 @@ def direct_message_group_narrow_url(
 
 
 def stream_narrow_url(realm: Realm, stream: Stream) -> str:
+    if _build_prepared_channel_topic_url is not None:
+        return _build_prepared_channel_topic_url(
+            realm, stream, None, encode_channel, encode_hash_component, False
+        )
     base_url = f"{realm.url}/#narrow/channel/"
     return base_url + encode_channel(stream.id, stream.name)
 
 
 def topic_narrow_url(*, realm: Realm, stream: Stream, topic_name: str) -> str:
+    if _build_prepared_channel_topic_url is not None:
+        return _build_prepared_channel_topic_url(
+            realm, stream, topic_name, encode_channel, encode_hash_component, True
+        )
     base_url = f"{realm.url}/#narrow/channel/"
     return f"{base_url}{encode_channel(stream.id, stream.name)}/topic/{encode_hash_component(topic_name)}"
 
