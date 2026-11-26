@@ -343,7 +343,12 @@ def thumbnail_key(format: BaseThumbnailFormat) -> native_thumbnail_status.Thumbn
 
 def plan_missing_thumbnails(image_attachment: ImageAttachment) -> list[ThumbnailFormat]:
     metadata = image_attachment.thumbnail_metadata
-    if type(metadata) is list and len(metadata) >= 2 and native_thumbnail_status.plan_available():
+    if (
+        type(metadata) is list
+        and len(metadata) >= 2
+        and native_thumbnail_status.plan_available()
+        and _ordinary_thumbnail_plan_inputs(image_attachment)
+    ):
         try:
             formats = configured_thumbnail_formats(image_attachment)
         except (TypeError, ValueError):
@@ -415,10 +420,9 @@ def _thumbnail_format_methods() -> tuple[object, ...]:
 _reference_thumbnail_format_methods = _thumbnail_format_methods()
 
 
-def has_ready_thumbnail(image_attachment: ImageAttachment) -> bool:
-    if (
-        native_thumbnail_status.available()
-        and configured_thumbnail_formats is _reference_configured_thumbnail_formats
+def _ordinary_thumbnail_plan_inputs(image_attachment: ImageAttachment) -> bool:
+    return (
+        configured_thumbnail_formats is _reference_configured_thumbnail_formats
         and missing_thumbnails is _reference_missing_thumbnails
         and needs_transcoded_format is _reference_needs_transcoded_format
         and thumbnail_key is _reference_thumbnail_format_key
@@ -433,7 +437,11 @@ def has_ready_thumbnail(image_attachment: ImageAttachment) -> bool:
                 _thumbnail_format_methods(), _reference_thumbnail_format_methods, strict=True
             )
         )
-    ):
+    )
+
+
+def has_ready_thumbnail(image_attachment: ImageAttachment) -> bool:
+    if native_thumbnail_status.available() and _ordinary_thumbnail_plan_inputs(image_attachment):
         status = native_thumbnail_status.completeness(
             image_attachment.thumbnail_metadata,
             tuple(thumbnail_key(format) for format in THUMBNAIL_OUTPUT_FORMATS),

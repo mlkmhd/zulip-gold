@@ -739,6 +739,20 @@ class TestStoreThumbnail(ZulipTestCase):
 
             self.assertEqual(observed, [[1, 2], None, []])
 
+    def test_missing_plan_keeps_custom_format_calculation_in_python(self) -> None:
+        image = ImageAttachment(
+            content_type="image/webp", frames=1, original_width_px=20, original_height_px=30
+        )
+        image.thumbnail_metadata = [{}, {}]
+        configured = [ThumbnailFormat("webp", 100, 75, False)]
+        with (
+            patch.object(thumbnail, "missing_thumbnails", return_value=configured) as missing,
+            patch.object(native_thumbnail_status, "missing_indexes") as native,
+        ):
+            self.assertIs(plan_missing_thumbnails(image), configured)
+        missing.assert_called_once_with(image)
+        native.assert_not_called()
+
     def test_worker_resume_generates_only_missing_output(self) -> None:
         self.login("hamlet")
         first = ThumbnailFormat("webp", 40, 40, False, opts="Q=85")
