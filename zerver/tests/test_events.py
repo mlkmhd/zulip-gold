@@ -5896,13 +5896,26 @@ class ChannelFolderActionTest(BaseAction):
         folder_name = "Frontend"
         folder_description = "Channels for **frontend** discussions"
         with self.verify_action() as events:
-            check_add_channel_folder(
+            folder = check_add_channel_folder(
                 self.user_profile.realm,
                 folder_name,
                 folder_description,
                 acting_user=self.user_profile,
             )
         check_channel_folder_add("events[0]", events[0])
+        self.assertEqual(
+            events[0]["channel_folder"],
+            {
+                "id": folder.id,
+                "name": folder_name,
+                "description": folder_description,
+                "rendered_description": "<p>Channels for <strong>frontend</strong> discussions</p>",
+                "order": folder.id,
+                "date_created": datetime_to_timestamp(folder.date_created),
+                "creator_id": self.user_profile.id,
+                "is_archived": False,
+            },
+        )
 
     def test_channel_folder_update_event(self) -> None:
         channel_folder = check_add_channel_folder(
