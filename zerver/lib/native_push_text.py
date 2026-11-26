@@ -87,6 +87,21 @@ def format_channel_recipient(
     return cast(bool, native(payload, channel_id, channel_name, legacy))
 
 
+_apns_alert_title_backend = load_native_contract(
+    "ZULIP_RUST_APNS_ALERT_TITLE", "APNS_ALERT_TITLE_API"
+)
+
+
+def format_apns_group_title(names: list[str]) -> str | None:
+    native = getattr(_apns_alert_title_backend, "format_apns_group_title", None)
+    return cast("str | None", native(names)) if callable(native) else None
+
+
+def format_apns_channel_title(channel: str, topic: str) -> str | None:
+    native = getattr(_apns_alert_title_backend, "format_apns_channel_title", None)
+    return cast("str | None", native(channel, topic)) if callable(native) else None
+
+
 MobileBaseFormatter = Callable[[tuple[str, int, str] | None, str, str, int], dict[str, object]]
 
 

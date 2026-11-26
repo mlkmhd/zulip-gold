@@ -1186,10 +1186,13 @@ def get_apns_alert_title(
         recipients = get_display_recipient(message.recipient)
         assert isinstance(recipients, list)
         if len(recipients) > 2:
-            return ", ".join(sorted(r["full_name"] for r in recipients))
+            names = [r["full_name"] for r in recipients]
+            group_title = native_push_text.format_apns_group_title(names)
+            return ", ".join(sorted(names)) if group_title is None else group_title
     elif message.is_channel_message:
         assert channel_name is not None and topic_display_name is not None
-        return f"#{channel_name} > {topic_display_name}"
+        channel_title = native_push_text.format_apns_channel_title(channel_name, topic_display_name)
+        return f"#{channel_name} > {topic_display_name}" if channel_title is None else channel_title
     # For 1:1 direct messages, we just show the sender name.
     return message.sender.full_name
 

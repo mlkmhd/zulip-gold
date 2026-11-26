@@ -335,3 +335,35 @@ pub(crate) fn format_mobile_channel_recipient(
     payload.set_item(id_key, channel_id)?;
     Ok(true)
 }
+
+#[pyfunction]
+pub(crate) fn format_apns_group_title<'py>(
+    names: &Bound<'py, PyList>,
+) -> Option<Bound<'py, PyString>> {
+    let mut parts = names
+        .iter()
+        .map(|name| {
+            let name = name.cast_exact::<PyString>().ok()?;
+            Some(python_string_bytes(name)?.into_owned())
+        })
+        .collect::<Option<Vec<_>>>()?;
+    // UTF-8 (including surrogatepass) compares in code-point order, exactly
+    // the sort used by Python for ordinary strings. Keep repeated names.
+    parts.sort_unstable();
+    python_string_from_bytes(names.py(), &parts.join(&b", "[..]))
+}
+
+#[pyfunction]
+pub(crate) fn format_apns_channel_title<'py>(
+    channel: &Bound<'py, PyAny>,
+    topic: &Bound<'py, PyAny>,
+) -> Option<Bound<'py, PyString>> {
+    let channel_text = python_string_bytes(channel.cast_exact::<PyString>().ok()?)?;
+    let topic_text = python_string_bytes(topic.cast_exact::<PyString>().ok()?)?;
+    let mut title = Vec::with_capacity(channel_text.len() + topic_text.len() + 4);
+    title.extend_from_slice(b"#");
+    title.extend_from_slice(&channel_text);
+    title.extend_from_slice(b" > ");
+    title.extend_from_slice(&topic_text);
+    python_string_from_bytes(channel.py(), &title)
+}
