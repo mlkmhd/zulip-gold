@@ -379,6 +379,7 @@ mod _zulip_backend {
         module.add("DRAFT_TIMESTAMP_API", 1)?;
         module.add("SCHEDULED_RECIPIENT_SHAPE_API", 1)?;
         module.add("RECENT_DM_RESPONSE_API", 1)?;
+        module.add("PREPARED_RECENT_DM_ROWS_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
         module.add("MARKDOWN_HEADINGS_API", 1)?;
         module.add("MARKDOWN_HORIZONTAL_RULES_API", 1)?;

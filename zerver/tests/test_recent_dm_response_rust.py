@@ -19,6 +19,7 @@ class RecentDMResponseContractTest(SimpleTestCase):
         }
         with (
             patch.object(native_recent_conversations, "_backend", None),
+            patch.object(native_recent_conversations, "_assembly_backend", None),
             patch.object(
                 backend,
                 "finalize_recent_conversations",

@@ -1,4 +1,4 @@
-"""Opt-in shaping of recent conversation rows already selected by Django."""
+"""Native shaping of recent conversation rows already selected by Django."""
 
 from __future__ import annotations
 
@@ -19,6 +19,9 @@ class RecentConversationPayload(TypedDict):
 
 
 _finalize_backend = load_native_contract("ZULIP_RUST_RECENT_DM_RESPONSE", "RECENT_DM_RESPONSE_API")
+_assembly_backend = load_native_contract(
+    "ZULIP_RUST_PREPARED_RECENT_DM_ROWS", "PREPARED_RECENT_DM_ROWS_API"
+)
 
 try:
     _backend = (
@@ -33,13 +36,15 @@ except ModuleNotFoundError as error:
 
 
 def assembly_available() -> bool:
-    return getattr(_backend, "assemble_recent_conversations", None) is not None
+    backend = _assembly_backend or _backend
+    return getattr(backend, "assemble_recent_conversations", None) is not None
 
 
 def assemble(
     me: int, recent: dict[int, int], subscriptions: list[tuple[int, int, bool]]
 ) -> dict[frozenset[int], RecentPrivateConversationDict] | None:
-    native = getattr(_backend, "assemble_recent_conversations", None)
+    backend = _assembly_backend or _backend
+    native = getattr(backend, "assemble_recent_conversations", None)
     if native is None:
         return None
     return cast(

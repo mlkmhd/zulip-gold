@@ -75,7 +75,10 @@ class RecentConversationReplayRustTest(ZulipTestCase):
             (104, 1, True),
             (104, 1, False),
         ]
-        with patch.object(native_recent_conversations, "_backend", backend):
+        with (
+            patch.object(native_recent_conversations, "_backend", backend),
+            patch.object(native_recent_conversations, "_assembly_backend", None),
+        ):
             raw = native_recent_conversations.assemble(1, recent, subscriptions)
             assert raw is not None
             self.assertEqual(list(raw), [frozenset({700, 800}), frozenset({799}), frozenset()])
@@ -100,17 +103,23 @@ class RecentConversationReplayRustTest(ZulipTestCase):
             for method in ("assemble_recent_conversations", "finalize_recent_conversations")
         ):
             self.skipTest("Rust extension does not support recent-conversation formatting")
-        assembly_enabled = environ.get("ZULIP_RUST_RECENT_CONVERSATIONS") == "1"
+        legacy_flag_enabled = environ.get("ZULIP_RUST_RECENT_CONVERSATIONS") == "1"
+        assembly_enabled = (
+            legacy_flag_enabled or native_recent_conversations._assembly_backend is backend
+        )
         replay_enabled = environ.get("ZULIP_RUST_RECENT_CONVERSATION_REPLAY") == "1"
         self.assertEqual(native_recent_conversations.assembly_available(), assembly_enabled)
         finalize_enabled = (
-            assembly_enabled or native_recent_conversations._finalize_backend is backend
+            legacy_flag_enabled or native_recent_conversations._finalize_backend is backend
         )
 
         owner = self.example_user("hamlet")
         peer = self.example_user("cordelia")
         other = self.example_user("othello")
-        with patch.object(native_recent_conversations, "_backend", None):
+        with (
+            patch.object(native_recent_conversations, "_backend", None),
+            patch.object(native_recent_conversations, "_assembly_backend", None),
+        ):
             preexisting = get_recent_private_conversations(owner)
         changed = {frozenset(), frozenset({peer.id}), frozenset({peer.id, other.id})}
         previous_payload = [
@@ -166,6 +175,7 @@ class RecentConversationReplayRustTest(ZulipTestCase):
             with self.subTest(session=session):
                 with (
                     patch.object(native_recent_conversations, "_backend", None),
+                    patch.object(native_recent_conversations, "_assembly_backend", None),
                     patch.object(native_recent_conversations, "_finalize_backend", None),
                     patch.object(native_recent_conversation_replay, "_backend", None),
                 ):
@@ -222,6 +232,7 @@ class RecentConversationReplayRustTest(ZulipTestCase):
                 ):
                     with (
                         patch.object(native_recent_conversations, "_backend", candidate),
+                        patch.object(native_recent_conversations, "_assembly_backend", None),
                         patch.object(native_recent_conversations, "_finalize_backend", None),
                     ):
                         self.assertEqual(request(session), expected)
