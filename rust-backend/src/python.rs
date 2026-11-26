@@ -396,6 +396,7 @@ mod _zulip_backend {
         module.add("REMINDER_NOTE_TEXT_API", 1)?;
         module.add("REMINDER_WIDGET_LABEL_API", 1)?;
         module.add("REMINDER_TOPIC_CAPTION_API", 1)?;
+        module.add("TOPIC_LINK_LABEL_ESCAPE_API", 1)?;
         module.add("REMINDER_RECIPIENT_LABELS_API", 1)?;
         module.add("DRAFT_TOPIC_TEXT_API", 1)?;
         module.add("DRAFT_BODY_TEXT_API", 1)?;
@@ -2475,6 +2476,21 @@ mod _zulip_backend {
             topic.to_str().ok()?,
             url,
         ))
+    }
+
+    #[pyfunction]
+    fn escape_exact_topic_link_label<'py>(
+        py: Python<'py>,
+        label: &Bound<'py, PyAny>,
+    ) -> Option<Bound<'py, PyString>> {
+        let label = label.cast_exact::<PyString>().ok()?;
+        let text = python_string_bytes(label)?;
+        let mut escaped = Vec::with_capacity(text.len());
+        reminder_context::append_topic_link_label(&mut escaped, &text);
+        if escaped.as_slice() == text.as_ref() {
+            return Some(label.clone());
+        }
+        python_string_from_bytes(py, &escaped)
     }
 
     #[pyfunction]

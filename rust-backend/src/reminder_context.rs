@@ -22,7 +22,7 @@ pub(crate) fn widget_label(content: &str) -> Option<&'static str> {
     }
 }
 
-fn append_topic_link_label(output: &mut Vec<u8>, label: &[u8]) {
+pub(crate) fn append_topic_link_label(output: &mut Vec<u8>, label: &[u8]) {
     let mut bytes = label.iter().copied().peekable();
     while let Some(byte) = bytes.next() {
         let escaped: &[u8] = match byte {

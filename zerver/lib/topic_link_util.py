@@ -3,7 +3,9 @@
 # Keep this synchronized with web/src/topic_link_util.ts
 
 import re
+from typing import cast
 
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.url_encoding import encode_channel, encode_hash_component
 from zerver.models.messages import Message
 
@@ -27,7 +29,27 @@ escape_mapping = {
 }
 
 
+_reference_escape_mapping = escape_mapping.copy()
+_reference_invalid_stream_topic_regex = invalid_stream_topic_regex
+_reference_re_sub = re.sub
+_caption_escape_backend = load_native_contract(
+    "ZULIP_RUST_TOPIC_LINK_LABEL_ESCAPE", "TOPIC_LINK_LABEL_ESCAPE_API"
+)
+
+
 def escape_invalid_stream_topic_characters(text: str) -> str:
+    native = getattr(_caption_escape_backend, "escape_exact_topic_link_label", None)
+    if (
+        callable(native)
+        and re.sub is _reference_re_sub
+        and invalid_stream_topic_regex is _reference_invalid_stream_topic_regex
+        and type(escape_mapping) is dict
+        and all(type(key) is str and type(value) is str for key, value in escape_mapping.items())
+        and escape_mapping == _reference_escape_mapping
+    ):
+        escaped = cast("str | None", native(text))
+        if escaped is not None:
+            return escaped
     return re.sub(
         invalid_stream_topic_regex,
         lambda match: escape_mapping.get(match.group(0), match.group(0)),
