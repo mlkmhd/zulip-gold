@@ -4246,21 +4246,29 @@ class NormalActionsTest(BaseAction):
         )
 
     def test_check_update_all_streams_active_status(self) -> None:
-        hamlet = self.example_user("hamlet")
-        self.subscribe(hamlet, "test_stream1")
-        stream = get_stream("test_stream1", self.user_profile.realm)
+        hamlet = self.user_profile
+        empty_stream = self.subscribe(hamlet, "test_stream1")
+        recent_stream = self.subscribe(hamlet, "test_stream2")
+        self.send_stream_message(hamlet, recent_stream.name)
 
-        # Make all other streams recently active, regardless of when
-        # the test database was built.
-        Message.objects.update(date_sent=timezone_now())
-
-        # Delete all messages in the stream so that it becomes inactive.
-        Message.objects.filter(recipient__type_id=stream.id, realm=stream.realm).delete()
+        # Only the two streams created here should participate, regardless
+        # of which streams were given messages by populate_db.
+        test_streams = Stream.objects.filter(id__in=[empty_stream.id, recent_stream.id])
+        Stream.objects.exclude(id__in=test_streams.values("id")).update(is_recently_active=False)
+        test_streams.update(is_recently_active=True)
 
         with self.verify_action() as events:
             check_update_all_streams_active_status()
 
         check_stream_update("events[0]", events[0])
+        self.assertEqual(events[0]["stream_id"], empty_stream.id)
+        self.assertEqual(events[0]["property"], "is_recently_active")
+        self.assertIs(events[0]["value"], False)
+
+        empty_stream.refresh_from_db()
+        recent_stream.refresh_from_db()
+        self.assertFalse(empty_stream.is_recently_active)
+        self.assertTrue(recent_stream.is_recently_active)
 
     def test_do_delete_message_personal(self) -> None:
         msg_id = self.send_personal_message(
