@@ -165,3 +165,86 @@ pub(crate) fn build_prepared_git_comment_message<'py>(
     py.import("operator")?
         .call_method1("iadd", (content, quote))
 }
+
+#[pyfunction]
+pub(crate) fn build_prepared_pr_event_body<'py>(
+    header: Bound<'py, PyAny>,
+    options: &Bound<'py, PyTuple>,
+    templates: &Bound<'py, PyTuple>,
+    format_assignees: &Bound<'py, PyAny>,
+    choose_fence: &Bound<'py, PyAny>,
+    punctuation: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let py = header.py();
+    let target = options.get_item(0)?;
+    let base = options.get_item(1)?;
+    let message = options.get_item(2)?;
+    let assignee = options.get_item(3)?;
+    let assignees = options.get_item(4)?;
+    let reviewer = options.get_item(5)?;
+    let title = options.get_item(6)?;
+    let suffix = options.get_item(7)?;
+    let emoji = options.get_item(8)?;
+    let mut body = header;
+    let spaced = PyString::new(py, "{} {}");
+    let with_branches = target.is_truthy()? && base.is_truthy()?;
+    if with_branches {
+        let values = PyDict::new(py);
+        values.set_item("target", target)?;
+        values.set_item("base", base)?;
+        let branch = templates
+            .get_item(0)?
+            .call_method("format", (), Some(&values))?;
+        body = spaced.call_method1("format", (body, branch))?;
+    }
+
+    let multiple = assignees.is_truthy()?;
+    let individual = assignee.is_truthy()?;
+    if multiple || individual || reviewer.is_truthy()? {
+        let values = PyDict::new(py);
+        let template = if multiple || individual {
+            let name = if multiple {
+                format_assignees.call1((&assignees,))?
+            } else {
+                assignee
+            };
+            values.set_item("assignee", name)?;
+            templates.get_item(1)?
+        } else {
+            values.set_item("reviewer", &reviewer)?;
+            templates.get_item(2)?
+        };
+        let info = template.call_method("format", (), Some(&values))?;
+        // get_assignee_string may observe or modify the selected list.
+        if assignees.is_truthy()? || individual || reviewer.is_truthy()? {
+            body = spaced.call_method1("format", (body, info))?;
+        }
+    }
+    if suffix.is_truthy()? {
+        body = spaced.call_method1("format", (body, suffix))?;
+    }
+    let has_message = message.is_truthy()?;
+    if assignees.is_truthy()?
+        || individual
+        || with_branches
+        || title.is_none()
+        || !punctuation.contains(title.get_item(-1)?)?
+    {
+        let suffix = if has_message { ":" } else { "." };
+        body = body.add(suffix)?;
+    }
+    if emoji.is_truthy()? {
+        body = spaced.call_method1("format", (emoji, body))?;
+    }
+    if has_message {
+        let marker = choose_fence.call1((&message,))?;
+        let fields = PyDict::new(py);
+        fields.set_item("message", message)?;
+        fields.set_item("fence", marker)?;
+        let quote = templates
+            .get_item(3)?
+            .call_method("format", (), Some(&fields))?;
+        body = body.add("\n")?.add(quote)?;
+    }
+    body.call_method0("rstrip")
+}

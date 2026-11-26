@@ -1,3 +1,4 @@
+import builtins
 import string
 from collections import defaultdict
 from typing import Any
@@ -45,6 +46,10 @@ _rust_render_prepared_git_commit_rows = getattr(
 
 _rust_build_prepared_git_comment_message = getattr(
     _rust_git_commit_summary, "build_prepared_git_comment_message", None
+)
+
+_rust_build_prepared_pr_event_body = getattr(
+    _rust_git_commit_summary, "build_prepared_pr_event_body", None
 )
 
 TOPIC_WITH_BRANCH_TEMPLATE = "{repo} / {branch}"
@@ -317,6 +322,46 @@ def get_pull_request_event_message(
         else PULL_REQUEST_OR_ISSUE_MESSAGE_TEMPLATE_WITHOUT_REFERENCE
     )
     main_message = message_template.format(**kwargs)
+    if _rust_build_prepared_pr_event_body is not None and builtins.type(main_message) is str:
+        plain_options = (
+            target_branch,
+            base_branch,
+            message,
+            assignee,
+            reviewer,
+            title,
+            suffix,
+            emoji,
+        )
+        templates = (
+            PULL_REQUEST_BRANCH_INFO_TEMPLATE,
+            PULL_REQUEST_OR_ISSUE_ASSIGNEE_INFO_TEMPLATE,
+            PULL_REQUEST_REVIEWER_INFO_TEMPLATE,
+            CONTENT_MESSAGE_TEMPLATE,
+        )
+        if (
+            all(value is None or builtins.type(value) is str for value in plain_options)
+            and (assignees is None or builtins.type(assignees) is list)
+            and all(builtins.type(template) is str for template in templates)
+        ):
+            return _rust_build_prepared_pr_event_body(
+                main_message,
+                (
+                    target_branch,
+                    base_branch,
+                    message,
+                    assignee,
+                    assignees,
+                    reviewer,
+                    title,
+                    suffix,
+                    emoji,
+                ),
+                templates,
+                get_assignee_string,
+                get_unused_fence,
+                string.punctuation,
+            )
 
     if target_branch and base_branch:
         branch_info = PULL_REQUEST_BRANCH_INFO_TEMPLATE.format(
