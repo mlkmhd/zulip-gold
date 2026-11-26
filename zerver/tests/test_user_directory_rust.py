@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from importlib import import_module
 from types import SimpleNamespace
+from typing import cast
 from unittest import SkipTest
 from unittest.mock import Mock, patch
 
@@ -95,8 +96,25 @@ class UserDirectoryEndpointTest(ZulipTestCase):
         options = {"user_ids": orjson.dumps([hidden.id, peer.id]).decode()}
 
         def equivalence(label: str, request: Callable[[], bytes]) -> None:
-            with patch.object(native_user_directory, "_backend", None):
+            prepared = native_user_directory._prepared_backend
+            with (
+                patch.object(native_user_directory, "_backend", None),
+                patch.object(native_user_directory, "_prepared_backend", None),
+            ):
                 expected = request()
+            if prepared is not None:
+                with (
+                    patch.object(prepared, "assemble_user_directory", wraps=native) as assembled,
+                    patch(
+                        "zerver.lib.users._render_user_row_presentation", side_effect=AssertionError
+                    ),
+                ):
+                    self.assertEqual(request(), expected)
+                assembled.assert_called_once()
+                hidden_row = next(
+                    row for row in assembled.call_args.args[0] if row.user_id == hidden.id
+                )
+                self.assertIsNone(hidden_row.delivery_email)
             for mode, implementation in (
                 ("native", Mock(wraps=native)),
                 ("declined", Mock(return_value=None)),
@@ -110,6 +128,7 @@ class UserDirectoryEndpointTest(ZulipTestCase):
                 with (
                     self.subTest(case=label, mode=mode),
                     patch.object(native_user_directory, "_backend", backend),
+                    patch.object(native_user_directory, "_prepared_backend", None),
                     patch(
                         "zerver.lib.users._render_user_row_presentation",
                         wraps=_render_user_row_presentation,
@@ -164,6 +183,17 @@ class UserDirectoryEndpointTest(ZulipTestCase):
             lambda: self.api_get(reader, f"/api/v1/users/{hidden.id}").content,
         )
 
+    def test_prepared_only_uses_standard_presentation_rows(self) -> None:
+        backend = Mock()
+        with (
+            patch.object(native_user_directory, "_backend", None),
+            patch.object(native_user_directory, "_prepared_backend", backend),
+        ):
+            self.assertIsNone(
+                native_user_directory.assemble([cast(UserRowPresentation, ("nonstandard",))])
+            )
+        backend.assemble_user_directory.assert_not_called()
+
     def test_omitted_avatar_is_distinct_from_null(self) -> None:
         backend = SimpleNamespace(assemble_user_directory=extension())
         reader = self.example_user("cordelia")
@@ -179,7 +209,10 @@ class UserDirectoryEndpointTest(ZulipTestCase):
                 user_avatar_url_field_optional=True,
             )[target.id]
 
-        with patch.object(native_user_directory, "_backend", None):
+        with (
+            patch.object(native_user_directory, "_backend", None),
+            patch.object(native_user_directory, "_prepared_backend", None),
+        ):
             expected = fetch()
             self.assertNotIn("avatar_url", expected)
         with (
