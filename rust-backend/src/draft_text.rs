@@ -17,6 +17,64 @@ pub(crate) fn trim_message_body(body: &str) -> &str {
         .trim_start_matches('\n')
 }
 
+#[cfg(any(feature = "python", test))]
+pub(crate) fn trim_message_body_bytes(body: &[u8]) -> &[u8] {
+    if let Ok(text) = std::str::from_utf8(body) {
+        trim_message_body(text).as_bytes()
+    } else {
+        // Each invalid chunk is part of a lone surrogate. It is not
+        // whitespace and prevents stripping any preceding character.
+        let mut end = 0;
+        let mut offset = 0;
+        for chunk in body.utf8_chunks() {
+            for (start, ch) in chunk.valid().char_indices() {
+                if !crate::draft_text::is_python_whitespace(ch) {
+                    end = offset + start + ch.len_utf8();
+                }
+            }
+            offset += chunk.valid().len() + chunk.invalid().len();
+            if !chunk.invalid().is_empty() {
+                end = offset;
+            }
+        }
+        let trimmed = &body[..end];
+        let start = trimmed.iter().take_while(|&&byte| byte == b'\n').count();
+        &trimmed[start..]
+    }
+}
+
+#[cfg(feature = "python")]
+pub(crate) fn normalize_exact_body(
+    body: &[u8],
+    max_length: i64,
+) -> Result<Cow<'_, [u8]>, BodyError> {
+    let body = trim_message_body_bytes(body);
+    if body.is_empty() {
+        return Err(BodyError::Empty);
+    }
+    if body.contains(&0) {
+        return Err(BodyError::NullByte);
+    }
+    let lead = |byte: u8| byte & 0xc0 != 0x80;
+    let length = body.iter().filter(|&&byte| lead(byte)).count() as i128;
+    let limit = i128::from(max_length);
+    if length <= limit {
+        return Ok(Cow::Borrowed(body));
+    }
+    let suffix = MESSAGE_TRUNCATION_SUFFIX.as_bytes();
+    let stop = limit - suffix.len() as i128;
+    let end = (if stop < 0 { length + stop } else { stop }).clamp(0, length) as usize;
+    let byte = body
+        .iter()
+        .enumerate()
+        .filter(|(_, byte)| lead(**byte))
+        .nth(end)
+        .map_or(body.len(), |(index, _)| index);
+    let mut result = body[..byte].to_vec();
+    result.extend_from_slice(suffix);
+    Ok(Cow::Owned(result))
+}
+
 pub fn normalize_body(body: &str, max_length: usize) -> Result<Cow<'_, str>, BodyError> {
     let body = trim_message_body(body);
     if body.is_empty() {

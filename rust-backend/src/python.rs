@@ -372,6 +372,7 @@ mod _zulip_backend {
         module.add("REMINDER_TOPIC_CAPTION_API", 1)?;
         module.add("REMINDER_RECIPIENT_LABELS_API", 1)?;
         module.add("DRAFT_TOPIC_TEXT_API", 1)?;
+        module.add("DRAFT_BODY_TEXT_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
         module.add("MARKDOWN_HEADINGS_API", 1)?;
         module.add("MARKDOWN_HORIZONTAL_RULES_API", 1)?;
@@ -2118,6 +2119,24 @@ mod _zulip_backend {
             Err(draft_text::BodyError::Empty) => (None, Some("empty")),
             Err(draft_text::BodyError::NullByte) => (None, Some("null_byte")),
         }
+    }
+
+    #[pyfunction]
+    fn normalize_exact_draft_body<'py>(
+        body: &Bound<'py, PyAny>,
+        limit: &Bound<'py, PyAny>,
+    ) -> Option<(Option<Bound<'py, PyString>>, Option<&'static str>)> {
+        let body = body.cast_exact::<PyString>().ok()?;
+        let limit = limit.cast_exact::<PyInt>().ok()?.extract::<i64>().ok()?;
+        let bytes = python_string_bytes(body)?;
+        Some(match draft_text::normalize_exact_body(&bytes, limit) {
+            Ok(std::borrow::Cow::Borrowed(result)) if result.len() == bytes.len() => {
+                (Some(body.clone()), None)
+            }
+            Ok(result) => (Some(python_string_from_bytes(body.py(), &result)?), None),
+            Err(draft_text::BodyError::Empty) => (None, Some("empty")),
+            Err(draft_text::BodyError::NullByte) => (None, Some("null_byte")),
+        })
     }
 
     #[pyfunction]

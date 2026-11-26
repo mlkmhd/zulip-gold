@@ -41,6 +41,8 @@ ParamT = ParamSpec("ParamT")
 _UNIX_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 _rust_draft_topic_text = load_native_contract("ZULIP_RUST_DRAFT_TOPIC_TEXT", "DRAFT_TOPIC_TEXT_API")
+_rust_draft_body_text = load_native_contract("ZULIP_RUST_DRAFT_BODY_TEXT", "DRAFT_BODY_TEXT_API")
+_reference_body_normalizer = normalize_body
 _reference_topic_truncator = truncate_topic
 _reference_content_truncator = message_lib.truncate_content
 _reference_native_topic_truncator = message_lib.native_topic_text.truncate_topic_title
@@ -74,12 +76,23 @@ _rust_draft_groups = os.environ.get("ZULIP_RUST_DRAFT_GROUPS") == "1"
 
 
 def normalize_draft_body(content: str) -> str:
-    if _rust_draft_text is None or settings.MAX_MESSAGE_LENGTH < 0:
-        return normalize_body(content)
-    normalized, error = cast(
-        tuple[str | None, Literal["empty", "null_byte"] | None],
-        _rust_draft_text.normalize_draft_body(content, settings.MAX_MESSAGE_LENGTH),
-    )
+    result: tuple[str | None, Literal["empty", "null_byte"] | None] | None = None
+    normalize = getattr(_rust_draft_body_text, "normalize_exact_draft_body", None)
+    if (
+        normalize is not None
+        and normalize_body is _reference_body_normalizer
+        and message_lib.truncate_content is _reference_content_truncator
+        and message_lib._rust_message_body is None
+    ):
+        result = normalize(content, settings.MAX_MESSAGE_LENGTH)
+    if result is None:
+        if _rust_draft_text is None or settings.MAX_MESSAGE_LENGTH < 0:
+            return normalize_body(content)
+        result = cast(
+            tuple[str | None, Literal["empty", "null_byte"] | None],
+            _rust_draft_text.normalize_draft_body(content, settings.MAX_MESSAGE_LENGTH),
+        )
+    normalized, error = result
     if error == "empty":
         raise JsonableError(_("Message must not be empty"))
     if error == "null_byte":
