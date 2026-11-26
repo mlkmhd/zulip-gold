@@ -264,3 +264,24 @@ pub(crate) fn choose_prepared_api_property_detail<'py>(
         };
     empty.as_any().add(rendered)
 }
+
+#[pyfunction]
+pub(crate) fn render_prepared_api_parameter_list<'py>(
+    parameters: &Bound<'py, PyAny>,
+    markdown: &Bound<'py, PyAny>,
+    renderer: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyList>> {
+    let py = parameters.py();
+    let sorted = py.import("builtins")?.getattr("sorted")?;
+    let get_key = py
+        .import("operator")?
+        .call_method1("attrgetter", ("deprecated",))?;
+    let kwargs = PyDict::new(py);
+    kwargs.set_item("key", get_key)?;
+    let ordered = sorted.call((parameters,), Some(&kwargs))?;
+    let lines = PyList::empty(py);
+    for parameter in ordered.try_iter()? {
+        lines.append(renderer.call_method1("_render_parameter", (parameter?, markdown))?)?;
+    }
+    Ok(lines)
+}

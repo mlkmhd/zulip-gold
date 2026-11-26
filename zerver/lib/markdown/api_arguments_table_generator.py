@@ -52,6 +52,10 @@ _rust_choose_prepared_api_property_detail = getattr(
     _rust_api_type_tree, "choose_prepared_api_property_detail", None
 )
 
+_rust_render_prepared_api_parameter_list = getattr(
+    _rust_api_type_tree, "render_prepared_api_parameter_list", None
+)
+
 try:
     _rust_api_enum_display = load_native_contract(
         "ZULIP_RUST_API_ENUM_DISPLAY", "API_ENUM_DISPLAY_API"
@@ -261,55 +265,54 @@ class APIArgumentsTablePreprocessor(Preprocessor):
         return ONEOF_DETAILS_TEMPLATE.format(values=content)
 
     def render_parameters(self, parameters: Sequence[Parameter]) -> list[str]:
-        lines = []
-
         md_engine = markdown.Markdown(extensions=[])
+        if _rust_render_prepared_api_parameter_list is not None:
+            return _rust_render_prepared_api_parameter_list(parameters, md_engine, self)
+
         parameters = sorted(parameters, key=lambda parameter: parameter.deprecated)
-        for parameter in parameters:
-            name = parameter.name
-            description = _decorate_parameter_description(parameter.description, parameter)
-            data_type = generate_data_type(parameter.value_schema)
+        return [self._render_parameter(parameter, md_engine) for parameter in parameters]
 
-            # TODO: OpenAPI allows indicating where the argument goes
-            # (path, querystring, form data...).  We should document this detail.
+    def _render_parameter(self, parameter: Parameter, md_engine: markdown.Markdown) -> str:
+        name = parameter.name
+        description = _decorate_parameter_description(parameter.description, parameter)
+        data_type = generate_data_type(parameter.value_schema)
 
-            # We use this style without explicit JSON encoding for
-            # integers, strings, and booleans.
-            # * For booleans, JSON encoding correctly corrects for Python's
-            #   str(True)="True" not matching the encoding of "true".
-            # * For strings, doing so nicely results in strings being quoted
-            #   in the documentation, improving readability.
-            # * For integers, it is a noop, since json.dumps(3) == str(3) == "3".
-            example = json.dumps(parameter.example)
+        # TODO: OpenAPI allows indicating where the argument goes
+        # (path, querystring, form data...).  We should document this detail.
 
-            required_block, deprecated_block = _prepare_parameter_badges(parameter, description)
+        # We use this style without explicit JSON encoding for
+        # integers, strings, and booleans.
+        # * For booleans, JSON encoding correctly corrects for Python's
+        #   str(True)="True" not matching the encoding of "true".
+        # * For strings, doing so nicely results in strings being quoted
+        #   in the documentation, improving readability.
+        # * For integers, it is a noop, since json.dumps(3) == str(3) == "3".
+        example = json.dumps(parameter.example)
 
-            object_block = ""
-            # TODO: There are some endpoint parameters with object properties
-            # that are not defined in `zerver/openapi/zulip.yaml`
-            if "object" in data_type:
-                object_schema = parameter.value_schema
+        required_block, deprecated_block = _prepare_parameter_badges(parameter, description)
 
-                if "items" in object_schema and "properties" in object_schema["items"]:
-                    object_block = self.render_object_details(object_schema["items"], str(name))
-                elif "properties" in object_schema:
-                    object_block = self.render_object_details(object_schema, str(name))
-                elif "oneOf" in object_schema:
-                    object_block = self.render_oneof_block(object_schema, str(name))
+        object_block = ""
+        # TODO: There are some endpoint parameters with object properties
+        # that are not defined in `zerver/openapi/zulip.yaml`
+        if "object" in data_type:
+            object_schema = parameter.value_schema
 
-            lines.append(
-                API_PARAMETER_TEMPLATE.format(
-                    argument=name,
-                    example=escape_html(example),
-                    required=required_block,
-                    deprecated=deprecated_block,
-                    description=md_engine.convert(description),
-                    type=data_type,
-                    object_details=object_block,
-                )
-            )
+            if "items" in object_schema and "properties" in object_schema["items"]:
+                object_block = self.render_object_details(object_schema["items"], str(name))
+            elif "properties" in object_schema:
+                object_block = self.render_object_details(object_schema, str(name))
+            elif "oneOf" in object_schema:
+                object_block = self.render_oneof_block(object_schema, str(name))
 
-        return lines
+        return API_PARAMETER_TEMPLATE.format(
+            argument=name,
+            example=escape_html(example),
+            required=required_block,
+            deprecated=deprecated_block,
+            description=md_engine.convert(description),
+            type=data_type,
+            object_details=object_block,
+        )
 
     def render_object_details(
         self, schema: Mapping[str, Any], name: str, oneof: bool = False
