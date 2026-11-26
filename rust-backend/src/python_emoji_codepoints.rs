@@ -5,6 +5,8 @@ use std::fmt::Write as _;
 use pyo3::prelude::*;
 use pyo3::types::PyString;
 
+use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes};
+
 #[pyfunction]
 pub(crate) fn unqualify_emoji_text<'py>(input: &Bound<'py, PyAny>) -> Option<Bound<'py, PyString>> {
     let input = input.cast_exact::<PyString>().ok()?;
@@ -13,6 +15,34 @@ pub(crate) fn unqualify_emoji_text<'py>(input: &Bound<'py, PyAny>) -> Option<Bou
         return Some(input.clone());
     }
     Some(PyString::new(input.py(), &text.replace('\u{fe0f}', "")))
+}
+
+#[pyfunction]
+pub(crate) fn unqualify_exact_emoji_text<'py>(
+    input: &Bound<'py, PyAny>,
+) -> Option<Bound<'py, PyString>> {
+    let input = input.cast_exact::<PyString>().ok()?;
+    let text = python_string_bytes(input)?;
+    // UTF-8 (including surrogate-pass) cannot embed these bytes in
+    // the encoding of another code point.
+    let selector = "\u{fe0f}".as_bytes();
+    let mut positions = text
+        .windows(selector.len())
+        .enumerate()
+        .filter_map(|(index, candidate)| (candidate == selector).then_some(index));
+    let Some(first) = positions.next() else {
+        return Some(input.clone());
+    };
+    let mut result = Vec::new();
+    result.try_reserve_exact(text.len() - selector.len()).ok()?;
+    result.extend_from_slice(&text[..first]);
+    let mut start = first + selector.len();
+    for position in positions {
+        result.extend_from_slice(&text[start..position]);
+        start = position + selector.len();
+    }
+    result.extend_from_slice(&text[start..]);
+    python_string_from_bytes(input.py(), &result)
 }
 
 #[pyfunction]

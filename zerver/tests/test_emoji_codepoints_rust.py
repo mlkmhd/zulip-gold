@@ -2,11 +2,14 @@ from importlib import import_module
 from os import environ
 from random import Random
 from types import ModuleType, SimpleNamespace
+from typing import SupportsIndex
 from unittest import SkipTest
 from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
+from typing_extensions import override
 
+from tools.setup.emoji.emoji_setup_utils import get_emoji_code
 from zerver.lib import emoji_utils
 from zerver.lib.markdown import inline_stash, markdown_convert
 from zerver.lib.push_notifications import get_mobile_push_content
@@ -68,6 +71,9 @@ class EmojiCodepointsRustTest(SimpleTestCase):
 
     def test_utility_fallback_keeps_legacy_results_and_errors(self) -> None:
         backend = extension()
+        patcher = patch.object(emoji_utils, "_rust_emoji_selector", None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
         def historical() -> tuple[list[str], list[str]]:
             values = [
@@ -105,6 +111,7 @@ class EmojiCodepointDjangoDispatchRustTest(ZulipTestCase):
     def test_markdown_and_push_text_use_real_emoji_helpers(self) -> None:
         backend = extension()
         enabled = environ.get("ZULIP_RUST_EMOJI_CODEPOINTS") == "1"
+        selector_enabled = emoji_utils._rust_emoji_selector is not None
         actor = self.example_user("hamlet")
         message = Message(sender=actor, realm=actor.realm)
 
@@ -117,7 +124,10 @@ class EmojiCodepointDjangoDispatchRustTest(ZulipTestCase):
                 ).rendered_content
             return markup, get_mobile_push_content(markup)
 
-        with patch.object(emoji_utils, "_backend", None):
+        with (
+            patch.object(emoji_utils, "_backend", None),
+            patch.object(emoji_utils, "_rust_emoji_selector", None),
+        ):
             expected = render()
         self.assertIn('class="emoji emoji-2615"', expected[0])
         self.assertEqual(expected[1], "☕")
@@ -135,7 +145,15 @@ class EmojiCodepointDjangoDispatchRustTest(ZulipTestCase):
             "encode_emoji_codepoints": backend.encode_emoji_codepoints,
             "decode_emoji_codepoints": backend.decode_emoji_codepoints,
         }
+        if selector_enabled:
+            native_calls["unqualify_exact_emoji_text"] = backend.unqualify_exact_emoji_text
         with (
+            patch.object(
+                backend,
+                "unqualify_exact_emoji_text",
+                create=True,
+                side_effect=lambda value: witness("unqualify_exact_emoji_text", value),
+            ),
             patch.object(
                 backend,
                 "unqualify_emoji_text",
@@ -153,12 +171,43 @@ class EmojiCodepointDjangoDispatchRustTest(ZulipTestCase):
             ),
         ):
             self.assertEqual(render(), expected)
-        self.assertEqual(
-            accepted,
-            ["unqualify_emoji_text", "encode_emoji_codepoints", "decode_emoji_codepoints"]
-            if enabled
-            else [],
-        )
+        expected_calls = []
+        if selector_enabled:
+            expected_calls.append("unqualify_exact_emoji_text")
+        elif enabled:
+            expected_calls.append("unqualify_emoji_text")
+        if enabled:
+            expected_calls.extend(["encode_emoji_codepoints", "decode_emoji_codepoints"])
+        self.assertEqual(accepted, expected_calls)
 
         with patch.object(emoji_utils, "_backend", SimpleNamespace()):
             self.assertEqual(render(), expected)
+
+
+class EmojiPresentationSelectorContractTest(SimpleTestCase):
+    def test_catalog_keeps_text_selector_and_removes_only_emoji_selector(self) -> None:
+        self.assertEqual(get_emoji_code({"unified": "2615-FE0F-FE0E"}), "2615-fe0e")
+        self.assertEqual(get_emoji_code({"unified": "1F469-FE0F-200D-1F4BB"}), "1f469-200d-1f4bb")
+
+    def test_current_wheel_preserves_custom_unicode_and_noop_identity(self) -> None:
+        backend = emoji_utils._rust_emoji_selector
+        if getattr(backend, "EMOJI_PRESENTATION_SELECTOR_API", None) != 1:
+            self.skipTest("Matching emoji presentation selector contract is not available")
+
+        original = "✋\ufe0e\ud800"
+        with patch.object(
+            backend, "unqualify_exact_emoji_text", wraps=backend.unqualify_exact_emoji_text
+        ) as unqualify:
+            self.assertIs(emoji_utils.unqualify_emoji(original), original)
+            self.assertEqual(emoji_utils.unqualify_emoji("\ufe0f\ufe0f" + original), original)
+        self.assertEqual(unqualify.call_count, 2)
+
+    def test_custom_replace_remains_in_python(self) -> None:
+        class CustomEmoji(str):
+            __slots__ = ()
+
+            @override
+            def replace(self, old: str, new: str, count: SupportsIndex = -1) -> str:
+                return "custom"
+
+        self.assertEqual(emoji_utils.unqualify_emoji(CustomEmoji("☕\ufe0f")), "custom")
