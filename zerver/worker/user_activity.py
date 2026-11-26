@@ -1,15 +1,44 @@
 # Documented in https://zulip.readthedocs.io/en/latest/subsystems/queuing.html
 import logging
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 from django.db import connection
 from psycopg2.sql import SQL, Literal
 from typing_extensions import override
 
+from zerver.lib.native_backend import load_native_contract
 from zerver.worker.base import LoopQueueProcessingWorker, assign_queue
 
 logger = logging.getLogger(__name__)
+
+
+_activity_backend = load_native_contract(
+    "ZULIP_RUST_PREPARED_ACTIVITY_BATCH", "PREPARED_ACTIVITY_BATCH_API"
+)
+
+ActivityRow = tuple[int, int, str, int, float]
+
+
+def _activity_rows(events: list[dict[str, Any]]) -> list[ActivityRow]:
+    native = getattr(_activity_backend, "group_prepared_user_activity", None)
+    if callable(native):
+        prepared = cast("list[ActivityRow] | None", native(events))
+        if prepared is not None:
+            return prepared
+
+    # Keep the original deduplication, including order and fallback input types.
+    pending: dict[tuple[int, int, str], tuple[int, float]] = {}
+    for event in events:
+        user_profile_id = event["user_profile_id"]
+        client_id = event["client_id"]
+        key = (user_profile_id, client_id, event["query"])
+        if key not in pending:
+            pending[key] = (1, event["time"])
+        else:
+            count, event_time = pending[key]
+            pending[key] = (count + 1, max(event_time, event["time"]))
+    return [(*key, count, event_time) for key, (count, event_time) in pending.items()]
 
 
 @assign_queue("user_activity")
@@ -53,25 +82,10 @@ class UserActivityWorker(LoopQueueProcessingWorker):
 
     @override
     def consume_batch(self, user_activity_events: list[dict[str, Any]]) -> None:
-        uncommitted_events: dict[tuple[int, int, str], tuple[int, float]] = {}
-
-        # First, we drain the queue of all user_activity events and
-        # deduplicate them for insertion into the database.
-        for event in user_activity_events:
-            user_profile_id = event["user_profile_id"]
-            client_id = event["client_id"]
-
-            key_tuple = (user_profile_id, client_id, event["query"])
-            if key_tuple not in uncommitted_events:
-                uncommitted_events[key_tuple] = (1, event["time"])
-            else:
-                count, event_time = uncommitted_events[key_tuple]
-                uncommitted_events[key_tuple] = (count + 1, max(event_time, event["time"]))
-
         rows = []
-        for key_tuple, value_tuple in uncommitted_events.items():
-            user_profile_id, client_id, query = key_tuple
-            count, event_time = value_tuple
+        for user_profile_id, client_id, query, count, event_time in _activity_rows(
+            user_activity_events
+        ):
             rows.append(
                 SQL("({},{},{},{},to_timestamp({}))").format(
                     Literal(user_profile_id),
