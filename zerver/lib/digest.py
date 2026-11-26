@@ -78,6 +78,9 @@ _rust_group_prepared_digest_stream_rows = getattr(
 _rust_render_prepared_digest_channel_labels = getattr(
     _rust_stream_rows, "render_prepared_digest_channel_labels", None
 )
+_rust_build_prepared_digest_message_context = getattr(
+    _rust_stream_rows, "build_prepared_digest_message_context", None
+)
 
 _rust_index_prepared_slim_channels = getattr(
     _rust_stream_rows, "index_prepared_slim_channels", None
@@ -524,6 +527,32 @@ def _collect_recent_digest_topics(
     return recent_topics
 
 
+def _build_prepared_digest_message_context(
+    user: UserProfile,
+    stream_id_map: dict[int, Stream],
+    new_channels: dict[str, list[Markup] | list[str]],
+    new_messages_count: int,
+    hot_topics: list[DigestTopic] | None,
+) -> dict[str, object]:
+    if _rust_build_prepared_digest_message_context is not None:
+        return _rust_build_prepared_digest_message_context(
+            user, stream_id_map, new_channels, new_messages_count, hot_topics
+        )
+
+    if hot_topics is None:
+        return {
+            "new_messages_count": new_messages_count,
+            "hot_conversations": [],
+            "show_message_content": False,
+        }
+    return {
+        "hot_conversations": [topic.teaser_data(user, stream_id_map) for topic in hot_topics],
+        "new_channels": new_channels,
+        "new_messages_count": 0,
+        "show_message_content": True,
+    }
+
+
 def bulk_get_digest_context(
     users: Collection[UserProfile] | QuerySet[UserProfile], cutoff: float
 ) -> Iterator[tuple[UserProfile, dict[str, Any]]]:
@@ -579,9 +608,15 @@ def bulk_get_digest_context(
             if not have_min_recent_message_id:
                 min_recent_message_id = get_min_recent_message_id(realm.id, cutoff_date)
                 have_min_recent_message_id = True
-            context["new_messages_count"] = get_new_messages_count(user, min_recent_message_id)
-            context["hot_conversations"] = []
-            context["show_message_content"] = False
+            context.update(
+                _build_prepared_digest_message_context(
+                    user,
+                    stream_id_map,
+                    new_streams,
+                    get_new_messages_count(user, min_recent_message_id),
+                    None,
+                )
+            )
         else:
             # Otherwise, get context data for hot conversations.
             stream_ids = user_stream_map[user.id]
@@ -591,12 +626,11 @@ def bulk_get_digest_context(
             )
             hot_topics = get_hot_topics(recent_topics, stream_ids)
 
-            context["hot_conversations"] = [
-                hot_topic.teaser_data(user, stream_id_map) for hot_topic in hot_topics
-            ]
-            context["new_channels"] = new_streams
-            context["new_messages_count"] = 0
-            context["show_message_content"] = True
+            context.update(
+                _build_prepared_digest_message_context(
+                    user, stream_id_map, new_streams, 0, hot_topics
+                )
+            )
 
         yield user, context
 

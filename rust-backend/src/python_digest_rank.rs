@@ -265,3 +265,32 @@ pub(crate) fn index_prepared_slim_channels<'py>(
     }
     Ok(indexed)
 }
+
+/// Assemble presentation fields after Django has selected the digest display branch.
+#[pyfunction]
+#[pyo3(signature = (user, stream_id_map, new_channels, new_messages_count, hot_topics))]
+pub(crate) fn build_prepared_digest_message_context<'py>(
+    user: &Bound<'py, PyAny>,
+    stream_id_map: &Bound<'py, PyAny>,
+    new_channels: &Bound<'py, PyAny>,
+    new_messages_count: &Bound<'py, PyAny>,
+    hot_topics: Option<&Bound<'py, PyAny>>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let py = user.py();
+    let result = PyDict::new(py);
+    let conversations = PyList::empty(py);
+    if let Some(topics) = hot_topics {
+        for topic in topics.try_iter()? {
+            conversations.append(topic?.call_method1("teaser_data", (user, stream_id_map))?)?;
+        }
+        result.set_item("hot_conversations", conversations)?;
+        result.set_item("new_channels", new_channels)?;
+        result.set_item("new_messages_count", 0)?;
+        result.set_item("show_message_content", true)?;
+    } else {
+        result.set_item("new_messages_count", new_messages_count)?;
+        result.set_item("hot_conversations", conversations)?;
+        result.set_item("show_message_content", false)?;
+    }
+    Ok(result)
+}
