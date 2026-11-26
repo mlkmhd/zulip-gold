@@ -43,6 +43,10 @@ _rust_render_prepared_git_commit_rows = getattr(
     _rust_git_commit_summary, "render_prepared_git_commit_rows", None
 )
 
+_rust_build_prepared_git_comment_message = getattr(
+    _rust_git_commit_summary, "build_prepared_git_comment_message", None
+)
+
 TOPIC_WITH_BRANCH_TEMPLATE = "{repo} / {branch}"
 TOPIC_WITH_PR_OR_ISSUE_INFO_TEMPLATE = "{repo} / {type} #{id} {title}"
 TOPIC_WITH_RELEASE_TEMPLATE = "{repo} / {tag} {title}"
@@ -470,6 +474,14 @@ def get_push_tag_event_message(
 def get_commits_comment_action_message(
     user_name: str, action: str, commit_url: str, sha: str, message: str | None = None
 ) -> str:
+    if _rust_build_prepared_git_comment_message is not None:
+        return _rust_build_prepared_git_comment_message(
+            (user_name, action, commit_url, sha, message),
+            COMMITS_COMMENT_MESSAGE_TEMPLATE,
+            CONTENT_MESSAGE_TEMPLATE,
+            get_short_sha,
+            get_unused_fence,
+        )
     content = COMMITS_COMMENT_MESSAGE_TEMPLATE.format(
         user_name=user_name,
         action=action,

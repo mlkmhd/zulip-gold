@@ -773,7 +773,8 @@ mod _zulip_backend {
 
     #[pymodule_export]
     use crate::python_git_commit_summary_text::{
-        finish_git_commit_summary_text, format_prepared_tag_event, render_prepared_git_commit_rows,
+        build_prepared_git_comment_message, finish_git_commit_summary_text,
+        format_prepared_tag_event, render_prepared_git_commit_rows,
     };
 
     #[pymodule_export]

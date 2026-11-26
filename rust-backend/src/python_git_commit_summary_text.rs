@@ -1,7 +1,7 @@
 //! Finish prepared display text without inspecting its rows.
 
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyInt, PySlice, PyString};
+use pyo3::types::{PyDict, PyInt, PySlice, PyString, PyTuple};
 
 use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes};
 
@@ -132,4 +132,36 @@ pub(crate) fn format_prepared_tag_event<'py>(
         result.push(b'.');
     }
     python_string_from_bytes(user.py(), &result)
+}
+
+#[pyfunction]
+pub(crate) fn build_prepared_git_comment_message<'py>(
+    data: &Bound<'py, PyTuple>,
+    header_template: &Bound<'py, PyAny>,
+    quote_template: &Bound<'py, PyAny>,
+    short_sha: &Bound<'py, PyAny>,
+    fence: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let py = data.py();
+    let header = header_template.getattr("format")?;
+    let fields = PyDict::new(py);
+    fields.set_item("user_name", data.get_item(0)?)?;
+    fields.set_item("action", data.get_item(1)?)?;
+    fields.set_item("sha", short_sha.call1((data.get_item(3)?,))?)?;
+    fields.set_item("url", data.get_item(2)?)?;
+    let header = header.call((), Some(&fields))?;
+    let message = data.get_item(4)?;
+    let punctuation = if message.is_truthy()? { ":" } else { "." };
+    let content = PyString::new(py, "{}{}").call_method1("format", (header, punctuation))?;
+    if !message.is_truthy()? {
+        return Ok(content);
+    }
+
+    let render_quote = quote_template.getattr("format")?;
+    let fields = PyDict::new(py);
+    fields.set_item("message", &message)?;
+    fields.set_item("fence", fence.call1((message,))?)?;
+    let quote = render_quote.call((), Some(&fields))?;
+    py.import("operator")?
+        .call_method1("iadd", (content, quote))
 }
