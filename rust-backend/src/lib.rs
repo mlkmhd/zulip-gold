@@ -26,6 +26,9 @@ mod draft_recipients;
 pub mod http;
 
 #[cfg(any(feature = "http", feature = "python"))]
+mod user_agent;
+
+#[cfg(any(feature = "http", feature = "python"))]
 mod own_profile_payload;
 
 #[cfg(feature = "python")]
