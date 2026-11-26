@@ -403,6 +403,7 @@ mod _zulip_backend {
         module.add("PRIVATE_UNREAD_ARRIVAL_API", 1)?;
         module.add("CLIENT_READ_DEFAULTS_API", 1)?;
         module.add("EXACT_CHANNEL_TOPIC_API", 1)?;
+        module.add("PREPARED_SCHEDULED_RESPONSE_API", 1)?;
         module.add("EXACT_MESSAGE_BODY_API", 1)?;
         module.add("PREPARED_RECENT_DM_ROWS_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
@@ -2533,6 +2534,81 @@ mod _zulip_backend {
             Err(RecipientError::EmptyDirectList) => (None, Some("empty_direct_list")),
             Err(RecipientError::InvalidType) => (None, Some("invalid_type")),
         }
+    }
+
+    #[pyfunction]
+    fn format_prepared_scheduled_response<'py>(
+        py: Python<'py>,
+        fields: &Bound<'py, PyAny>,
+    ) -> PyResult<Option<Bound<'py, PyDict>>> {
+        let Ok(fields) = fields.cast_exact::<PyTuple>() else {
+            return Ok(None);
+        };
+        if fields.len() != 9 {
+            return Ok(None);
+        }
+        let id = fields.get_item(0)?;
+        let to = fields.get_item(1)?;
+        let kind = fields.get_item(2)?;
+        let content = fields.get_item(3)?;
+        let rendered = fields.get_item(4)?;
+        let topic = fields.get_item(5)?;
+        let timestamp = fields.get_item(6)?;
+        let failed = fields.get_item(7)?;
+        let target = fields.get_item(8)?;
+        let Some(kind_text) = kind
+            .cast_exact::<PyString>()
+            .ok()
+            .and_then(|kind| kind.to_str().ok())
+        else {
+            return Ok(None);
+        };
+        if !id.is_exact_instance_of::<PyInt>()
+            || !timestamp.is_exact_instance_of::<PyInt>()
+            || !failed.is_exact_instance_of::<pyo3::types::PyBool>()
+            || !content.is_exact_instance_of::<PyString>()
+            || !rendered.is_exact_instance_of::<PyString>()
+        {
+            return Ok(None);
+        }
+        match kind_text {
+            "stream"
+                if to.is_exact_instance_of::<PyInt>()
+                    && topic.is_exact_instance_of::<PyString>()
+                    && target.is_none() => {}
+            "private"
+                if topic.is_none()
+                    && (target.is_none() || target.is_exact_instance_of::<PyInt>()) =>
+            {
+                let Ok(to) = to.cast_exact::<PyList>() else {
+                    return Ok(None);
+                };
+                if !to.iter().all(|id| id.is_exact_instance_of::<PyInt>()) {
+                    return Ok(None);
+                }
+            }
+            _ => return Ok(None),
+        }
+        let output = PyDict::new(py);
+        let id_key = if target.is_none() {
+            "scheduled_message_id"
+        } else {
+            "reminder_id"
+        };
+        output.set_item(id_key, id)?;
+        output.set_item("to", to)?;
+        output.set_item("type", &kind)?;
+        output.set_item("content", content)?;
+        output.set_item("rendered_content", rendered)?;
+        if kind_text == "stream" {
+            output.set_item("topic", topic)?;
+        }
+        output.set_item("scheduled_delivery_timestamp", timestamp)?;
+        output.set_item("failed", failed)?;
+        if !target.is_none() {
+            output.set_item("reminder_target_message_id", target)?;
+        }
+        Ok(Some(output))
     }
 
     #[pyfunction(signature = (id, to, topic, content, timestamp, failed, reminder_target_message_id=None))]

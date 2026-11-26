@@ -9,6 +9,7 @@ from django.utils.timezone import now as timezone_now
 from typing_extensions import override
 
 from zerver.lib.display_recipient import get_recipient_ids
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.timestamp import datetime_to_timestamp
 from zerver.models.clients import Client
 from zerver.models.constants import MAX_TOPIC_NAME_LENGTH
@@ -23,6 +24,11 @@ _rust_scheduled_job_serialization = (
     import_module("_zulip_backend")
     if os.environ.get("ZULIP_RUST_SCHEDULED_JOB_SERIALIZATION") == "1"
     else None
+)
+
+
+_rust_prepared_scheduled_response = load_native_contract(
+    "ZULIP_RUST_PREPARED_SCHEDULED_RESPONSE", "PREPARED_SCHEDULED_RESPONSE_API"
 )
 
 
@@ -261,26 +267,52 @@ class ScheduledMessage(models.Model):
                 ),
             )
 
+        message_id = self.id
+        to = recipient if is_direct else recipient[0]
+        content = self.content
+        rendered_content = self.rendered_content
+        topic = None if is_direct else self.topic_name()
+        failed = self.failed
+        native = getattr(
+            _rust_prepared_scheduled_response, "format_prepared_scheduled_response", None
+        )
+        if native is not None and type(self) is ScheduledMessage and not self._state.adding:
+            wire = native(
+                (
+                    message_id,
+                    to,
+                    recipient_type_str,
+                    content,
+                    rendered_content,
+                    topic,
+                    timestamp,
+                    failed,
+                    None,
+                )
+            )
+            if wire is not None:
+                return cast(APIScheduledStreamMessageDict | APIScheduledDirectMessageDict, wire)
+
         if is_direct:
             return APIScheduledDirectMessageDict(
-                scheduled_message_id=self.id,
+                scheduled_message_id=message_id,
                 to=recipient,
                 type=recipient_type_str,
-                content=self.content,
-                rendered_content=self.rendered_content,
+                content=content,
+                rendered_content=rendered_content,
                 scheduled_delivery_timestamp=timestamp,
-                failed=self.failed,
+                failed=failed,
             )
 
         return APIScheduledStreamMessageDict(
-            scheduled_message_id=self.id,
-            to=recipient[0],
+            scheduled_message_id=message_id,
+            to=cast(int, to),
             type=recipient_type_str,
-            content=self.content,
-            rendered_content=self.rendered_content,
-            topic=self.topic_name(),
+            content=content,
+            rendered_content=rendered_content,
+            topic=cast(str, topic),
             scheduled_delivery_timestamp=timestamp,
-            failed=self.failed,
+            failed=failed,
         )
 
     def to_reminder_dict(self) -> APIReminderDirectMessageDict:
@@ -301,15 +333,44 @@ class ScheduledMessage(models.Model):
                     self.reminder_target_message_id,
                 ),
             )
+        reminder_id = self.id
+        content = self.content
+        rendered_content = self.rendered_content
+        failed = self.failed
+        target_message_id = self.reminder_target_message_id
+        native = getattr(
+            _rust_prepared_scheduled_response, "format_prepared_scheduled_response", None
+        )
+        if (
+            native is not None
+            and type(self) is ScheduledMessage
+            and not self._state.adding
+            and target_message_id is not None
+        ):
+            wire = native(
+                (
+                    reminder_id,
+                    recipient,
+                    "private",
+                    content,
+                    rendered_content,
+                    None,
+                    timestamp,
+                    failed,
+                    target_message_id,
+                )
+            )
+            if wire is not None:
+                return cast(APIReminderDirectMessageDict, wire)
         return APIReminderDirectMessageDict(
-            reminder_id=self.id,
+            reminder_id=reminder_id,
             to=recipient,
             type="private",
-            content=self.content,
-            rendered_content=self.rendered_content,
+            content=content,
+            rendered_content=rendered_content,
             scheduled_delivery_timestamp=timestamp,
-            failed=self.failed,
-            reminder_target_message_id=self.reminder_target_message_id,
+            failed=failed,
+            reminder_target_message_id=target_message_id,
         )
 
 
