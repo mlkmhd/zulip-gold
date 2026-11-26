@@ -113,3 +113,26 @@ pub(crate) fn assemble_recent_digest_topics<'py>(
     }
     Ok(topic_map.values())
 }
+
+#[pyfunction]
+pub(crate) fn add_prepared_digest_topic_message(
+    topic: &Bound<'_, PyAny>,
+    message: &Bound<'_, PyAny>,
+) -> PyResult<()> {
+    if topic.getattr("sample_messages")?.len()? < 2 {
+        topic
+            .getattr("sample_messages")?
+            .call_method1("append", (message,))?;
+    }
+
+    if !message.getattr("sender")?.getattr("is_bot")?.is_truthy()? {
+        let add_sender = topic.getattr("human_senders")?.getattr("add")?;
+        let full_name = message.getattr("sender")?.getattr("full_name")?;
+        add_sender.call1((full_name,))?;
+        let count = topic
+            .getattr("num_human_messages")?
+            .call_method1("__add__", (1,))?;
+        topic.setattr("num_human_messages", count)?;
+    }
+    Ok(())
+}

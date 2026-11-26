@@ -54,6 +54,10 @@ _rust_recent_topic_aggregation = load_native_contract(
     "ZULIP_RUST_DIGEST_TOPIC_AGGREGATION", "DIGEST_TOPIC_AGGREGATION_API"
 )
 
+_rust_topic_sampling = load_native_contract(
+    "ZULIP_RUST_DIGEST_TOPIC_SAMPLES", "DIGEST_TOPIC_SAMPLES_API"
+)
+
 TopicKey: TypeAlias = tuple[int, str]
 
 
@@ -79,6 +83,11 @@ class DigestTopic:
         return self.topic_key[1]
 
     def add_message(self, message: Message) -> None:
+        native = getattr(_rust_topic_sampling, "add_prepared_digest_topic_message", None)
+        if callable(native) and type(self) is DigestTopic and type(self.num_human_messages) is int:
+            native(self, message)
+            return
+
         if len(self.sample_messages) < 2:
             self.sample_messages.append(message)
 

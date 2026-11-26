@@ -333,6 +333,7 @@ mod _zulip_backend {
         module.add("EMAIL_PLAINTEXT_SURROGATES", 1)?;
         module.add("DIGEST_TOPIC_RANK_API", 1)?;
         module.add("DIGEST_TOPIC_AGGREGATION_API", 1)?;
+        module.add("DIGEST_TOPIC_SAMPLES_API", 1)?;
         module.add("ANALYTICS_CLIENT_SERIES_API", 1)?;
         module.add("ANALYTICS_CHART_ORDER_API", 1)?;
         module.add("ANALYTICS_SUBGROUP_PROJECTION_API", 1)?;
@@ -599,7 +600,8 @@ mod _zulip_backend {
 
     #[pymodule_export]
     use crate::python_digest_rank::{
-        assemble_recent_digest_topics, rank_eligible_digest_topic_indices,
+        add_prepared_digest_topic_message, assemble_recent_digest_topics,
+        rank_eligible_digest_topic_indices,
     };
 
     #[pymodule_export]
