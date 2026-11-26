@@ -43,6 +43,38 @@ class MarkdownTexSyntaxTest(TestCase):
         assert result is not None
         return result
 
+    def test_matching_default_selects_native_tex_syntax(self) -> None:
+        if getattr(self.extension, "MARKDOWN_TEX_SYNTAX_API", None) != 1:
+            self.skipTest("Matching Rust TeX syntax contract is not available")
+        if tex_syntax._rust_tex_syntax is not self.extension:
+            self.skipTest("Matching Rust TeX syntax is not selected on this platform")
+        reference = self.pattern()
+        self.assertIsInstance(tex_syntax.tex_pattern(reference), tex_syntax.TexPattern)
+        with patch.object(
+            self.extension, "find_markdown_tex", wraps=self.extension.find_markdown_tex
+        ) as find:
+            match = self.matched(tex_syntax.tex_pattern(reference), "$$x$$")
+        self.assertEqual(match.group("body"), "x")
+        find.assert_called_once()
+
+    def test_string_subclass_uses_the_reference_match(self) -> None:
+        class Source(str):
+            __slots__ = ()
+
+            @override
+            def __len__(self) -> int:
+                return 100
+
+        reference = self.pattern()
+        data = Source("$$x$$")
+        with (
+            patch.object(tex_syntax, "_rust_tex_syntax", self.extension),
+            patch.object(self.extension, "find_markdown_tex") as find,
+        ):
+            match = self.matched(tex_syntax.TexPattern(reference), data)
+        self.assertEqual(match.end(), self.matched(reference, data).end())
+        find.assert_not_called()
+
     def test_legacy_match_captures_and_offsets(self) -> None:
         reference = self.pattern()
         native = tex_syntax.TexPattern(reference)

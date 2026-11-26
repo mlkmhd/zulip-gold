@@ -1,16 +1,13 @@
-import os
 import re
 import sys
 import unicodedata
 from dataclasses import dataclass
-from importlib import import_module
 from typing import cast
 
-_rust_tex_syntax = (
-    import_module("_zulip_backend")
-    if os.environ.get("ZULIP_RUST_MARKDOWN_TEX_SYNTAX") == "1"
-    else None
-)
+from zerver.lib.native_backend import load_native_contract
+
+_rust_tex_syntax = load_native_contract("ZULIP_RUST_MARKDOWN_TEX_SYNTAX", "MARKDOWN_TEX_SYNTAX_API")
+
 
 _WRAPPED_TEX_RE = r"^(.*?)\B(?<!\$)\$\$(?P<body>[^\n_$](\\\$|[^$\n])*)\$\$(?!\$)\B(.*)$"
 
@@ -47,6 +44,8 @@ class TexPattern:
         finder = getattr(_rust_tex_syntax, "find_markdown_tex", None)
         if (
             finder is None
+            or type(data) is not str
+            or type(self.fallback) is not re.Pattern
             or sys.implementation.name != "cpython"
             or sys.version_info[:2] != (3, 12)
             or self.fallback.pattern != _WRAPPED_TEX_RE

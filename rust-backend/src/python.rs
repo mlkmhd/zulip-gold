@@ -366,6 +366,7 @@ mod _zulip_backend {
         module.add("MARKDOWN_PRETTIFY_API", 1)?;
         module.add("MARKDOWN_SERIALIZATION_API", 1)?;
         module.add("MARKDOWN_POSTPROCESSING_API", 1)?;
+        module.add("MARKDOWN_TEX_SYNTAX_API", 1)?;
         module.add("DISPLAY_RECIPIENT_ORDER_API", 1)
     }
 
