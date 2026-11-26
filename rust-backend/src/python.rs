@@ -392,6 +392,7 @@ mod _zulip_backend {
         module.add("VISIBLE_MESSAGE_WINDOW_API", 1)?;
         module.add("SETTINGS_CATALOGS_API", 1)?;
         module.add("SETTINGS_SNAPSHOT_API", 1)?;
+        module.add("GROUP_ROSTER_REPLAY_API", 1)?;
         module.add("PREPARED_RECENT_DM_ROWS_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
         module.add("MARKDOWN_HEADINGS_API", 1)?;

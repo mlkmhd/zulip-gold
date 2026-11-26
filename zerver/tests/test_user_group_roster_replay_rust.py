@@ -142,7 +142,10 @@ class UserGroupRosterRegistrationRustTest(ZulipTestCase):
         backend = extension()
         append = backend.append_and_sort_register_group_ids
         subtract = backend.subtract_register_group_ids
-        enabled = environ.get("ZULIP_RUST_GROUP_ROSTER_REPLAY") == "1"
+        enabled = (
+            environ.get("ZULIP_RUST_GROUP_ROSTER_REPLAY") == "1"
+            or native_group_payload._roster_replay_backend is backend
+        )
         owner = self.example_user("hamlet")
         peer = self.example_user("cordelia")
         other = self.example_user("othello")

@@ -1,4 +1,4 @@
-"""Opt-in projection of group and membership rows already selected by Django."""
+"""Native projection of group and membership rows already selected by Django."""
 
 from __future__ import annotations
 
@@ -6,6 +6,8 @@ import os
 from collections.abc import Callable
 from importlib import import_module
 from typing import TYPE_CHECKING, cast
+
+from zerver.lib.native_backend import load_native_contract
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -25,16 +27,9 @@ except ModuleNotFoundError as error:
         raise
     _backend = None
 
-try:
-    _roster_replay_backend = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_GROUP_ROSTER_REPLAY") == "1"
-        else None
-    )
-except ModuleNotFoundError as error:
-    if error.name != "_zulip_backend":
-        raise
-    _roster_replay_backend = None
+_roster_replay_backend = load_native_contract(
+    "ZULIP_RUST_GROUP_ROSTER_REPLAY", "GROUP_ROSTER_REPLAY_API"
+)
 
 
 def append_roster_ids(selected: object, incoming: object) -> bool:
