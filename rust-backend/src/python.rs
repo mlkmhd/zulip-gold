@@ -2183,6 +2183,19 @@ mod _zulip_backend {
         body: &Bound<'py, PyAny>,
         limit: &Bound<'py, PyAny>,
     ) -> Option<(Option<Bound<'py, PyString>>, Option<&'static str>)> {
+        let exact = body.cast_exact::<PyString>().ok()?;
+        let max_length = limit.cast_exact::<PyInt>().ok()?.extract::<i64>().ok()?;
+        if let (Ok(text), Ok(max_length)) = (exact.to_str(), usize::try_from(max_length)) {
+            return Some(match draft_text::normalize_body(text, max_length) {
+                Ok(std::borrow::Cow::Borrowed(result)) if result.len() == text.len() => {
+                    (Some(exact.clone()), None)
+                }
+                Ok(result) => (Some(PyString::new(body.py(), &result)), None),
+                Err(draft_text::BodyError::Empty) => (None, Some("empty")),
+                Err(draft_text::BodyError::NullByte) => (None, Some("null_byte")),
+            });
+        }
+        // Python permits both lone surrogates and negative slice endpoints.
         normalize_exact_body(body, limit)
     }
 

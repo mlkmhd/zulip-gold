@@ -32,6 +32,8 @@ class ExactMessageBodyRustTest(SimpleTestCase):
             "\r\n preserved\u00a0",
             "آ😀\ud800\u3000",
             "🙂" * 40 + "\udfff",
+            "سلام🙂 " * 200,
+            (" é‍漢字" * 180) + "\u3000",
             "a" * 65 + "\0",
             "\0\u00a0",
         ]
