@@ -3,8 +3,9 @@
 use crate::python_text_bytes::{
     join_exact_python_strings, python_string_bytes, python_string_from_bytes, trim_python_text,
 };
+use pyo3::exceptions::PyIndexError;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PyString};
+use pyo3::types::{PyDict, PyList, PySlice, PyString};
 
 #[pyfunction]
 pub(crate) fn normalize_prepared_tabbed_lines<'py>(
@@ -95,4 +96,59 @@ pub(crate) fn build_prepared_tab_nav<'py>(
     let kw = PyDict::new(py);
     kw.set_item("tabs", joined)?;
     nav_template.call_method("format", (), Some(&kw))
+}
+
+#[pyfunction]
+pub(crate) fn build_prepared_tab_content<'py>(
+    section: &Bound<'py, PyAny>,
+    lines: &Bound<'py, PyAny>,
+    template: &Bound<'py, PyAny>,
+    labels: &Bound<'py, PyAny>,
+    normalize: Option<&Bound<'py, PyAny>>,
+    join: Option<&Bound<'py, PyAny>>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let py = lines.py();
+    let lf = PyString::new(py, "\n");
+    let wrap_content = PyString::new(py, "\n{}\n");
+    let blocks = PyList::empty(py);
+    for (index, tab) in section.get_item("tabs")?.try_iter()?.enumerate() {
+        let tab = tab?;
+        let start = tab.get_item("start")?.add(1)?;
+        let end = match section
+            .get_item("tabs")
+            .and_then(|tabs| tabs.get_item(index + 1))
+            .and_then(|next| next.get_item("start"))
+        {
+            Ok(end) => end,
+            Err(error) if error.is_instance_of::<PyIndexError>(py) => {
+                section.get_item("end_tabs_index")?
+            }
+            Err(error) => return Err(error),
+        };
+        let selected = lines.get_item(py.get_type::<PySlice>().call1((start, end))?)?;
+        let mut content = match normalize {
+            Some(normalize) => normalize.call1((&selected,))?,
+            None => py.None().into_bound(py),
+        };
+        if content.is_none() {
+            content = lf
+                .call_method1("join", (selected,))?
+                .call_method0("strip")?;
+        }
+
+        let render = template.getattr("format")?;
+        let args = PyDict::new(py);
+        args.set_item("class_", if index == 0 { "active" } else { "" })?;
+        args.set_item("data_tab_key", tab.get_item("tab_key")?)?;
+        args.set_item("tab_label", labels.get_item(tab.get_item("tab_key")?)?)?;
+        args.set_item("content", wrap_content.call_method1("format", (content,))?)?;
+        blocks.append(render.call((), Some(&args))?)?;
+    }
+    if let Some(join) = join {
+        let joined = join.call1((&blocks,))?;
+        if !joined.is_none() {
+            return Ok(joined);
+        }
+    }
+    lf.call_method1("join", (blocks,))
 }

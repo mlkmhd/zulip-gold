@@ -743,8 +743,8 @@ mod _zulip_backend {
 
     #[pymodule_export]
     use crate::python_tabbed_text::{
-        build_prepared_tab_nav, join_prepared_tabbed_blocks, normalize_prepared_tabbed_lines,
-        parse_prepared_tab_markers,
+        build_prepared_tab_content, build_prepared_tab_nav, join_prepared_tabbed_blocks,
+        normalize_prepared_tabbed_lines, parse_prepared_tab_markers,
     };
 
     #[pymodule_export]

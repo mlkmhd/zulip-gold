@@ -21,6 +21,7 @@ _rust_normalize_prepared_tabbed_lines = getattr(
 _rust_join_prepared_tabbed_blocks = getattr(_rust_tabbed_text, "join_prepared_tabbed_blocks", None)
 _rust_parse_prepared_tab_markers = getattr(_rust_tabbed_text, "parse_prepared_tab_markers", None)
 _rust_build_prepared_tab_nav = getattr(_rust_tabbed_text, "build_prepared_tab_nav", None)
+_rust_build_prepared_tab_content = getattr(_rust_tabbed_text, "build_prepared_tab_content", None)
 
 START_TABBED_SECTION_REGEX = re.compile(r"^\{start_tabs\}$")
 END_TABBED_SECTION_REGEX = re.compile(r"^\{end_tabs\}$")
@@ -124,6 +125,16 @@ def parse_tabs(lines: list[str]) -> dict[str, Any] | None:
 def generate_content_blocks(
     tab_section: dict[str, Any], lines: list[str], tab_content_template: str
 ) -> str:
+    if _rust_build_prepared_tab_content is not None:
+        return _rust_build_prepared_tab_content(
+            tab_section,
+            lines,
+            tab_content_template,
+            TAB_SECTION_LABELS,
+            _rust_normalize_prepared_tabbed_lines,
+            _rust_join_prepared_tabbed_blocks,
+        )
+
     tab_content_blocks = []
     for index, tab in enumerate(tab_section["tabs"]):
         start_index = tab["start"] + 1
