@@ -55,6 +55,63 @@ class KatexResponseRustTest(SimpleTestCase):
         ):
             tex.render_tex("x")
 
+    def test_matching_service_response_keeps_results_and_logging(self) -> None:
+        backend = tex._rust_katex_service_response
+        if backend is None:
+            self.skipTest("Matching native KaTeX response contract is not available")
+
+        for status, content in (
+            (200, "\u2003<span>یادداشت</span>\u0085\n".encode()),
+            (400, b"\xff"),
+            (503, "\n خطا \n".encode()),
+        ):
+            with self.subTest(status=status):
+                response = requests.Response()
+                response.status_code = status
+                response._content = content
+                session = Mock()
+                session.post.return_value = response
+                with (
+                    patch.object(tex, "_rust_katex_response", None),
+                    patch.object(tex, "_rust_katex_service_response", None),
+                    patch.object(tex, "KatexSession", return_value=session),
+                    patch.object(logging, "warning") as reference_warning,
+                ):
+                    expected = tex.render_tex("x", False)
+                with (
+                    patch.object(tex, "_rust_katex_response", None),
+                    patch.object(tex, "KatexSession", return_value=session),
+                    patch.object(logging, "warning") as actual_warning,
+                    patch.object(
+                        backend, "render_katex_response", wraps=backend.render_katex_response
+                    ) as handle,
+                ):
+                    self.assertEqual(tex.render_tex("x", False), expected)
+                handle.assert_called_once_with(response, vars(tex))
+                self.assertEqual(actual_warning.call_args_list, reference_warning.call_args_list)
+                self.assertEqual(session.post.call_count, 2)
+
+    def test_responses_with_custom_status_use_established_python_dispatch(self) -> None:
+        backend = tex._rust_katex_service_response
+        if backend is None:
+            self.skipTest("Matching native KaTeX response contract is not available")
+
+        class CustomResponse(requests.Response):
+            pass
+
+        session = Mock()
+        response = CustomResponse()
+        response.status_code = 200
+        response._content = b" custom "
+        session.post.return_value = response
+        with (
+            patch.object(tex, "_rust_katex_response", None),
+            patch.object(tex, "KatexSession", return_value=session),
+            patch.object(backend, "render_katex_response") as handle,
+        ):
+            self.assertEqual(tex.render_tex("x"), "custom")
+        handle.assert_not_called()
+
     def test_success_retains_request_and_unicode_strip(self) -> None:
         for is_inline in [True, False]:
             with self.subTest(is_inline=is_inline):

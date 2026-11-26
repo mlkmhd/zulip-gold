@@ -28,6 +28,11 @@ _rust_katex_response = (
 _rust_katex_success = load_native_contract(
     "ZULIP_RUST_KATEX_SUCCESS_BYTES", "KATEX_SUCCESS_BYTES_API"
 )
+_rust_katex_service_response = load_native_contract(
+    "ZULIP_RUST_KATEX_SERVICE_RESPONSE", "KATEX_SERVICE_RESPONSE_API"
+)
+_original_katex_response_type = requests.Response
+
 _rust_development_cli = load_native_contract(
     "ZULIP_RUST_DEVELOPMENT_KATEX_CLI", "DEVELOPMENT_KATEX_CLI_API"
 )
@@ -82,6 +87,8 @@ def render_tex(tex: str, is_inline: bool = True) -> str | None:
             return None
 
         response_handler = getattr(_rust_katex_response, "render_katex_response", None)
+        if response_handler is None and type(resp) is _original_katex_response_type:
+            response_handler = getattr(_rust_katex_service_response, "render_katex_response", None)
         if response_handler is not None:
             return cast(str | None, response_handler(resp, globals()))
         if resp.status_code == 200:
