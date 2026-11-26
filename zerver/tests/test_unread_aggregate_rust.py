@@ -6,7 +6,12 @@ import orjson
 from django.test import SimpleTestCase
 
 from zerver.lib import native_unread
-from zerver.lib.message import RawUnreadMessagesResult, aggregate_unread_data
+from zerver.lib.event_types import MessageDetails
+from zerver.lib.message import (
+    RawUnreadMessagesResult,
+    aggregate_unread_data,
+    format_unread_message_details,
+)
 from zerver.models import Message
 
 
@@ -70,3 +75,48 @@ class UnreadAggregateRustTest(SimpleTestCase):
             self.assertIsNone(
                 backend.aggregate_unread_payload(raw, True, Message.EMPTY_TOPIC_FALLBACK_NAME)
             )
+
+
+class UnreadDetailsRustTest(SimpleTestCase):
+    def test_prepared_details_match_fields_and_insertion_order(self) -> None:
+        raw: RawUnreadMessagesResult = {
+            "pm_dict": {15: {"other_user_id": 4}, 3: {"other_user_id": 7}},
+            "stream_dict": {
+                8: {"stream_id": 9, "topic": "سلام"},
+                2: {"stream_id": 9, "topic": ""},
+            },
+            "huddle_dict": {5: {"user_ids_string": "9,4,5,5"}},
+            "unmuted_stream_msgs": {2},
+            "mentions": {8, 5, 15},
+            "old_unreads_missing": False,
+        }
+        with (
+            patch.object(native_unread, "_details_backend", None),
+            patch.object(native_unread, "_backend", None),
+        ):
+            expected = format_unread_message_details(4, raw)
+        backend = native_unread._details_backend
+        witness = (
+            patch.object(backend, "format_unread_details", wraps=backend.format_unread_details)
+            if backend is not None
+            else nullcontext()
+        )
+        with witness as native:
+            result = format_unread_message_details(4, raw)
+        self.assertEqual(
+            [(key, row.model_dump()) for key, row in result.items()],
+            [(key, row.model_dump()) for key, row in expected.items()],
+        )
+        self.assertEqual(list(result), ["15", "3", "8", "2", "5"])
+        self.assertEqual(result["15"].user_ids, [])
+        self.assertEqual(result["5"].user_ids, [5, 5, 9])
+        self.assertTrue(result["2"].unmuted_stream_msg)
+        self.assertTrue(result["8"].mentioned)
+        if native is not None:
+            native.assert_called_once_with(4, raw, MessageDetails)
+
+        # Python has historically accepted whitespace and a leading plus sign.
+        raw["huddle_dict"][5]["user_ids_string"] = "+9, 4,5,5"
+        if backend is not None:
+            self.assertIsNone(backend.format_unread_details(4, raw, MessageDetails))
+        self.assertEqual(format_unread_message_details(4, raw), result)
