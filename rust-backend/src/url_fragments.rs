@@ -82,6 +82,37 @@ pub(crate) fn decode_hash_component_valid_utf8(input: &str) -> Option<String> {
     String::from_utf8(output).ok()
 }
 
+#[cfg(any(feature = "python", test))]
+pub(crate) fn encode_user_slug_ascii(
+    full_name: &str,
+    user_id: i64,
+    with_operator: bool,
+) -> Option<String> {
+    if !full_name.is_ascii() {
+        return None;
+    }
+    let name = full_name.trim_matches(|ch| matches!(ch, '\u{09}'..='\u{0d}' | '\u{1c}'..=' '));
+    let mut slug = String::new();
+    if with_operator {
+        slug.push_str("dm/");
+    }
+    slug.push_str(&user_id.to_string());
+    slug.push('-');
+    let mut replacing = false;
+    for ch in name.chars() {
+        if ch.is_ascii_control() || matches!(ch, ' ' | '"' | '%' | '/' | '<' | '>' | '\u{60}') {
+            if !replacing {
+                slug.push('-');
+            }
+            replacing = true;
+        } else {
+            slug.push(ch);
+            replacing = false;
+        }
+    }
+    Some(slug)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,6 +154,19 @@ mod tests {
         );
         assert_eq!(decode_hash_component_valid_utf8(".FF"), None);
         assert_eq!(decode_hash_component_valid_utf8(".x3"), None);
+    }
+
+    #[test]
+    fn formats_ascii_user_slug_and_declines_other_unicode() {
+        assert_eq!(
+            encode_user_slug_ascii("\tA%/  B\x1f", -1, true).as_deref(),
+            Some("dm/-1-A-B")
+        );
+        assert_eq!(
+            encode_user_slug_ascii("A--B", 2, false).as_deref(),
+            Some("2-A--B")
+        );
+        assert_eq!(encode_user_slug_ascii("آرش", 2, false), None);
     }
 
     #[test]

@@ -378,6 +378,7 @@ mod _zulip_backend {
         module.add("API_RETURN_INDENT_API", 1)?;
         module.add("URL_FRAGMENTS_API", 1)?;
         module.add("CHANNEL_NARROW_SLUG_API", 1)?;
+        module.add("ASCII_USER_NARROW_SLUG_API", 1)?;
         module.add("NARROW_RECIPIENT_SLUG_API", 1)?;
         module.add("NARROW_FRAGMENT_TEXT_API", 1)?;
         module.add("NARROW_TERM_GRAMMAR_API", 1)?;
@@ -3150,6 +3151,21 @@ mod _zulip_backend {
             }
         }
         Some(terms)
+    }
+
+    #[pyfunction]
+    fn encode_narrow_user_slug_ascii(
+        full_name: &Bound<'_, PyAny>,
+        user_id: &Bound<'_, PyAny>,
+        with_operator: &Bound<'_, PyAny>,
+    ) -> Option<String> {
+        let name = full_name.cast_exact::<PyString>().ok()?.to_str().ok()?;
+        let id = user_id.cast_exact::<PyInt>().ok()?.extract::<i64>().ok()?;
+        let with_operator = with_operator
+            .cast_exact::<pyo3::types::PyBool>()
+            .ok()?
+            .is_true();
+        url_fragments::encode_user_slug_ascii(name, id, with_operator)
     }
 
     #[pyfunction]

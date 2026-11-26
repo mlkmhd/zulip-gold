@@ -17,6 +17,10 @@ _rust_channel_narrow_slug = load_native_contract(
     "ZULIP_RUST_CHANNEL_NARROW_SLUG", "CHANNEL_NARROW_SLUG_API"
 )
 
+_rust_ascii_user_narrow_slug = load_native_contract(
+    "ZULIP_RUST_ASCII_USER_NARROW_SLUG", "ASCII_USER_NARROW_SLUG_API"
+)
+
 hash_replacements = {
     "%": ".",
     "(": ".28",
@@ -110,6 +114,12 @@ def encode_user_full_name_and_id(full_name: str, user_id: int, with_operator: bo
 
     e.g., "dm/9-King-Hamlet"
     """
+    native = getattr(_rust_ascii_user_narrow_slug, "encode_narrow_user_slug_ascii", None)
+    if callable(native):
+        encoded = cast("str | None", native(full_name, user_id, with_operator))
+        if encoded is not None:
+            return encoded
+
     encoded_user_name = re2.sub(r'[ "%\/<>`\p{C}]+', "-", full_name.strip())
     direct_message_slug = str(user_id) + "-" + encoded_user_name
     if with_operator:
