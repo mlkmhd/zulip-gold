@@ -20,9 +20,7 @@ _rust_markdown_tex = (
 _subprocess_check_output = subprocess.check_output
 _subprocess_popen = subprocess.Popen
 
-_rust_raw_latex = (
-    import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_RAW_LATEX") == "1" else None
-)
+_rust_raw_latex = load_native_contract("ZULIP_RUST_RAW_LATEX", "RAW_LATEX_NOTIFICATION_API")
 
 _rust_katex_response = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_KATEX_RESPONSE") == "1" else None

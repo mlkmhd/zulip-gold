@@ -198,10 +198,18 @@ pub(crate) fn change_katex_to_raw_latex(
             .get_item("lxml")?
             .ok_or_else(|| PyNameError::new_err("name 'lxml' is not defined"))?;
         let replacement = lxml.getattr("html")?.call_method1("Element", ("span",))?;
-        replacement.setattr(
-            "text",
-            PyString::new(context.py(), "$${}$$").call_method1("format", (text,))?,
-        )?;
+        if let Ok(plain) = text.cast_exact::<PyString>()
+            && let Ok(plain) = plain.to_str()
+        {
+            replacement.setattr("text", format!("$${plain}$$"))?;
+        } else if text.is_none() {
+            replacement.setattr("text", "$$None$$")?;
+        } else {
+            // Custom annotation values retain Python's __format__ and errors.
+            let formatted =
+                PyString::new(context.py(), "$${}$$").call_method1("format", (text,))?;
+            replacement.setattr("text", formatted)?;
+        }
         span.call_method0("getparent")?
             .call_method1("replace", (&span, &replacement))?;
         replacement.setattr("tail", tail)?;

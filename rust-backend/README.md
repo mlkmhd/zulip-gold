@@ -3582,10 +3582,10 @@ the renderer and all message rendering metadata.
 
 ## Convert KaTeX HTML to raw LaTeX through Rust
 
-`ZULIP_RUST_RAW_LATEX=1` independently opts into the PyO3 conversion used by
-mobile push content and email HTML. It is off by default. The bridge uses the
-existing lxml tree, XPath engine and element factory. It does not parse HTML
-in Rust or change the notification format.
+On Ubuntu 24.04 x86-64, a wheel with RAW_LATEX_NOTIFICATION_API provides
+the PyO3 conversion used by mobile push content and email HTML. The
+bridge uses the existing lxml tree, XPath engine and element factory.
+It does not parse HTML in Rust or change the notification format.
 
 It retains the absolute `//span[@class='katex']` selection, including siblings
 outside a selected subtree and exact class equality. Each original match uses
@@ -3595,7 +3595,8 @@ preserve their tails and escape formula text during lxml serialization. Nested
 matches use the original XPath snapshot even after an ancestor is detached.
 Missing annotations and missing parents propagate their existing errors; prior
 replacements remain applied. Exceptions never trigger a second conversion.
-Disabled flags and older wheels use the Python implementation.
+Older wheels and other platforms keep the previous behavior, including
+the legacy opt-in via ZULIP_RUST_RAW_LATEX=1.
 
 Build and install once from cached dependencies:
 
@@ -3618,7 +3619,7 @@ parents, element factory order, partial changes and exceptions. It includes
 nested math, namespace and class differences, empty annotations, tails and
 controlled factory failures. The focused tests also compare real KaTeX fixtures
 and mobile push text. This is an orchestration migration, not an independent
-HTML renderer or a performance claim; no Python file is retired by this flag.
+HTML renderer or a performance claim; no whole Python file is retired.
 
 ## Handle KaTeX service responses through Rust
 

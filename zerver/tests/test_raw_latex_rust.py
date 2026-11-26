@@ -9,7 +9,10 @@ import lxml.html
 from typing_extensions import override
 
 from zerver.lib import tex
+from zerver.lib.email_notifications import build_message_list
 from zerver.lib.push_notifications import get_mobile_push_content
+from zerver.lib.test_classes import ZulipTestCase
+from zerver.models import Message, Recipient
 
 
 class RawLatexRustTest(TestCase):
@@ -180,3 +183,37 @@ class RawLatexRustTest(TestCase):
                     self.assertEqual(expected_push, fixture["text_content"])
                 checked += 1
         self.assertGreater(checked, 0)
+
+
+class RawLatexNotificationContractTest(ZulipTestCase):
+    def test_email_and_mobile_push_keep_the_formula_and_its_tail(self) -> None:
+        user = self.example_user("hamlet")
+        html = (
+            '<p>before <span class="katex"><annotation encoding="application/x-tex">'
+            "α &lt;&amp;</annotation><b>visual</b></span> after</p>"
+        )
+        message = Message(
+            recipient=Recipient(id=1, type=Recipient.STREAM),
+            sender=user,
+            content="before $$α <&$$ after",
+            rendered_content=html,
+        )
+        backend = tex._rust_raw_latex
+        if getattr(backend, "RAW_LATEX_NOTIFICATION_API", None) == 1:
+            with patch.object(
+                backend, "change_katex_to_raw_latex", wraps=backend.change_katex_to_raw_latex
+            ) as convert:
+                email = build_message_list(user, [message]).senders[0].content[0]
+                mobile = get_mobile_push_content(html)
+            self.assertEqual(convert.call_count, 2)
+        else:
+            email = build_message_list(user, [message]).senders[0].content[0]
+            mobile = get_mobile_push_content(html)
+
+        with patch.object(tex, "_rust_raw_latex", None):
+            reference = build_message_list(user, [message]).senders[0].content[0]
+        self.assertEqual(email, reference)
+        self.assertTrue(email.plain.endswith("before $$α <&$$ after"))
+        self.assertIn("<span>$$α &lt;&amp;$$</span> after", email.html)
+        self.assertNotIn("visual", email.html)
+        self.assertEqual(mobile, "before $$α <&$$ after")
