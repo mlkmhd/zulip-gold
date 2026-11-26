@@ -6,6 +6,8 @@ import os
 from importlib import import_module
 from typing import TYPE_CHECKING, TypedDict, cast
 
+from zerver.lib.native_backend import load_native_contract
+
 if TYPE_CHECKING:
     from zerver.lib.message import RecentPrivateConversationDict
 
@@ -15,6 +17,8 @@ class RecentConversationPayload(TypedDict):
     max_message_id: int
     pinned: bool
 
+
+_finalize_backend = load_native_contract("ZULIP_RUST_RECENT_DM_RESPONSE", "RECENT_DM_RESPONSE_API")
 
 try:
     _backend = (
@@ -47,7 +51,8 @@ def assemble(
 def finalize(
     conversations: dict[frozenset[int], RecentPrivateConversationDict],
 ) -> list[RecentConversationPayload] | None:
-    native = getattr(_backend, "finalize_recent_conversations", None)
+    backend = _finalize_backend or _backend
+    native = getattr(backend, "finalize_recent_conversations", None)
     if native is None:
         return None
     return cast("list[RecentConversationPayload] | None", native(conversations))

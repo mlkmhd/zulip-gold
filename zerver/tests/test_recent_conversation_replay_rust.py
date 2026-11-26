@@ -10,7 +10,7 @@ import orjson
 
 from zerver.lib import native_recent_conversation_replay, native_recent_conversations
 from zerver.lib.events import apply_events
-from zerver.lib.message import RecentPrivateConversationDict
+from zerver.lib.message import RecentPrivateConversationDict, get_recent_private_conversations
 from zerver.lib.test_classes import ZulipTestCase
 from zerver.lib.test_helpers import stub_event_queue_user_events
 from zerver.tornado.django_api import EventQueueData
@@ -103,10 +103,21 @@ class RecentConversationReplayRustTest(ZulipTestCase):
         assembly_enabled = environ.get("ZULIP_RUST_RECENT_CONVERSATIONS") == "1"
         replay_enabled = environ.get("ZULIP_RUST_RECENT_CONVERSATION_REPLAY") == "1"
         self.assertEqual(native_recent_conversations.assembly_available(), assembly_enabled)
+        finalize_enabled = (
+            assembly_enabled or native_recent_conversations._finalize_backend is backend
+        )
 
         owner = self.example_user("hamlet")
         peer = self.example_user("cordelia")
         other = self.example_user("othello")
+        with patch.object(native_recent_conversations, "_backend", None):
+            preexisting = get_recent_private_conversations(owner)
+        changed = {frozenset(), frozenset({peer.id}), frozenset({peer.id, other.id})}
+        previous_payload = [
+            {"user_ids": sorted(ids), **row}
+            for ids, row in sorted(preexisting.items(), key=lambda item: -item[1]["max_message_id"])
+            if ids not in changed
+        ]
         direct = self.send_personal_message(owner, peer)
         self_message = self.send_personal_message(owner, owner)
         group = self.send_group_direct_message(owner, [peer, other])
@@ -155,6 +166,7 @@ class RecentConversationReplayRustTest(ZulipTestCase):
             with self.subTest(session=session):
                 with (
                     patch.object(native_recent_conversations, "_backend", None),
+                    patch.object(native_recent_conversations, "_finalize_backend", None),
                     patch.object(native_recent_conversation_replay, "_backend", None),
                 ):
                     expected = request(session)
@@ -170,6 +182,7 @@ class RecentConversationReplayRustTest(ZulipTestCase):
                         },
                         {"user_ids": [], "max_message_id": self_message, "pinned": False},
                         {"user_ids": [peer.id], "max_message_id": direct, "pinned": False},
+                        *previous_payload,
                     ],
                 )
                 with (
@@ -190,7 +203,7 @@ class RecentConversationReplayRustTest(ZulipTestCase):
                 ):
                     self.assertEqual(request(session), expected)
                 self.assertEqual(assembly.call_count, int(assembly_enabled))
-                self.assertEqual(finalization.call_count, int(assembly_enabled))
+                self.assertEqual(finalization.call_count, int(finalize_enabled))
                 self.assertEqual(message.call_count, int(replay_enabled))
                 self.assertEqual(pin.call_count, int(replay_enabled))
 
@@ -207,7 +220,10 @@ class RecentConversationReplayRustTest(ZulipTestCase):
                         finalize_recent_conversations=reject_finalization,
                     ),
                 ):
-                    with patch.object(native_recent_conversations, "_backend", candidate):
+                    with (
+                        patch.object(native_recent_conversations, "_backend", candidate),
+                        patch.object(native_recent_conversations, "_finalize_backend", None),
+                    ):
                         self.assertEqual(request(session), expected)
                 reject_assembly.assert_called_once()
                 reject_finalization.assert_called_once()
