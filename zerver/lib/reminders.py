@@ -55,6 +55,9 @@ _rust_reminder_note_text = load_native_contract(
 _rust_exact_reminder_quote = load_native_contract(
     "ZULIP_RUST_REMINDER_QUOTE_TEXT", "REMINDER_QUOTE_TEXT_API"
 )
+_rust_prepared_reminder_body = load_native_contract(
+    "ZULIP_RUST_PREPARED_REMINDER_BODY", "PREPARED_REMINDER_BODY_API"
+)
 _reference_quote_body = MESSAGE_QUOTE_BODY
 _reference_unused_fence = get_unused_fence
 _reference_truncate_content = truncate_content
@@ -270,17 +273,25 @@ def get_reminder_formatted_content(
 
     if widget is not None:
         context.update(widget=widget)
-        content += REMINDER_FORMAT[format_recipient_type_key]["widget"].format_map(context)
-    else:
-        content += REMINDER_FORMAT[format_recipient_type_key]["text"].format_map(context)
+    variant = "widget" if widget is not None else "text"
+    caption = REMINDER_FORMAT[format_recipient_type_key][variant].format_map(context)
+    has_exact_quote_contract = (
+        MESSAGE_QUOTE_BODY is _reference_quote_body
+        and get_unused_fence is _reference_unused_fence
+        and truncate_content is _reference_truncate_content
+    )
+    render = getattr(_rust_prepared_reminder_body, "format_prepared_reminder_body", None)
+    if callable(render) and (widget is not None or has_exact_quote_contract):
+        quote = None if widget is not None else (message.content, settings.MAX_MESSAGE_LENGTH)
+        rendered = render(content, caption, quote)
+        if rendered is not None:
+            return cast(str, rendered)
+
+    content += caption
+    if widget is None:
         content += "\n"
         append_exact = getattr(_rust_exact_reminder_quote, "append_exact_reminder_quote", None)
-        if (
-            append_exact is not None
-            and MESSAGE_QUOTE_BODY is _reference_quote_body
-            and get_unused_fence is _reference_unused_fence
-            and truncate_content is _reference_truncate_content
-        ):
+        if append_exact is not None and has_exact_quote_contract:
             result = append_exact(content, message.content, settings.MAX_MESSAGE_LENGTH)
             if result is not None:
                 return cast(str, result)

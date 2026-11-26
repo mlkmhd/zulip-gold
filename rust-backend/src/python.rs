@@ -399,6 +399,7 @@ mod _zulip_backend {
         module.add("THUMBNAIL_MISSING_PLAN_API", 1)?;
         module.add("PREPARED_TRANSCODE_SELECTION_API", 1)?;
         module.add("REMINDER_QUOTE_TEXT_API", 1)?;
+        module.add("PREPARED_REMINDER_BODY_API", 1)?;
         module.add("PRESENCE_MODERN_TIMESTAMPS_API", 1)?;
         module.add("PRESENCE_LEGACY_DISPLAY_API", 1)?;
         module.add("PRESENCE_SINGLE_USER_RESPONSE_API", 1)?;
@@ -2643,6 +2644,38 @@ mod _zulip_backend {
             limit,
         )?;
         python_string_from_bytes(prefix.py(), &content)
+    }
+
+    #[pyfunction]
+    fn format_prepared_reminder_body<'py>(
+        heading: &Bound<'py, PyAny>,
+        caption: &Bound<'py, PyAny>,
+        quote: &Bound<'py, PyAny>,
+    ) -> Option<Bound<'py, PyString>> {
+        let heading = heading.cast_exact::<PyString>().ok()?;
+        let caption = caption.cast_exact::<PyString>().ok()?;
+        let mut body = python_string_bytes(heading)?.into_owned();
+        body.extend_from_slice(&python_string_bytes(caption)?);
+        if quote.is_none() {
+            return python_string_from_bytes(heading.py(), &body);
+        }
+
+        let quote = quote.cast_exact::<PyTuple>().ok()?;
+        if quote.len() != 2 {
+            return None;
+        }
+        let message = quote.get_item(0).ok()?.cast_into_exact::<PyString>().ok()?;
+        let limit = quote
+            .get_item(1)
+            .ok()?
+            .cast_into_exact::<PyInt>()
+            .ok()?
+            .extract::<i64>()
+            .ok()?;
+        body.push(b'\n');
+        let output =
+            reminder_quote::append_exact_quote(&body, &python_string_bytes(&message)?, limit)?;
+        python_string_from_bytes(heading.py(), &output)
     }
 
     #[pyfunction]
