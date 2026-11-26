@@ -276,6 +276,25 @@ pub(crate) fn format_mobile_message_identity(
 }
 
 #[pyfunction]
+pub(crate) fn format_prepared_android_message<'py>(
+    payload: &Bound<'py, PyDict>,
+    timestamp: &Bound<'py, PyAny>,
+    content: &Bound<'py, PyAny>,
+    sender_name: &Bound<'py, PyAny>,
+    sender_avatar_url: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyDict>> {
+    // Mutate only the prepared copy. Reuse Python objects without narrowing
+    // integer size or altering localized text and URL values.
+    payload.set_item("time", timestamp)?;
+    payload.set_item("content", content)?;
+    payload.set_item("sender_full_name", sender_name)?;
+    payload.set_item("sender_avatar_url", sender_avatar_url)?;
+    let options = PyDict::new(payload.py());
+    options.set_item("priority", "high")?;
+    Ok(options)
+}
+
+#[pyfunction]
 pub(crate) fn format_mobile_direct_recipient_ids<'py>(
     recipients: &Bound<'py, PyAny>,
     get_sender: &Bound<'py, PyAny>,

@@ -61,6 +61,26 @@ def format_message_identity(
     return cast(bool, native(payload, message_id, mode)) if callable(native) else False
 
 
+_android_message_envelope_backend = load_native_contract(
+    "ZULIP_RUST_ANDROID_MESSAGE_ENVELOPE", "ANDROID_MESSAGE_ENVELOPE_API"
+)
+
+
+def format_android_message(
+    payload: dict[str, object],
+    timestamp: int,
+    content: str,
+    sender_name: str,
+    sender_avatar_url: str,
+) -> dict[str, str] | None:
+    native = getattr(_android_message_envelope_backend, "format_prepared_android_message", None)
+    if not callable(native):
+        return None
+    return cast(
+        "dict[str, str]", native(payload, timestamp, content, sender_name, sender_avatar_url)
+    )
+
+
 _direct_recipients_backend = load_native_contract(
     "ZULIP_RUST_MOBILE_DIRECT_RECIPIENTS", "MOBILE_DIRECT_RECIPIENTS_API"
 )

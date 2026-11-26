@@ -1338,8 +1338,14 @@ def get_message_payload_gcm(
     assert message.rendered_content is not None
     with override_language(user_profile.default_language):
         content, _truncated = truncate_content(get_mobile_push_content(message.rendered_content))
+        timestamp = datetime_to_timestamp(message.date_sent)
+        native_options = native_push_text.format_android_message(
+            message_payload, timestamp, content, sender_name, sender_avatar_url
+        )
+        if native_options is not None:
+            return message_payload, native_options
         message_payload.update(
-            time=datetime_to_timestamp(message.date_sent),
+            time=timestamp,
             content=content,
             sender_full_name=sender_name,
             sender_avatar_url=sender_avatar_url,
