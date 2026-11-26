@@ -96,7 +96,9 @@ class UserActivityWorker(LoopQueueProcessingWorker):
         activity_rows = _activity_rows(user_activity_events)
         plan_values = getattr(_activity_upsert_backend, "plan_prepared_activity_values", None)
         if callable(plan_values):
-            plan = cast("tuple[str, tuple[object, ...]] | None", plan_values(activity_rows))
+            plan = cast(
+                "tuple[str, tuple[int | float | str, ...]] | None", plan_values(activity_rows)
+            )
             if plan is not None:
                 values, parameters = plan
                 with connection.cursor() as cursor:

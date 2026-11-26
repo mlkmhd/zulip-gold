@@ -1,3 +1,4 @@
+from datetime import datetime
 from unittest.mock import patch
 
 from django.db import connection, transaction
@@ -26,7 +27,7 @@ class ActivityUpsertValuesRustTest(ZulipTestCase):
             for index, query in enumerate(("view", "writer's page", "view", "فارسی"))
         ]
 
-        def run_worker() -> tuple[list[str], list[object]]:
+        def run_worker() -> tuple[list[str], list[tuple[str, int, datetime]]]:
             with transaction.atomic():
                 worker = user_activity.UserActivityWorker()
                 with CaptureQueriesContext(connection) as capture:
