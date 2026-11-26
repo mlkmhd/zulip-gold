@@ -167,3 +167,45 @@ pub(crate) fn select_prepared_emoji_metadata<'py>(
         .and_then(|code| code.cast_into_exact::<PyString>().ok())
         .map(|code| (code, 2)))
 }
+
+const CONVERSIONS: &[(&str, &str)] = &[
+    (":)", ":slight_smile:"),
+    ("(:", ":slight_smile:"),
+    (":(", ":frown:"),
+    ("<3", ":heart:"),
+    (":|", ":neutral:"),
+    (":/", ":confused:"),
+    (";)", ":wink:"),
+    (":D", ":smile:"),
+    (":o", ":open_mouth:"),
+    (":O", ":open_mouth:"),
+    (":p", ":stuck_out_tongue:"),
+    (":P", ":stuck_out_tongue:"),
+];
+
+fn translate_known_emoticons(mut text: String) -> String {
+    for (from, to) in CONVERSIONS {
+        text = text.replace(from, to);
+    }
+    text
+}
+
+#[pyfunction]
+pub(crate) fn translate_prepared_emoticons(
+    text: &Bound<'_, PyAny>,
+    catalog: &Bound<'_, PyAny>,
+) -> Option<String> {
+    let text = text.cast_exact::<PyString>().ok()?.to_str().ok()?;
+    let catalog = catalog.cast_exact::<PyDict>().ok()?;
+    if catalog.len() != CONVERSIONS.len() {
+        return None;
+    }
+    for ((key, value), (expected_key, expected_value)) in catalog.iter().zip(CONVERSIONS) {
+        let key = key.cast_exact::<PyString>().ok()?.to_str().ok()?;
+        let value = value.cast_exact::<PyString>().ok()?.to_str().ok()?;
+        if key != *expected_key || value != *expected_value {
+            return None;
+        }
+    }
+    Some(translate_known_emoticons(text.to_owned()))
+}

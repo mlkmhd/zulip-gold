@@ -445,6 +445,7 @@ mod _zulip_backend {
         module.add("REMINDER_RECIPIENT_LABELS_API", 1)?;
         module.add("DRAFT_TOPIC_TEXT_API", 1)?;
         module.add("PREPARED_EMOJI_METADATA_API", 1)?;
+        module.add("PREPARED_EMOTICON_TEXT_API", 1)?;
         module.add("EMPTY_TOPIC_COMPAT_API", 1)?;
         module.add("EDIT_HISTORY_ASSEMBLY_API", 1)?;
         module.add("EXPORT_JSON_FRAMING_API", 1)?;
@@ -624,8 +625,8 @@ mod _zulip_backend {
     #[pymodule_export]
     use crate::python_emoji_codepoints::{
         decode_emoji_codepoints, decode_exact_emoji_codepoints, encode_emoji_codepoints,
-        encode_exact_emoji_codepoints, select_prepared_emoji_metadata, unqualify_emoji_text,
-        unqualify_exact_emoji_text,
+        encode_exact_emoji_codepoints, select_prepared_emoji_metadata,
+        translate_prepared_emoticons, unqualify_emoji_text, unqualify_exact_emoji_text,
     };
 
     #[pymodule_export]

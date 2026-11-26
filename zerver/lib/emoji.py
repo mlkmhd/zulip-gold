@@ -53,8 +53,25 @@ def data_url() -> str:
     return staticfiles_storage.url("generated/emoji/emoji_api.json")
 
 
+_rust_emoticon_text = load_native_contract(
+    "ZULIP_RUST_PREPARED_EMOTICON_TEXT", "PREPARED_EMOTICON_TEXT_API"
+)
+_reference_emoticon_sub = re.sub
+_reference_emoticon_escape = re.escape
+
+
 # Translates emoticons to their colon syntax, e.g. `:smiley:`.
 def translate_emoticons(text: str) -> str:
+    native = getattr(_rust_emoticon_text, "translate_prepared_emoticons", None)
+    if (
+        callable(native)
+        and re.sub is _reference_emoticon_sub
+        and re.escape is _reference_emoticon_escape
+    ):
+        value = cast("str | None", native(text, EMOTICON_CONVERSIONS))
+        if value is not None:
+            return value
+
     translated = text
 
     for emoticon in EMOTICON_CONVERSIONS:
