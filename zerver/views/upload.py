@@ -56,6 +56,11 @@ from zerver.worker.thumbnail import ensure_thumbnails
 _thumbnail_display_rank_backend = load_native_contract(
     "ZULIP_RUST_THUMBNAIL_DISPLAY_RANK", "THUMBNAIL_DISPLAY_RANK_API"
 )
+_reference_base_thumbnail_eq = BaseThumbnailFormat.__eq__
+_reference_base_thumbnail_str = BaseThumbnailFormat.__str__
+_reference_stored_thumbnail_eq = StoredThumbnailFormat.__eq__
+_reference_stored_thumbnail_str = StoredThumbnailFormat.__str__
+_reference_stored_thumbnail_init = StoredThumbnailFormat.__init__
 
 
 def patch_disposition_header(response: HttpResponse, filename: str, is_attachment: bool) -> None:
@@ -280,7 +285,16 @@ def closest_thumbnail_format(
 def stored_thumbnail_variant(
     metadata: object, requested_format: BaseThumbnailFormat
 ) -> bool | None:
-    if type(metadata) is not list or len(metadata) < 2:
+    if (
+        type(metadata) is not list
+        or len(metadata) < 2
+        or type(requested_format) is not BaseThumbnailFormat
+        or BaseThumbnailFormat.__eq__ is not _reference_base_thumbnail_eq
+        or BaseThumbnailFormat.__str__ is not _reference_base_thumbnail_str
+        or StoredThumbnailFormat.__eq__ is not _reference_stored_thumbnail_eq
+        or StoredThumbnailFormat.__str__ is not _reference_stored_thumbnail_str
+        or StoredThumbnailFormat.__init__ is not _reference_stored_thumbnail_init
+    ):
         return None
     return native_thumbnail_status.has_stored_variant(metadata, requested_format)
 

@@ -361,6 +361,7 @@ mod _zulip_backend {
         module.add("CHANNEL_STOCK_COLORS_API", 1)?;
         module.add("COMPOSE_QUOTE_BUDGET_API", 1)?;
         module.add("THUMBNAIL_DISPLAY_RANK_API", 1)?;
+        module.add("THUMBNAIL_STORED_VARIANT_API", 1)?;
         module.add("REMINDER_QUOTE_TEXT_API", 1)?;
         module.add("PRESENCE_MODERN_TIMESTAMPS_API", 1)?;
         module.add("PRESENCE_LEGACY_DISPLAY_API", 1)?;

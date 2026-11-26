@@ -1159,6 +1159,17 @@ class TestThumbnailRetrieval(ZulipTestCase):
                 stored_thumbnail_variant([matching, {**other, "height": 75.5}], requested)
             )
 
+    def test_stored_variant_keeps_custom_constructor_and_comparison_in_python(self) -> None:
+        requested = BaseThumbnailFormat("webp", 100, 75, False)
+        matching = asdict(StoredThumbnailFormat("webp", 100, 75, False, "image/webp", 65, 75, 7))
+        metadata = [matching, matching.copy()]
+        with (
+            patch.object(native_thumbnail_status, "has_stored_variant") as native,
+            patch.object(StoredThumbnailFormat, "__eq__", return_value=False),
+        ):
+            self.assertIsNone(stored_thumbnail_variant(metadata, requested))
+        native.assert_not_called()
+
     def test_native_stored_variant_retrieval(self) -> None:
         self.login("hamlet")
         small = ThumbnailFormat("webp", 40, 40, False)

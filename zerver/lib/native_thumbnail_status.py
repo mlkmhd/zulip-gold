@@ -7,6 +7,8 @@ from importlib import import_module
 from types import ModuleType
 from typing import TYPE_CHECKING, TypeAlias, cast
 
+from zerver.lib.native_backend import load_native_contract
+
 if TYPE_CHECKING:
     from zerver.lib.thumbnail import BaseThumbnailFormat
 
@@ -27,7 +29,9 @@ def load_backend(flag: str) -> ModuleType | None:
 _backend = load_backend("ZULIP_RUST_THUMBNAIL_STATUS")
 _selection_backend = load_backend("ZULIP_RUST_TRANSCODE_SELECTION")
 _plan_backend = load_backend("ZULIP_RUST_THUMBNAIL_PLAN")
-_stored_variant_backend = load_backend("ZULIP_RUST_THUMBNAIL_STORED_VARIANT")
+_stored_variant_backend = load_native_contract(
+    "ZULIP_RUST_THUMBNAIL_STORED_VARIANT", "THUMBNAIL_STORED_VARIANT_API"
+)
 
 
 def available() -> bool:
