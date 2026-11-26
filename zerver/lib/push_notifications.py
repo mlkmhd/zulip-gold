@@ -1332,12 +1332,13 @@ def get_remove_payload_gcm(
     """A `remove` payload + options, for Android via FCM."""
     gcm_payload = get_base_payload(user_profile, for_legacy_clients)
 
-    if for_legacy_clients:
-        gcm_payload["event"] = "remove"
-        gcm_payload["zulip_message_ids"] = ",".join(str(id) for id in message_ids)
-    else:
-        gcm_payload["type"] = "remove"
-        gcm_payload["message_ids"] = message_ids
+    if not native_push_text.format_remove_fields(gcm_payload, message_ids, for_legacy_clients):
+        if for_legacy_clients:
+            gcm_payload["event"] = "remove"
+            gcm_payload["zulip_message_ids"] = ",".join(str(id) for id in message_ids)
+        else:
+            gcm_payload["type"] = "remove"
+            gcm_payload["message_ids"] = message_ids
 
     gcm_options = {"priority": "normal"}
     return gcm_payload, gcm_options
@@ -1345,10 +1346,11 @@ def get_remove_payload_gcm(
 
 def get_remove_payload_apns(user_profile: UserProfile, message_ids: list[int]) -> dict[str, Any]:
     zulip_data = get_base_payload(user_profile)
-    zulip_data.update(
-        event="remove",
-        zulip_message_ids=",".join(str(id) for id in message_ids),
-    )
+    if not native_push_text.format_remove_fields(zulip_data, message_ids, True):
+        zulip_data.update(
+            event="remove",
+            zulip_message_ids=",".join(str(id) for id in message_ids),
+        )
     remove_obsolete_fields_apns(zulip_data)
     apns_data = {
         "badge": get_apns_badge_count(user_profile, message_ids),

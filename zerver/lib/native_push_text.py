@@ -43,6 +43,18 @@ _PLAIN_PREVIEW_TAGS = frozenset(
     }
 )
 _MAX_PREVIEW_NODES = 512
+_remove_payload_backend = load_native_contract(
+    "ZULIP_RUST_MOBILE_REMOVE_PAYLOAD", "MOBILE_REMOVE_PAYLOAD_API"
+)
+
+
+def format_remove_fields(
+    payload: dict[str, object], message_ids: list[int], for_legacy_clients: bool
+) -> bool:
+    native = getattr(_remove_payload_backend, "format_mobile_remove_fields", None)
+    if not callable(native) or type(for_legacy_clients) is not bool:
+        return False
+    return cast(bool, native(payload, message_ids, for_legacy_clients))
 
 
 def render_plain_preview_tree(element: lxml.html.HtmlElement) -> str | None:

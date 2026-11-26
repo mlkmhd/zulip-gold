@@ -3,7 +3,7 @@
 use std::io::Write;
 
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyInt, PyList, PyString, PyTuple};
+use pyo3::types::{PyBool, PyDict, PyInt, PyList, PyString, PyTuple};
 
 use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes, trim_python_text};
 
@@ -187,4 +187,45 @@ pub(crate) fn render_plain_mobile_preview_tree<'py>(
         output.extend_from_slice(&python_string_bytes(tail)?);
     }
     python_string_from_bytes(rows.py(), &output)
+}
+
+#[pyfunction]
+pub(crate) fn format_mobile_remove_fields(
+    payload: &Bound<'_, PyAny>,
+    message_ids: &Bound<'_, PyAny>,
+    legacy: bool,
+) -> PyResult<bool> {
+    let (Ok(payload), Ok(message_ids)) = (
+        payload.cast_exact::<PyDict>(),
+        message_ids.cast_exact::<PyList>(),
+    ) else {
+        return Ok(false);
+    };
+    if legacy {
+        let mut joined = Vec::new();
+        for (index, item) in message_ids.iter().enumerate() {
+            let Some(message_id) = item
+                .cast_exact::<PyInt>()
+                .ok()
+                .and_then(|integer| integer.extract::<i64>().ok())
+            else {
+                // Decline unchanged before touching the payload.
+                return Ok(false);
+            };
+            if index != 0 {
+                joined.push(b',');
+            }
+            write!(joined, "{message_id}").expect("writing to Vec succeeds");
+        }
+        let ids = PyString::new(
+            payload.py(),
+            std::str::from_utf8(&joined).expect("ASCII IDs"),
+        );
+        payload.set_item("event", "remove")?;
+        payload.set_item("zulip_message_ids", ids)?;
+    } else {
+        payload.set_item("type", "remove")?;
+        payload.set_item("message_ids", message_ids)?;
+    }
+    Ok(true)
 }
