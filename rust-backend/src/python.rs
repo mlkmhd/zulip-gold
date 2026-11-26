@@ -3188,6 +3188,33 @@ mod _zulip_backend {
     }
 
     #[pyfunction]
+    fn build_prepared_pm_message_url<'py>(
+        realm: &Bound<'py, PyAny>,
+        message: &Bound<'py, PyAny>,
+        conversation_link: &Bound<'py, PyAny>,
+        encode_ids: &Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let relation = if conversation_link.is_truthy()? {
+            "with"
+        } else {
+            "near"
+        };
+        let id = message.get_item("id")?.str()?;
+        let ids = pyo3::types::PyList::empty(message.py());
+        for row in message.get_item("display_recipient")?.try_iter()? {
+            ids.append(row?.get_item("id")?)?;
+        }
+        let slug = encode_ids.call1((ids,))?;
+        let narrow = pyo3::types::PyString::new(message.py(), "#narrow/dm/{}/{}/{}")
+            .call_method1("format", (slug, relation, id))?;
+        if realm.is_none() {
+            return Ok(narrow);
+        }
+        pyo3::types::PyString::new(message.py(), "{}/{}")
+            .call_method1("format", (realm.getattr("url")?, narrow))
+    }
+
+    #[pyfunction]
     fn encode_narrow_user_ids(user_ids: &Bound<'_, PyAny>, with_operator: bool) -> Option<String> {
         let user_ids: Vec<i64> = user_ids
             .cast_exact::<PyList>()

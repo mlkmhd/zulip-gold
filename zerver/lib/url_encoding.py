@@ -12,6 +12,7 @@ from zerver.lib.types import UserDisplayRecipient
 from zerver.models import Realm, Stream, UserProfile
 
 _rust_url_fragments = load_native_contract("ZULIP_RUST_URL_FRAGMENTS", "URL_FRAGMENTS_API")
+_build_prepared_pm_message_url = getattr(_rust_url_fragments, "build_prepared_pm_message_url", None)
 
 _rust_channel_narrow_slug = load_native_contract(
     "ZULIP_RUST_CHANNEL_NARROW_SLUG", "CHANNEL_NARROW_SLUG_API"
@@ -227,6 +228,9 @@ def stream_message_url(
 def pm_message_url(
     realm: Realm | None, message: dict[str, Any], *, conversation_link: bool = False
 ) -> str:
+    if _build_prepared_pm_message_url is not None:
+        return _build_prepared_pm_message_url(realm, message, conversation_link, encode_user_ids)
+
     if conversation_link:
         with_or_near = "with"
     else:
