@@ -324,3 +324,42 @@ pub(crate) fn render_prepared_api_object_properties<'py>(
     )?;
     template.call((), Some(&fields))
 }
+
+#[pyfunction]
+pub(crate) fn expand_prepared_api_doc_macros<'py>(
+    mut lines: Bound<'py, PyAny>,
+    pattern: &Bound<'py, PyAny>,
+    renderer: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let py = lines.py();
+    let slice = py.get_type::<pyo3::types::PySlice>();
+    let split_kwargs = PyDict::new(py);
+    split_kwargs.set_item("maxsplit", 0)?;
+    loop {
+        let mut expanded = None;
+        for line in lines.try_iter()? {
+            let line = line?;
+            let index: usize = lines.call_method1("index", (&line,))?.extract()?;
+            let found = pattern.call_method1("search", (&line,))?;
+            if !found.is_truthy()? {
+                continue;
+            }
+            let doc = found.call_method1("group", (2,))?;
+            let text = renderer.call_method1("_render_macro_document", (doc,))?;
+            let split = pattern.call_method("split", (&line,), Some(&split_kwargs))?;
+            let replacement = PyList::empty(py);
+            replacement.append(split.get_item(0)?)?;
+            let following = split.get_item(-1)?;
+            replacement.call_method1("extend", (text,))?;
+            replacement.append(following)?;
+            let before = lines.get_item(slice.call1((py.None(), index))?)?;
+            let after = lines.get_item(slice.call1((index + 1, py.None()))?)?;
+            expanded = Some(before.add(replacement)?.add(after)?);
+            break;
+        }
+        match expanded {
+            Some(value) => lines = value,
+            None => return Ok(lines),
+        }
+    }
+}

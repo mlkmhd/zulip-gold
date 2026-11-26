@@ -60,6 +60,10 @@ _rust_render_prepared_api_object_properties = getattr(
     _rust_api_type_tree, "render_prepared_api_object_properties", None
 )
 
+_rust_expand_prepared_api_doc_macros = getattr(
+    _rust_api_type_tree, "expand_prepared_api_doc_macros", None
+)
+
 try:
     _rust_api_enum_display = load_native_contract(
         "ZULIP_RUST_API_ENUM_DISPLAY", "API_ENUM_DISPLAY_API"
@@ -207,6 +211,9 @@ class APIArgumentsTablePreprocessor(Preprocessor):
 
     @override
     def run(self, lines: list[str]) -> list[str]:
+        if _rust_expand_prepared_api_doc_macros is not None and type(lines) is list:
+            return _rust_expand_prepared_api_doc_macros(lines, REGEXP, self)
+
         done = False
         while not done:
             for line in lines:
@@ -217,16 +224,7 @@ class APIArgumentsTablePreprocessor(Preprocessor):
                     continue
 
                 doc_name = match.group(2)
-                endpoint, method = doc_name.rsplit(":", 1)
-                parameters = get_openapi_parameters(endpoint, method)
-                if parameters:
-                    text = self.render_parameters(parameters)
-                # We want to show this message only if the parameters
-                # description doesn't say anything else.
-                elif get_parameters_description(endpoint, method) == "":
-                    text = ["This endpoint does not accept any parameters."]
-                else:
-                    text = []
+                text = self._render_macro_document(doc_name)
                 # The line that contains the directive to include the macro
                 # may be preceded or followed by text or tags, in that case
                 # we need to make sure that any preceding or following text
@@ -240,6 +238,19 @@ class APIArgumentsTablePreprocessor(Preprocessor):
             else:
                 done = True
         return lines
+
+    def _render_macro_document(self, doc_name: str) -> list[str]:
+        endpoint, method = doc_name.rsplit(":", 1)
+        parameters = get_openapi_parameters(endpoint, method)
+        if parameters:
+            text = self.render_parameters(parameters)
+        # We want to show this message only if the parameters
+        # description doesn't say anything else.
+        elif get_parameters_description(endpoint, method) == "":
+            text = ["This endpoint does not accept any parameters."]
+        else:
+            text = []
+        return text
 
     def render_oneof_block(self, object_schema: dict[str, Any], name: str) -> str:
         md_engine = markdown.Markdown(extensions=[])

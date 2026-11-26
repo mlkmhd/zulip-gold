@@ -743,8 +743,9 @@ mod _zulip_backend {
     #[pymodule_export]
     use crate::python_api_type_display::{
         append_doc_nullable_label, choose_prepared_api_property_detail,
-        decorate_prepared_api_description, join_prepared_doc_type_labels, prepare_api_doc_badges,
-        render_api_doc_type_tree, render_prepared_api_object_properties, render_prepared_api_oneof,
+        decorate_prepared_api_description, expand_prepared_api_doc_macros,
+        join_prepared_doc_type_labels, prepare_api_doc_badges, render_api_doc_type_tree,
+        render_prepared_api_object_properties, render_prepared_api_oneof,
         render_prepared_api_parameter_list, wrap_prepared_doc_array_label,
     };
 
