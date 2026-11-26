@@ -144,8 +144,15 @@ class APIDocsRenderFlowRustTest(TestCase):
         expected = self.render_python_baseline()
         self.assert_expected_document(expected)
 
+        try:
+            backend = import_module("_zulip_backend")
+        except ImportError:
+            backend = None
         with ExitStack() as stack:
-            tree_enabled = os.environ.get(TREE_FLAG) == "1"
+            tree_enabled = os.environ.get(TREE_FLAG) == "1" or (
+                supports_default_rust_backend()
+                and getattr(backend, "API_DOC_TYPE_TREE_API", None) == 1
+            )
             tree = getattr(arguments, TREE_HOOK)
             self.assertEqual(callable(tree), tree_enabled)
             tree_spy = (
@@ -157,10 +164,6 @@ class APIDocsRenderFlowRustTest(TestCase):
                 if tree_enabled
                 else None
             )
-            try:
-                backend = import_module("_zulip_backend")
-            except ImportError:
-                backend = None
             spies: list[tuple[Mock, int]] = []
             for module, hook, flag, expected_calls in NATIVE_HOOKS:
                 native = getattr(module, hook)

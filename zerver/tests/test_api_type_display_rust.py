@@ -142,7 +142,8 @@ class APITypeDisplayRustTest(TestCase):
 
     def test_native_tree_and_limits(self) -> None:
         try:
-            render = import_module("_zulip_backend").render_api_doc_type_tree
+            backend = import_module("_zulip_backend")
+            render = backend.render_api_doc_type_tree
         except (ImportError, AttributeError):
             self.skipTest("Rust API documentation tree helper is not available")
         name = "نوع🙂"
@@ -164,13 +165,20 @@ class APITypeDisplayRustTest(TestCase):
             deep,
             {"oneOf": [{"type": "a"}] * 1024},
             {"items": {"type": "x" * 65536}},
-            {"items": {"type": surrogate}},
             {"oneOf": [None]},
             {"oneOf": ({"type": "string"},)},
             {"type": "string", "nullable": 1},
             UserDict({"type": "string"}),
         ]:
             self.assertIsNone(render(schema))
+        if getattr(backend, "API_DOC_TYPE_TREE_API", None) == 1:
+            self.assertEqual(render({"items": {"type": surrogate}}), f"({surrogate})[]")
+            self.assertEqual(
+                render({"oneOf": [{"type": surrogate, "nullable": True}, {"type": name}]}),
+                f"{surrogate} | null | {name}",
+            )
+        else:
+            self.assertIsNone(render({"items": {"type": surrogate}}))
         self.assertEqual(arguments.generate_data_type(deep), "(" * 32 + "string" + ")[]" * 32)
         with self.assertRaises(RecursionError):
             arguments.generate_data_type(loop)

@@ -79,27 +79,26 @@ fn render_type<'py>(
         if members.len() == 1 {
             return render_type(&members.get_item(0).ok()?, depth + 1, remaining);
         }
-        let mut result = String::new();
+        let mut result = Vec::new();
         for (index, member) in members.iter().enumerate() {
             let label = render_type(&member, depth + 1, remaining)?;
-            let label = label.to_str().ok()?;
+            let label = python_string_bytes(&label)?;
             if index != 0 {
-                result.push_str(" | ");
+                result.extend_from_slice(b" | ");
             }
             if result.len().checked_add(label.len())? > MAX_LABEL_BYTES {
                 return None;
             }
-            result.push_str(label);
+            result.extend_from_slice(&label);
         }
-        return Some(PyString::new(py, &result));
+        return python_string_from_bytes(py, &result);
     }
     if let Some(items) = schema.get_item("items").ok()? {
         let label = render_type(&items, depth + 1, remaining)?;
-        let label = label.to_str().ok()?;
-        if label.len() > MAX_LABEL_BYTES - 4 {
+        if python_string_bytes(&label)?.len() > MAX_LABEL_BYTES - 4 {
             return None;
         }
-        return Some(PyString::new(py, &format!("({label})[]")));
+        return surround_exact_label(label.as_any(), b"(", b")[]");
     }
 
     let label = schema.get_item("type").ok()??;
@@ -107,11 +106,10 @@ fn render_type<'py>(
     if let Some(nullable) = schema.get_item("nullable").ok()?
         && nullable.cast_exact::<PyBool>().ok()?.is_true()
     {
-        let label = label.to_str().ok()?;
-        if label.len() > MAX_LABEL_BYTES - 7 {
+        if python_string_bytes(label)?.len() > MAX_LABEL_BYTES - 7 {
             return None;
         }
-        return Some(PyString::new(py, &format!("{label} | null")));
+        return surround_exact_label(label.as_any(), b"", b" | null");
     }
     Some(label.clone())
 }

@@ -1,8 +1,6 @@
 import json
-import os
 import re
 from collections.abc import Mapping, Sequence
-from importlib import import_module
 from typing import Any
 
 import markdown
@@ -36,10 +34,8 @@ _rust_wrap_prepared_doc_array_label = getattr(
 _rust_append_doc_nullable_label = getattr(_rust_api_type_display, "append_doc_nullable_label", None)
 
 try:
-    _rust_api_type_tree = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_API_DOC_TYPE_TREE") == "1"
-        else None
+    _rust_api_type_tree = load_native_contract(
+        "ZULIP_RUST_API_DOC_TYPE_TREE", "API_DOC_TYPE_TREE_API"
     )
 except ImportError:
     _rust_api_type_tree = None
