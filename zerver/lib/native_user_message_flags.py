@@ -6,6 +6,7 @@ from importlib import import_module
 from typing import cast
 
 from zerver.lib.native_backend import load_native_contract
+from zerver.lib.user_message import UserMessageLite
 from zerver.models import UserMessage
 from zerver.models.messages import AbstractUserMessage
 
@@ -24,6 +25,14 @@ except ModuleNotFoundError as error:
 _prepared_fetch_backend = load_native_contract(
     "ZULIP_RUST_PREPARED_MESSAGE_FETCH_LABELS", "PREPARED_MESSAGE_FETCH_LABELS_API"
 )
+_prepared_send_backend = (
+    None
+    if os.environ.get("ZULIP_RUST_PREPARED_SEND_EVENT_LABELS") == "0"
+    else load_native_contract(
+        "ZULIP_RUST_PREPARED_SEND_EVENT_LABELS", "PREPARED_SEND_EVENT_LABELS_API"
+    )
+)
+_reference_lite_flags_list = UserMessageLite.flags_list
 _reference_flags_list = UserMessage.flags_list
 _reference_flags_list_for_flags = UserMessage.flags_list_for_flags
 
@@ -31,9 +40,14 @@ _reference_flags_list_for_flags = UserMessage.flags_list_for_flags
 def available(*, prepared_fetch: bool = False) -> bool:
     if _backend is not None or not prepared_fetch:
         return callable(getattr(_backend, "label_user_message_flags", None))
+    return callable(getattr(_prepared_fetch_backend, "label_user_message_flags", None)) and (
+        _standard_public_flags()
+    )
+
+
+def _standard_public_flags() -> bool:
     return (
-        callable(getattr(_prepared_fetch_backend, "label_user_message_flags", None))
-        and UserMessage.flags_list is _reference_flags_list
+        UserMessage.flags_list is _reference_flags_list
         and UserMessage.flags_list_for_flags is _reference_flags_list_for_flags
         and type(UserMessage.ALL_FLAGS) is list
         and type(UserMessage.NON_API_FLAGS) is set
@@ -52,7 +66,26 @@ def labels_by_id(
     native = getattr(backend, "label_user_message_flags", None)
     if not callable(native):
         return None
-    labels = tuple(
+    return cast("dict[int, list[str]] | None", native(list(rows), _ordered_public_labels()))
+
+
+def _ordered_public_labels() -> tuple[str | None, ...]:
+    return tuple(
         None if name in UserMessage.NON_API_FLAGS else name for name in UserMessage.ALL_FLAGS
     )
-    return cast("dict[int, list[str]] | None", native(list(rows), labels))
+
+
+def labels_for_prepared_send(rows: list[UserMessageLite]) -> dict[int, list[str]] | None:
+    if _backend is not None:
+        return labels_by_id((row.user_profile_id, row.flags) for row in rows)
+    native = getattr(_prepared_send_backend, "label_user_message_flags", None)
+    if (
+        not callable(native)
+        or UserMessageLite.flags_list is not _reference_lite_flags_list
+        or not _standard_public_flags()
+        or type(rows) is not list
+        or any(type(row) is not UserMessageLite for row in rows)
+    ):
+        return None
+    pairs = [(row.user_profile_id, row.flags) for row in rows]
+    return cast("dict[int, list[str]] | None", native(pairs, _ordered_public_labels()))

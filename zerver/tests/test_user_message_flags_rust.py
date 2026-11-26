@@ -7,8 +7,10 @@ from unittest.mock import Mock, patch
 import orjson
 
 from zerver.actions.message_flags import do_update_message_flags
+from zerver.actions.message_send import do_send_messages, internal_prep_private_message
 from zerver.lib import native_user_message_flags
 from zerver.lib.test_classes import ZulipTestCase
+from zerver.lib.user_message import UserMessageLite
 from zerver.models import UserMessage
 
 
@@ -40,6 +42,41 @@ class UserMessageFlagsRustTest(ZulipTestCase):
         self.assertTrue(
             all(not UserMessage.NON_API_FLAGS.intersection(entry) for entry in reference.values())
         )
+
+    def test_prepared_send_keeps_delivery_users_and_public_labels(self) -> None:
+        prepared = native_user_message_flags._prepared_send_backend
+        if prepared is None:
+            self.skipTest("No prepared send-event label ABI")
+        sender = self.example_user("hamlet")
+        recipient = self.example_user("cordelia")
+
+        def send() -> bytes:
+            prepared_message = internal_prep_private_message(
+                sender, recipient, "Public flag label sample"
+            )
+            with self.capture_send_event_calls(expected_num_events=1) as events:
+                do_send_messages([prepared_message])
+            self.assertEqual(events[0]["event"]["type"], "message")
+            return orjson.dumps(events[0]["users"])
+
+        with (
+            patch.object(native_user_message_flags, "_backend", None),
+            patch.object(native_user_message_flags, "_prepared_send_backend", None),
+        ):
+            expected = send()
+
+        with (
+            patch.object(native_user_message_flags, "_backend", None),
+            patch.object(
+                prepared, "label_user_message_flags", wraps=prepared.label_user_message_flags
+            ) as witness,
+        ):
+            self.assertEqual(send(), expected)
+            witness.assert_called_once()
+            row = UserMessageLite(sender.id, 1, 0)
+            with patch.object(UserMessageLite, "flags_list", return_value=["custom"]):
+                self.assertIsNone(native_user_message_flags.labels_for_prepared_send([row]))
+            witness.assert_called_once()
 
     def test_single_fallback_preserves_owned_and_historical_message_flags(self) -> None:
         backend = extension()

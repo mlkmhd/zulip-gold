@@ -1206,10 +1206,8 @@ def do_send_messages(
         )
 
         native_flags = None
-        if user_messages and native_user_message_flags.available():
-            native_flags = native_user_message_flags.labels_by_id(
-                (um.user_profile_id, um.flags) for um in user_messages
-            )
+        if user_messages:
+            native_flags = native_user_message_flags.labels_for_prepared_send(user_messages)
         if native_flags is not None:
             user_message_flags[send_request.message.id].update(native_flags)
         else:
