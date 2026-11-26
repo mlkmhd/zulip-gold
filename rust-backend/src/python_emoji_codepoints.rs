@@ -3,7 +3,7 @@
 use std::fmt::Write as _;
 
 use pyo3::prelude::*;
-use pyo3::types::PyString;
+use pyo3::types::{PyBytes, PyString};
 
 use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes};
 
@@ -45,17 +45,41 @@ pub(crate) fn unqualify_exact_emoji_text<'py>(
     python_string_from_bytes(input.py(), &result)
 }
 
-#[pyfunction]
-pub(crate) fn encode_emoji_codepoints(input: &Bound<'_, PyAny>) -> Option<String> {
-    let text = input.cast_exact::<PyString>().ok()?.to_str().ok()?;
-    let mut encoded = String::with_capacity(text.len());
-    for (index, value) in text.chars().enumerate() {
+fn format_emoji_points(points: impl Iterator<Item = u32>, capacity: usize) -> Option<String> {
+    let mut encoded = String::new();
+    encoded.try_reserve(capacity).ok()?;
+    for (index, value) in points.enumerate() {
         if index != 0 {
             encoded.push('-');
         }
-        write!(&mut encoded, "{:04x}", u32::from(value)).ok()?;
+        write!(&mut encoded, "{value:04x}").ok()?;
     }
     Some(encoded)
+}
+
+#[pyfunction]
+pub(crate) fn encode_emoji_codepoints(input: &Bound<'_, PyAny>) -> Option<String> {
+    let text = input.cast_exact::<PyString>().ok()?.to_str().ok()?;
+    format_emoji_points(text.chars().map(u32::from), text.len())
+}
+
+#[pyfunction]
+pub(crate) fn encode_exact_emoji_codepoints(input: &Bound<'_, PyAny>) -> Option<String> {
+    let input = input.cast_exact::<PyString>().ok()?;
+    if let Ok(text) = input.to_str() {
+        return format_emoji_points(text.chars().map(u32::from), text.len());
+    }
+    // UTF-32 with surrogate-pass supplies the same code points as Python ord.
+    let encoded = input
+        .call_method1("encode", ("utf-32-le", "surrogatepass"))
+        .ok()?
+        .cast_into_exact::<PyBytes>()
+        .ok()?;
+    let bytes = encoded.as_bytes();
+    let points = bytes
+        .chunks_exact(4)
+        .map(|part| u32::from_le_bytes([part[0], part[1], part[2], part[3]]));
+    format_emoji_points(points, bytes.len())
 }
 
 #[pyfunction]

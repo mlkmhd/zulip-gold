@@ -8,6 +8,7 @@ from zerver.lib.native_backend import load_native_contract
 _rust_emoji_selector = load_native_contract(
     "ZULIP_RUST_EMOJI_PRESENTATION_SELECTOR", "EMOJI_PRESENTATION_SELECTOR_API"
 )
+_rust_emoji_encoder = load_native_contract("ZULIP_RUST_EMOJI_HEX_LABEL", "EMOJI_HEX_LABEL_API")
 
 try:
     _backend = (
@@ -51,6 +52,11 @@ def unqualify_emoji(emoji: str) -> str:
 
 
 def emoji_to_hex_codepoint(emoji: str) -> str:
+    encode = getattr(_rust_emoji_encoder, "encode_exact_emoji_codepoints", None)
+    if encode is not None and type(emoji) is str:
+        result = encode(emoji)
+        if result is not None:
+            return cast(str, result)
     native = _convert("encode_emoji_codepoints", emoji)
     return "-".join(f"{ord(c):04x}" for c in emoji) if native is None else native
 

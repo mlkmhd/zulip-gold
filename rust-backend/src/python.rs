@@ -355,6 +355,7 @@ mod _zulip_backend {
         module.add("FENCED_QUOTE_DELIMITER_API", 1)?;
         module.add("FENCED_QUOTE_TEXT_API", 1)?;
         module.add("EMOJI_PRESENTATION_SELECTOR_API", 1)?;
+        module.add("EMOJI_HEX_LABEL_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
         module.add("MARKDOWN_HEADINGS_API", 1)?;
         module.add("MARKDOWN_HORIZONTAL_RULES_API", 1)?;
@@ -468,8 +469,8 @@ mod _zulip_backend {
 
     #[pymodule_export]
     use crate::python_emoji_codepoints::{
-        decode_emoji_codepoints, encode_emoji_codepoints, unqualify_emoji_text,
-        unqualify_exact_emoji_text,
+        decode_emoji_codepoints, encode_emoji_codepoints, encode_exact_emoji_codepoints,
+        unqualify_emoji_text, unqualify_exact_emoji_text,
     };
 
     #[pymodule_export]
