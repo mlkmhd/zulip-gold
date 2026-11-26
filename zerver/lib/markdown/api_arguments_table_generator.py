@@ -55,6 +55,9 @@ _rust_choose_prepared_api_property_detail = getattr(
 _rust_render_prepared_api_parameter_list = getattr(
     _rust_api_type_tree, "render_prepared_api_parameter_list", None
 )
+_rust_render_prepared_api_parameter_row = getattr(
+    _rust_api_type_tree, "render_prepared_api_parameter_row", None
+)
 
 _rust_render_prepared_api_object_properties = getattr(
     _rust_api_type_tree, "render_prepared_api_object_properties", None
@@ -288,6 +291,20 @@ class APIArgumentsTablePreprocessor(Preprocessor):
         return [self._render_parameter(parameter, md_engine) for parameter in parameters]
 
     def _render_parameter(self, parameter: Parameter, md_engine: markdown.Markdown) -> str:
+        if _rust_render_prepared_api_parameter_row is not None:
+            return _rust_render_prepared_api_parameter_row(
+                parameter,
+                md_engine,
+                self,
+                API_PARAMETER_TEMPLATE,
+                (
+                    _decorate_parameter_description,
+                    generate_data_type,
+                    json.dumps,
+                    _prepare_parameter_badges,
+                    escape_html,
+                ),
+            )
         name = parameter.name
         description = _decorate_parameter_description(parameter.description, parameter)
         data_type = generate_data_type(parameter.value_schema)

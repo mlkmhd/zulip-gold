@@ -749,7 +749,8 @@ mod _zulip_backend {
         decorate_prepared_api_description, expand_prepared_api_doc_macros,
         join_prepared_doc_type_labels, prepare_api_doc_badges, render_api_doc_type_tree,
         render_prepared_api_object_properties, render_prepared_api_oneof,
-        render_prepared_api_parameter_list, wrap_prepared_doc_array_label,
+        render_prepared_api_parameter_list, render_prepared_api_parameter_row,
+        wrap_prepared_doc_array_label,
     };
 
     #[pymodule_export]

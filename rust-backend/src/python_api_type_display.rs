@@ -4,7 +4,7 @@ use crate::python_text_bytes::{
     join_exact_python_strings, python_string_bytes, python_string_from_bytes,
 };
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyDict, PyList, PyString};
+use pyo3::types::{PyBool, PyDict, PyList, PyString, PyTuple};
 
 #[pyfunction]
 pub(crate) fn join_prepared_doc_type_labels<'py>(
@@ -362,4 +362,61 @@ pub(crate) fn expand_prepared_api_doc_macros<'py>(
             None => return Ok(lines),
         }
     }
+}
+
+/// Render a prepared documentation row with the existing Python formatters.
+#[pyfunction]
+pub(crate) fn render_prepared_api_parameter_row<'py>(
+    parameter: &Bound<'py, PyAny>,
+    markdown: &Bound<'py, PyAny>,
+    renderer: &Bound<'py, PyAny>,
+    template: &Bound<'py, PyAny>,
+    formatters: &Bound<'py, PyTuple>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let py = parameter.py();
+    let name = parameter.getattr("name")?;
+    let description = formatters
+        .get_item(0)?
+        .call1((parameter.getattr("description")?, parameter))?;
+    let data_type = formatters
+        .get_item(1)?
+        .call1((parameter.getattr("value_schema")?,))?;
+    let example = formatters
+        .get_item(2)?
+        .call1((parameter.getattr("example")?,))?;
+    let badges = formatters.get_item(3)?.call1((parameter, &description))?;
+    let required = badges.get_item(0)?;
+    let deprecated = badges.get_item(1)?;
+
+    let mut details = PyString::new(py, "").into_any();
+    if data_type.contains("object")? {
+        let schema = parameter.getattr("value_schema")?;
+        if schema.contains("items")? && schema.get_item("items")?.contains("properties")? {
+            details = renderer
+                .getattr("render_object_details")?
+                .call1((schema.get_item("items")?, name.str()?))?;
+        } else if schema.contains("properties")? {
+            details = renderer
+                .getattr("render_object_details")?
+                .call1((schema, name.str()?))?;
+        } else if schema.contains("oneOf")? {
+            details = renderer
+                .getattr("render_oneof_block")?
+                .call1((schema, name.str()?))?;
+        }
+    }
+
+    let format = template.getattr("format")?;
+    let kwargs = PyDict::new(py);
+    kwargs.set_item("argument", name)?;
+    kwargs.set_item("example", formatters.get_item(4)?.call1((example,))?)?;
+    kwargs.set_item("required", required)?;
+    kwargs.set_item("deprecated", deprecated)?;
+    kwargs.set_item(
+        "description",
+        markdown.call_method1("convert", (description,))?,
+    )?;
+    kwargs.set_item("type", data_type)?;
+    kwargs.set_item("object_details", details)?;
+    format.call((), Some(&kwargs))
 }
