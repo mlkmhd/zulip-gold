@@ -814,7 +814,7 @@ Does it work?
             scheduled_message.content,
             (
                 "You requested a reminder for the following direct message.\n\n"
-                f"You [sent](http://zulip.testserver/#narrow/dm/10/near/{message_id}) a note to yourself:\n```quote\n{content}\n```"
+                f"You [sent](http://zulip.testserver/#narrow/dm/{hamlet.id}/near/{message_id}) a note to yourself:\n```quote\n{content}\n```"
             ),
         )
 
@@ -831,7 +831,7 @@ Does it work?
             scheduled_message.content,
             (
                 "You requested a reminder for the following direct message.\n\n"
-                f"You [sent](http://zulip.testserver/#narrow/dm/10/near/{message_id}) yourself a todo list."
+                f"You [sent](http://zulip.testserver/#narrow/dm/{hamlet.id}/near/{message_id}) yourself a todo list."
             ),
         )
 
@@ -848,6 +848,6 @@ Does it work?
             scheduled_message.content,
             (
                 "You requested a reminder for the following direct message.\n\n"
-                f"You [sent](http://zulip.testserver/#narrow/dm/10/near/{message_id}) yourself a poll."
+                f"You [sent](http://zulip.testserver/#narrow/dm/{hamlet.id}/near/{message_id}) yourself a poll."
             ),
         )

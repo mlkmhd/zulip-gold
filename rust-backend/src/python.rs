@@ -369,6 +369,7 @@ mod _zulip_backend {
         module.add("REMINDER_NOTE_TEXT_API", 1)?;
         module.add("REMINDER_WIDGET_LABEL_API", 1)?;
         module.add("REMINDER_TOPIC_CAPTION_API", 1)?;
+        module.add("REMINDER_RECIPIENT_LABELS_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
         module.add("MARKDOWN_HEADINGS_API", 1)?;
         module.add("MARKDOWN_HORIZONTAL_RULES_API", 1)?;
@@ -2232,6 +2233,47 @@ mod _zulip_backend {
         Some(reminder_context::direct_recipient_mentions(
             sender_id, recipients,
         ))
+    }
+
+    #[pyfunction]
+    fn exact_reminder_recipient_labels<'py>(
+        sender: &Bound<'py, PyAny>,
+        recipients: &Bound<'py, PyAny>,
+    ) -> Option<Bound<'py, PyList>> {
+        let signed =
+            |value: &Bound<'py, PyAny>| value.cast_exact::<PyInt>().ok()?.extract::<i64>().ok();
+        let sender = signed(sender)?;
+        let recipients = recipients.cast_exact::<PyList>().ok()?;
+        let mut labels = Vec::with_capacity(recipients.len());
+        for recipient in recipients.iter() {
+            let row = recipient.cast_exact::<PyDict>().ok()?;
+            if row
+                .iter()
+                .any(|(key, _)| !key.is_exact_instance_of::<PyString>())
+            {
+                return None;
+            }
+            let id = signed(&row.get_item("id").ok()??)?;
+            if id == sender {
+                continue;
+            }
+            let name = row.get_item("full_name").ok()??;
+            let name = python_string_bytes(name.cast_exact::<PyString>().ok()?)?;
+            let mut label = b"@_**".to_vec();
+            label.extend_from_slice(&name);
+            label.push(b'|');
+            label.extend_from_slice(id.to_string().as_bytes());
+            label.extend_from_slice(b"**");
+            labels.push(label);
+        }
+        // UTF-8 and surrogate-pass preserve code point order.
+        labels.sort_unstable();
+        let py = recipients.py();
+        let output = labels
+            .iter()
+            .map(|label| python_string_from_bytes(py, label))
+            .collect::<Option<Vec<_>>>()?;
+        PyList::new(py, output).ok()
     }
 
     #[pyfunction]

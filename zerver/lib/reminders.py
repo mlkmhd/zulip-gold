@@ -32,6 +32,11 @@ from zerver.models import Message, Stream, UserProfile
 from zerver.models.scheduled_jobs import ScheduledMessage
 from zerver.tornado.django_api import send_event_on_commit
 
+_rust_reminder_recipient_labels = load_native_contract(
+    "ZULIP_RUST_REMINDER_RECIPIENT_LABELS", "REMINDER_RECIPIENT_LABELS_API"
+)
+_reference_silent_mention = silent_mention_syntax_for_user
+
 _rust_reminder_topic_caption = load_native_contract(
     "ZULIP_RUST_REMINDER_TOPIC_CAPTION", "REMINDER_TOPIC_CAPTION_API"
 )
@@ -152,6 +157,25 @@ def _reminder_topic_link(channel: str, topic: str, url: str) -> str:
     return f"[{label}]({url})"
 
 
+def _reminder_recipient_mentions(
+    sender_id: int, recipients: list[UserDisplayRecipient]
+) -> list[str]:
+    render = getattr(_rust_reminder_recipient_labels, "exact_reminder_recipient_labels", None)
+    if render is not None and silent_mention_syntax_for_user is _reference_silent_mention:
+        result = render(sender_id, recipients)
+        if result is not None:
+            return cast(list[str], result)
+    if _rust_reminder_context is not None:
+        old = _rust_reminder_context.reminder_direct_recipient_mentions(
+            sender_id, [(user["id"], user["full_name"]) for user in recipients]
+        )
+        if old is not None:
+            return cast(list[str], old)
+    return sorted(
+        silent_mention_syntax_for_user(user) for user in recipients if user["id"] != sender_id
+    )
+
+
 def get_reminder_formatted_content(
     message: Message, current_user: UserProfile, note: str | None = None
 ) -> str:
@@ -205,17 +229,7 @@ def get_reminder_formatted_content(
         else:
             content = _("You requested a reminder for the following direct message.")
         recipients: list[UserDisplayRecipient] = get_display_recipient(message.recipient)
-        mentions: list[str] | None = None
-        if _rust_reminder_context is not None:
-            mentions = _rust_reminder_context.reminder_direct_recipient_mentions(
-                message.sender_id, [(user["id"], user["full_name"]) for user in recipients]
-            )
-        if mentions is None:
-            mentions = sorted(
-                silent_mention_syntax_for_user(user)
-                for user in recipients
-                if user["id"] != message.sender_id
-            )
+        mentions = _reminder_recipient_mentions(message.sender_id, recipients)
 
         if not mentions:
             format_recipient_type_key = ReminderRecipientType.NOTE_TO_SELF
