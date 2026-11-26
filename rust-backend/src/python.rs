@@ -378,6 +378,7 @@ mod _zulip_backend {
         module.add("API_RETURN_INDENT_API", 1)?;
         module.add("URL_FRAGMENTS_API", 1)?;
         module.add("CHANNEL_NARROW_SLUG_API", 1)?;
+        module.add("NARROW_RECIPIENT_SLUG_API", 1)?;
         module.add("TIMEZONE_ALIAS_SOURCE_API", 1)?;
         module.add("TIMEZONE_ALIAS_LOOKUP_API", 1)?;
         module.add("TIME_DISPLAY_API", 1)?;
@@ -3048,6 +3049,13 @@ mod _zulip_backend {
             .ok()?;
         let name = channel_name.cast_exact::<PyString>().ok()?.to_str().ok()?;
         Some(url_fragments::encode_channel(id, name, with_operator))
+    }
+
+    #[pyfunction]
+    fn parse_narrow_recipient_slug(value: &Bound<'_, PyAny>) -> Option<(Vec<i64>, String)> {
+        let value = value.cast_exact::<PyString>().ok()?.to_str().ok()?;
+        let (ids, suffix) = url_fragments::parse_recipient_slug(value)?;
+        Some((ids, suffix.to_owned()))
     }
 
     #[pyfunction]

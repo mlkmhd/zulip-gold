@@ -1,11 +1,17 @@
 # See the Zulip URL spec at https://zulip.com/api/zulip-urls
 
+from typing import cast
 from urllib.parse import unquote, urlsplit
 
 from django.conf import settings
 
 from zerver.lib.narrow_helpers import NarrowTerm
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.topic import DB_TOPIC_NAME
+
+_rust_narrow_recipient_slug = load_native_contract(
+    "ZULIP_RUST_NARROW_RECIPIENT_SLUG", "NARROW_RECIPIENT_SLUG_API"
+)
 
 
 def is_same_server_message_link(url: str) -> bool:
@@ -69,6 +75,13 @@ def parse_recipient_slug(slug: str) -> tuple[int | list[int], str] | None:
         - "89-Markl" -> (89, "Markl")
         - "stream-name" -> None
     """
+    native = getattr(_rust_narrow_recipient_slug, "parse_narrow_recipient_slug", None)
+    if callable(native):
+        parsed = cast("tuple[list[int], str] | None", native(slug))
+        if parsed is not None:
+            ids, suffix = parsed
+            return (ids if len(ids) > 1 else ids[0], suffix)
+
     try:
         ids_string, suffix = slug.split("-", maxsplit=1)
         ids = [int(id) for id in ids_string.split(",")]

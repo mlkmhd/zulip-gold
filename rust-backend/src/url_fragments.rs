@@ -38,6 +38,23 @@ pub(crate) fn encode_user_ids(mut user_ids: Vec<i64>, with_operator: bool) -> St
     slug
 }
 
+#[cfg(any(feature = "python", test))]
+pub(crate) fn parse_recipient_slug(slug: &str) -> Option<(Vec<i64>, &str)> {
+    let (ids, suffix) = slug.split_once('-')?;
+    let ids = ids
+        .split(',')
+        .map(|id| {
+            // Decline noncanonical spelling and larger integers so Python
+            // keeps its Unicode, sign and maximum-digit parsing behavior.
+            if id.is_empty() || id.len() > 19 || !id.bytes().all(|byte| byte.is_ascii_digit()) {
+                return None;
+            }
+            id.parse().ok()
+        })
+        .collect::<Option<Vec<i64>>>()?;
+    Some((ids, suffix))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -58,6 +75,17 @@ mod tests {
             "channel/-9-A--B.2E.C2.A0"
         );
         assert_eq!(encode_channel(0, "", false), "0-");
+    }
+
+    #[test]
+    fn decodes_canonical_recipient_slugs_without_sorting_or_modifying_the_label() {
+        assert_eq!(
+            parse_recipient_slug("1,08,1-سلام-a"),
+            Some((vec![1, 8, 1], "سلام-a"))
+        );
+        assert_eq!(parse_recipient_slug("0-"), Some((vec![0], "")));
+        assert_eq!(parse_recipient_slug("9223372036854775808-channel"), None);
+        assert_eq!(parse_recipient_slug("a-legacy"), None);
     }
 
     #[test]
