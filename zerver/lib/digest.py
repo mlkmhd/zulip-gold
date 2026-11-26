@@ -66,6 +66,10 @@ _rust_recent_topic_selection = load_native_contract(
     "ZULIP_RUST_DIGEST_RECENT_SELECTION", "DIGEST_RECENT_SELECTION_API"
 )
 
+_rust_muted_topic_rows = load_native_contract(
+    "ZULIP_RUST_DIGEST_MUTED_TOPIC_ROWS", "DIGEST_MUTED_TOPIC_ROWS_API"
+)
+
 TopicKey: TypeAlias = tuple[int, str]
 
 
@@ -457,6 +461,10 @@ def get_user_muted_topics_map(user_ids: list[int]) -> dict[int, set[tuple[int, s
         user_profile_id__in=user_ids,
         visibility_policy=UserTopic.VisibilityPolicy.MUTED,
     ).values("user_profile_id", "stream_id", "topic_name")
+
+    native = getattr(_rust_muted_topic_rows, "group_prepared_digest_muted_topic_rows", None)
+    if callable(native):
+        return cast("dict[int, set[TopicKey]]", native(rows, defaultdict(set)))
 
     dct: dict[int, set[tuple[int, str]]] = defaultdict(set)
     for row in rows:

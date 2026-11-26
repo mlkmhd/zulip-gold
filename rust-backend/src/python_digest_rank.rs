@@ -194,3 +194,21 @@ pub(crate) fn collect_prepared_digest_recent_topics<'py>(
     }
     Ok(recent)
 }
+
+#[pyfunction]
+pub(crate) fn group_prepared_digest_muted_topic_rows<'py>(
+    rows: &Bound<'py, PyAny>,
+    groups: Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    for row in rows.try_iter()? {
+        let row = row?;
+        let topics = groups.get_item(row.get_item("user_profile_id")?)?;
+        let stream = row.get_item("stream_id")?;
+        // Use the running Python's Unicode casing to match the keys used
+        // by digest topic selection, including contextual lowercase sigma.
+        let name = row.get_item("topic_name")?.call_method0("lower")?;
+        let key = PyTuple::new(rows.py(), [stream, name])?;
+        topics.call_method1("add", (key,))?;
+    }
+    Ok(groups)
+}
