@@ -15,6 +15,9 @@ _rust_narrow_recipient_slug = load_native_contract(
 _rust_narrow_fragment_text = load_native_contract(
     "ZULIP_RUST_NARROW_FRAGMENT_TEXT", "NARROW_FRAGMENT_TEXT_API"
 )
+_rust_narrow_term_grammar = load_native_contract(
+    "ZULIP_RUST_NARROW_TERM_GRAMMAR", "NARROW_TERM_GRAMMAR_API"
+)
 
 
 def is_same_server_message_link(url: str) -> bool:
@@ -134,6 +137,17 @@ def parse_narrow_url(
     """
     split_result = urlsplit(narrow_url)
     fragment = split_result.fragment
+    native = getattr(_rust_narrow_term_grammar, "parse_prepared_narrow_terms", None)
+    if callable(native):
+        prepared = cast(
+            "list[tuple[str, str | int | list[int], bool]] | None",
+            native(fragment, OPERATOR_SYNONYMS),
+        )
+        if prepared is not None:
+            return [
+                NarrowTerm(operator, operand, negated) for operator, operand, negated in prepared
+            ]
+
     fragment_parts = fragment.split("/")
 
     terms: list[NarrowTerm] = []

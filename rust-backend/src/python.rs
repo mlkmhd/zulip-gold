@@ -10,7 +10,7 @@ use pyo3::types::{PyDict, PyInt, PyList, PyString, PyTuple};
 use crate::draft_fields::{DraftFields, Recipients};
 use crate::draft_input::{self, DraftInput, Location, ParseError, Timestamp};
 use crate::draft_recipients::{DirectRecipient, DirectRecipientError, validate_direct_recipients};
-use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes};
+use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes, trim_python_text};
 use crate::scheduled_fields::{MessageFields, Recipient, ScheduledJob};
 use crate::scheduled_input::{self, ArgumentKind, ScheduledArgument};
 use crate::scheduled_validation::{self, RecipientError, RecipientKind};
@@ -380,6 +380,7 @@ mod _zulip_backend {
         module.add("CHANNEL_NARROW_SLUG_API", 1)?;
         module.add("NARROW_RECIPIENT_SLUG_API", 1)?;
         module.add("NARROW_FRAGMENT_TEXT_API", 1)?;
+        module.add("NARROW_TERM_GRAMMAR_API", 1)?;
         module.add("TIMEZONE_ALIAS_SOURCE_API", 1)?;
         module.add("TIMEZONE_ALIAS_LOOKUP_API", 1)?;
         module.add("TIME_DISPLAY_API", 1)?;
@@ -3064,6 +3065,67 @@ mod _zulip_backend {
     fn decode_narrow_hash_component(value: &Bound<'_, PyAny>) -> Option<String> {
         let value = value.cast_exact::<PyString>().ok()?.to_str().ok()?;
         url_fragments::decode_hash_component_valid_utf8(value)
+    }
+
+    #[pyfunction]
+    fn parse_prepared_narrow_terms<'py>(
+        fragment: &Bound<'py, PyAny>,
+        aliases: &Bound<'py, PyDict>,
+    ) -> Option<Bound<'py, PyList>> {
+        let fragment = fragment.cast_exact::<PyString>().ok()?.to_str().ok()?;
+        let terms = PyList::empty(aliases.py());
+        let mut parts = fragment.split('/').skip(1);
+        let canonical_names = aliases.values();
+        while let Some(raw_operator) = parts.next() {
+            let raw_operator = url_fragments::decode_hash_component_valid_utf8(raw_operator)?;
+            let raw_operator =
+                std::str::from_utf8(trim_python_text(raw_operator.as_bytes())).ok()?;
+            let negated = raw_operator.starts_with('-');
+            let bare = raw_operator.strip_prefix('-').unwrap_or(raw_operator);
+            if bare.is_empty() || !bare.is_ascii() {
+                return None;
+            }
+            let bare = bare.to_ascii_lowercase();
+            let operator = if !canonical_names.contains(&bare).ok()? {
+                match aliases.get_item(&bare).ok()? {
+                    Some(alias) => alias.extract::<String>().ok()?,
+                    None => bare,
+                }
+            } else {
+                bare
+            };
+
+            let raw_operand = parts.next().unwrap_or_default();
+            match operator.as_str() {
+                "dm-including" | "dm" | "mentions" | "sender" | "channel" => {
+                    let (ids, _) = url_fragments::parse_recipient_slug(raw_operand)?;
+                    if ids.len() == 1 {
+                        terms.append((operator, ids[0], negated)).ok()?;
+                    } else {
+                        terms.append((operator, ids, negated)).ok()?;
+                    }
+                }
+                "near" => {
+                    if raw_operand.is_empty()
+                        || raw_operand.len() > 19
+                        || !raw_operand.bytes().all(|byte| byte.is_ascii_digit())
+                    {
+                        return None;
+                    }
+                    let message_id = raw_operand.parse::<i64>().ok()?;
+                    terms.append((operator, message_id, negated)).ok()?;
+                }
+                _ => {
+                    let decoded = url_fragments::decode_hash_component_valid_utf8(raw_operand)?;
+                    let text = std::str::from_utf8(trim_python_text(decoded.as_bytes())).ok()?;
+                    if text.is_empty() && operator != "topic" {
+                        return None;
+                    }
+                    terms.append((operator, text, negated)).ok()?;
+                }
+            }
+        }
+        Some(terms)
     }
 
     #[pyfunction]
