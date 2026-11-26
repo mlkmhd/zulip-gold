@@ -24,6 +24,9 @@ _rust_scheduled_job_input = (
     if os.environ.get("ZULIP_RUST_SCHEDULED_JOB_INPUT") == "1"
     else None
 )
+_rust_prepared_scheduled_input = load_native_contract(
+    "ZULIP_RUST_PREPARED_SCHEDULED_INPUT", "PREPARED_SCHEDULED_INPUT_API"
+)
 _rust_scheduled_job_timestamp = (
     import_module("_zulip_backend")
     if os.environ.get("ZULIP_RUST_SCHEDULED_JOB_TIMESTAMP") == "1"
@@ -59,14 +62,30 @@ def parse_scheduled_job_argument(
     return handler(value)
 
 
+def _parse_builtin_scheduled_job_argument(
+    kind: Literal["integer", "recipients", "boolean"],
+    value: object,
+    handler: ValidatorFunctionWrapHandler,
+) -> object:
+    # Only the three exact annotations below use this shortcut.
+    if _rust_scheduled_job_input is None and type(value) is str:
+        native = getattr(_rust_prepared_scheduled_input, "parse_scheduled_job_argument", None)
+        if native is not None:
+            argument = native(value, kind)
+            if argument is not None:
+                return argument
+    return parse_scheduled_job_argument(kind, value, handler)
+
+
 ScheduledJobInteger = Annotated[
-    Json[int], WrapValidator(partial(parse_scheduled_job_argument, "integer"))
+    Json[int], WrapValidator(partial(_parse_builtin_scheduled_job_argument, "integer"))
 ]
 ScheduledJobRecipients = Annotated[
-    Json[int | list[int]], WrapValidator(partial(parse_scheduled_job_argument, "recipients"))
+    Json[int | list[int]],
+    WrapValidator(partial(_parse_builtin_scheduled_job_argument, "recipients")),
 ]
 ScheduledJobBoolean = Annotated[
-    Json[bool], WrapValidator(partial(parse_scheduled_job_argument, "boolean"))
+    Json[bool], WrapValidator(partial(_parse_builtin_scheduled_job_argument, "boolean"))
 ]
 
 
