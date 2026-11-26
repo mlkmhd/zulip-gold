@@ -47,22 +47,28 @@ pub(crate) fn strip_quote_marker(line: &str) -> &str {
 }
 
 pub(crate) fn format_fenced_quote(text: &str) -> Option<String> {
-    const MAX_BYTES: usize = 8 * 1024 * 1024;
-    if text.len() >= MAX_BYTES {
+    let output = prefix_fenced_quote_lines(text.as_bytes(), 8 * 1024 * 1024)?;
+    String::from_utf8(output).ok()
+}
+
+pub(crate) fn prefix_fenced_quote_lines(text: &[u8], max_bytes: usize) -> Option<Vec<u8>> {
+    let lines = text
+        .iter()
+        .filter(|&&byte| byte == b'\n')
+        .count()
+        .checked_add(1)?;
+    let capacity = text.len().checked_add(lines.checked_mul(2)?)?;
+    if capacity > max_bytes {
         return None;
     }
-    let lines = text.bytes().filter(|&byte| byte == b'\n').count() + 1;
-    let capacity = text.len() + 2 * lines;
-    if capacity > MAX_BYTES {
-        return None;
-    }
-    let mut quoted = String::with_capacity(capacity);
-    for (index, line) in text.split('\n').enumerate() {
+    let mut quoted = Vec::new();
+    quoted.try_reserve_exact(capacity).ok()?;
+    for (index, line) in text.split(|&byte| byte == b'\n').enumerate() {
         if index != 0 {
-            quoted.push('\n');
+            quoted.push(b'\n');
         }
-        quoted.push_str("> ");
-        quoted.push_str(line);
+        quoted.extend_from_slice(b"> ");
+        quoted.extend_from_slice(line);
     }
     Some(quoted)
 }
@@ -81,6 +87,17 @@ mod tests {
         assert_eq!(strip_quote_marker("   > > nested"), "> nested");
         assert_eq!(strip_quote_marker(">\ttext"), "\ttext");
         assert_eq!(strip_quote_marker("\u{1c}>\u{85}"), "");
+    }
+
+    #[test]
+    fn prefixes_empty_lines_and_surrogate_bytes_without_changing_the_input() {
+        let text = b"\xed\xa0\x80\n\nx\r\n";
+        let quoted = b"> \xed\xa0\x80\n> \n> x\r\n> ";
+        assert_eq!(
+            prefix_fenced_quote_lines(text, quoted.len()).as_deref(),
+            Some(quoted.as_slice())
+        );
+        assert_eq!(prefix_fenced_quote_lines(text, quoted.len() - 1), None);
     }
 
     #[test]

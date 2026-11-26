@@ -44,9 +44,12 @@ def load_formatter(
     method = next(
         node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == name
     )
-    namespace = {"_rust_markdown_fences": backend, "cast": cast, "override": override} | (
-        extra or {}
-    )
+    namespace = {
+        "_rust_markdown_fences": backend,
+        "_rust_fenced_quote_text": None,
+        "cast": cast,
+        "override": override,
+    } | (extra or {})
     exec(compile(ast.Module(body=[method], type_ignores=[]), str(SOURCE), "exec"), namespace)  # noqa: S102
     return cast(Callable[..., object], namespace[name])
 
@@ -61,11 +64,20 @@ class FencedQuoteParity(unittest.TestCase):
         rng = random.Random(962860)
         alphabet = "a\n\r\0\t> فارسی😀\u2028\u0085"
         cases = ["".join(rng.choices(alphabet, k=rng.randrange(128))) for _ in range(20_000)]
+        exact = Mock(wraps=EXTENSION.prefix_exact_fenced_quote_lines)
+        default = load_formatter(
+            None,
+            extra={
+                "_rust_fenced_quote_text": SimpleNamespace(prefix_exact_fenced_quote_lines=exact)
+            },
+        )
         for text in fixtures + cases:
             result = reference(None, text)
+            self.assertEqual(default(None, text), result)
             self.assertEqual(old_wheel(None, text), result)
             self.assertEqual(opted_in(None, text), result)
         self.assertEqual(native.call_count, len(fixtures) + len(cases))
+        self.assertEqual(exact.call_count, len(fixtures) + len(cases))
         self.assertIsNone(EXTENSION.format_markdown_fenced_quote("\ud800"))
 
     def test_exact_type_and_output_budget_delegate(self) -> None:
@@ -445,6 +457,8 @@ def load_fence_stack(
     namespace = {
         "_rust_markdown_fences": backend,
         "_rust_markdown_blocks": None,
+        "_rust_code_escape": None,
+        "_rust_fenced_quote_text": None,
         "cast": cast,
         "override": override,
         "re": re,

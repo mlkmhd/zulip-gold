@@ -353,6 +353,7 @@ mod _zulip_backend {
         module.add("FENCED_CODE_HEADER_API", 1)?;
         module.add("FENCED_CODE_ESCAPE_API", 1)?;
         module.add("FENCED_QUOTE_DELIMITER_API", 1)?;
+        module.add("FENCED_QUOTE_TEXT_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
         module.add("MARKDOWN_HEADINGS_API", 1)?;
         module.add("MARKDOWN_HORIZONTAL_RULES_API", 1)?;
@@ -1356,6 +1357,16 @@ mod _zulip_backend {
             return None;
         }
         markdown_blockquotes::format_fenced_quote(text.to_str().ok()?)
+    }
+
+    #[pyfunction]
+    fn prefix_exact_fenced_quote_lines<'py>(
+        text: &Bound<'py, PyAny>,
+    ) -> Option<Bound<'py, PyString>> {
+        let text = text.cast_exact::<PyString>().ok()?;
+        let bytes = python_string_bytes(text)?;
+        let quoted = markdown_blockquotes::prefix_fenced_quote_lines(&bytes, isize::MAX as usize)?;
+        python_string_from_bytes(text.py(), &quoted)
     }
 
     #[pyfunction]

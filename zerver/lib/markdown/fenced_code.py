@@ -109,6 +109,9 @@ _rust_code_escape = load_native_contract("ZULIP_RUST_FENCED_CODE_ESCAPE", "FENCE
 _rust_quote_delimiter = load_native_contract(
     "ZULIP_RUST_QUOTE_DELIMITER", "FENCED_QUOTE_DELIMITER_API"
 )
+_rust_fenced_quote_text = load_native_contract(
+    "ZULIP_RUST_FENCED_QUOTE_TEXT", "FENCED_QUOTE_TEXT_API"
+)
 
 _rust_code_highlight = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_CODE_HIGHLIGHT") == "1" else None
@@ -748,7 +751,9 @@ class FencedBlockPreprocessor(Preprocessor):
         return code
 
     def format_quote(self, text: str) -> str:
-        format_native = getattr(_rust_markdown_fences, "format_markdown_fenced_quote", None)
+        format_native = getattr(_rust_fenced_quote_text, "prefix_exact_fenced_quote_lines", None)
+        if format_native is None:
+            format_native = getattr(_rust_markdown_fences, "format_markdown_fenced_quote", None)
         if format_native is not None and type(text) is str:
             quoted = format_native(text)
             if quoted is not None:
