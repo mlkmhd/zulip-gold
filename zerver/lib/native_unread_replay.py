@@ -73,8 +73,12 @@ def restore(raw: object, user_id: int, details: object) -> bool:
     return callable(native) and cast(bool, native(raw, user_id, details))
 
 
+_move_backend = load_native_contract("ZULIP_RUST_UNREAD_MOVE", "UNREAD_MOVE_API")
+
+
 def move(raw: object, event: dict[str, object]) -> bool:
-    native = getattr(_backend, "move_unread_messages", None)
+    backend = _backend if _backend is not None else _move_backend
+    native = getattr(backend, "move_unread_messages", None)
     if not callable(native) or type(event) is not dict:
         return False
     stream = event.get("new_stream_id")

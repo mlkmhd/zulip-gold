@@ -137,6 +137,7 @@ class UnreadReplayRustTest(ZulipTestCase):
             with (
                 patch.object(native_unread_replay, "_backend", candidate),
                 patch.object(native_unread_replay, "_remove_backend", None),
+                patch.object(native_unread_replay, "_move_backend", None),
             ):
                 for event in events:
                     self.replay(raw, event)
@@ -183,6 +184,37 @@ class UnreadReplayRustTest(ZulipTestCase):
         self.assertEqual(raw["pm_dict"], {})
         self.assertEqual(raw["stream_dict"], {9: {"stream_id": 4, "topic": "Keep"}})
         self.assertEqual(raw["mentions"], {9})
+
+    def test_default_unread_move_preserves_row_and_unrelated_flags(self) -> None:
+        raw = empty_unread()
+        moved = {"stream_id": 4, "topic": "Old"}
+        raw["stream_dict"][9] = moved
+        raw["mentions"].add(9)
+        raw["unmuted_stream_msgs"].add(9)
+        raw["pm_dict"][10] = {"other_user_id": 5}
+        event = {
+            "type": "update_message",
+            "message_ids": [10, 9, 9],
+            "new_stream_id": 6,
+            TOPIC_NAME: "",
+        }
+        content_only = {"type": "update_message", "message_ids": [9]}
+        backend = native_unread_replay._move_backend
+        if backend is not None:
+            with patch.object(
+                backend, "move_unread_messages", wraps=backend.move_unread_messages
+            ) as witness:
+                self.replay(raw, content_only)
+                self.replay(raw, event)
+            witness.assert_called_once_with(raw, [10, 9, 9], 6, "")
+        else:
+            self.replay(raw, content_only)
+            self.replay(raw, event)
+        self.assertIs(raw["stream_dict"][9], moved)
+        self.assertEqual(moved, {"stream_id": 6, "topic": ""})
+        self.assertEqual(raw["pm_dict"], {10: {"other_user_id": 5}})
+        self.assertEqual(raw["mentions"], {9})
+        self.assertEqual(raw["unmuted_stream_msgs"], {9})
 
     def test_decline_leaves_the_selected_state_untouched(self) -> None:
         backend = extension()
