@@ -414,6 +414,7 @@ mod _zulip_backend {
         module.add("PREPARED_USER_MENTION_SCAN_API", 1)?;
         module.add("PREPARED_GROUP_MENTION_SCAN_API", 1)?;
         module.add("PREPARED_QUOTE_MENTION_API", 1)?;
+        module.add("PREPARED_USER_MENTION_FIELDS_API", 1)?;
         module.add("EXACT_MESSAGE_BODY_API", 1)?;
         module.add("PREPARED_RECENT_DM_ROWS_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
@@ -1851,6 +1852,33 @@ mod _zulip_backend {
         };
         Some(mention_span_fields(
             markdown_inline_mentions::user_mention_span(name.to_str().ok()?, silent, user),
+        ))
+    }
+
+    #[pyfunction]
+    fn prepared_user_mention_fields(
+        name: &Bound<'_, PyString>,
+        silent: bool,
+        stream_wildcard: bool,
+        topic_wildcard: bool,
+        user: Option<(i32, Bound<'_, PyString>, bool)>,
+    ) -> Option<MentionSpanFields> {
+        let user = match user.as_ref() {
+            Some((id, name, is_active)) => Some(markdown_inline_mentions::MentionUser {
+                id: *id,
+                full_name: name.to_str().ok()?,
+                is_active: *is_active,
+            }),
+            None => None,
+        };
+        Some(mention_span_fields(
+            markdown_inline_mentions::prepared_user_mention_span(
+                name.to_str().ok()?,
+                silent,
+                stream_wildcard,
+                topic_wildcard,
+                user,
+            ),
         ))
     }
 

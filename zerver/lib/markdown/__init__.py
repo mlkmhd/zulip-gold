@@ -141,6 +141,9 @@ _rust_markdown_quote_mentions = (
 _rust_prepared_quote_mentions = load_native_contract(
     "ZULIP_RUST_PREPARED_QUOTE_MENTIONS", "PREPARED_QUOTE_MENTION_API"
 )
+_rust_prepared_user_mention_fields = load_native_contract(
+    "ZULIP_RUST_PREPARED_USER_MENTION_FIELDS", "PREPARED_USER_MENTION_FIELDS_API"
+)
 _rust_markdown_inline_mentions = (
     import_module("_zulip_backend")
     if os.environ.get("ZULIP_RUST_MARKDOWN_INLINE_MENTIONS") == "1"
@@ -2143,6 +2146,9 @@ def build_mention_span(zmd: "ZulipMarkdown", fields: MentionSpanFields) -> Eleme
     return el
 
 
+_reference_mention_span_builder = build_mention_span
+
+
 class UserMentionPattern(CompiledInlineProcessor):
     @override
     def handleMatch(  # type: ignore[override] # https://github.com/python/mypy/issues/10197
@@ -2172,17 +2178,44 @@ class UserMentionPattern(CompiledInlineProcessor):
                 # For @**name** syntax.
                 user = db_data.mention_data.get_user_by_name(name)
 
+            fields = None
             if _rust_markdown_inline_mentions is not None:
                 fields = _rust_markdown_inline_mentions.user_markdown_mention_fields(
                     name,
                     silent,
                     None if user is None else (user.id, user.full_name, user.is_active),
                 )
-                if fields is not None:
-                    el = build_mention_span(self.zmd, fields)
-                    if el is None:
-                        return None, None, None
-                    return el, m.start(), m.end()
+            elif (
+                _rust_prepared_user_mention_fields is not None
+                and build_mention_span is _reference_mention_span_builder
+                and type(name) is str
+                and type(silent) is bool
+                and type(stream_wildcard) is bool
+                and type(topic_wildcard) is bool
+                and (
+                    user is None
+                    or (
+                        type(user) is FullNameInfo
+                        and type(user.id) is int
+                        and -(2**31) <= user.id < 2**31
+                        and type(user.full_name) is str
+                        and type(user.is_active) is bool
+                    )
+                )
+            ):
+                # Django has already classified wildcards and resolved the user.
+                fields = _rust_prepared_user_mention_fields.prepared_user_mention_fields(
+                    name,
+                    silent,
+                    stream_wildcard,
+                    topic_wildcard,
+                    None if user is None else (user.id, user.full_name, user.is_active),
+                )
+            if fields is not None:
+                el = build_mention_span(self.zmd, fields)
+                if el is None:
+                    return None, None, None
+                return el, m.start(), m.end()
 
             user_id = None
             if stream_wildcard:

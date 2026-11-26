@@ -29,21 +29,42 @@ pub struct MentionUser<'a> {
 /// `prepare_user`. Text is atomic and attribute values still need HTML escaping.
 pub fn user_mention_span(
     name: &str,
+    silent: bool,
+    user: Option<MentionUser<'_>>,
+) -> Option<MentionSpan> {
+    prepared_user_mention_span(
+        name,
+        silent,
+        matches!(name, "all" | "everyone" | "stream" | "channel"),
+        name == "topic",
+        user,
+    )
+}
+
+/// Format a mention after the host has classified wildcards and resolved the user.
+pub fn prepared_user_mention_span(
+    name: &str,
     mut silent: bool,
+    stream_wildcard: bool,
+    topic_wildcard: bool,
     user: Option<MentionUser<'_>>,
 ) -> Option<MentionSpan> {
     let mut attributes = Vec::new();
-    let (name, class, notification) = match name {
-        "all" | "everyone" | "stream" | "channel" => {
+    let (name, class, notification) = match (stream_wildcard, topic_wildcard) {
+        (true, _) => {
             attributes.push(("data-user-id", "*".to_owned()));
             (
                 name,
-                "user-mention channel-wildcard-mention",
+                if topic_wildcard {
+                    "topic-mention"
+                } else {
+                    "user-mention channel-wildcard-mention"
+                },
                 MentionNotification::Channel,
             )
         }
-        "topic" => (name, "topic-mention", MentionNotification::Topic),
-        _ => {
+        (false, true) => (name, "topic-mention", MentionNotification::Topic),
+        (false, false) => {
             let user = user?;
             silent |= !user.is_active;
             attributes.push(("data-user-id", user.id.to_string()));

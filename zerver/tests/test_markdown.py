@@ -29,6 +29,7 @@ from zerver.actions.user_groups import (
 )
 from zerver.actions.user_settings import do_change_user_setting
 from zerver.actions.users import change_user_is_active
+from zerver.lib import markdown as zulip_markdown
 from zerver.lib.alert_words import get_alert_word_matcher
 from zerver.lib.camo import get_camo_url
 from zerver.lib.create_user import create_user
@@ -2629,6 +2630,49 @@ class MarkdownCodeBlockTest(ZulipTestCase):
 
 
 class MarkdownMentionTest(ZulipTestCase):
+    def test_prepared_user_mention_fields_match_reference(self) -> None:
+        sender = self.example_user("othello")
+        hamlet = self.example_user("hamlet")
+        user = create_user(
+            email="prepared-mention@example.com",
+            password="whatever",
+            realm=sender.realm,
+            full_name='<Name & "📝">',
+        )
+        message = Message(sender=sender, sending_client=get_client("test"), realm=sender.realm)
+        impossible_name = f"not {hamlet.full_name}|{hamlet.id}"
+        inputs = [
+            f"@**|{user.id}** @**{hamlet.full_name}|{hamlet.id}** @**{impossible_name}**",
+            "@**all** @_**everyone** @**stream** @_**channel** @**topic** @_**topic**",
+            "> @**King Hamlet** @**all**\n\n@**King Hamlet** @_**topic**",
+            "@**No Such User** @_**King Hamlet**",
+        ]
+
+        with mock.patch.object(zulip_markdown, "_rust_prepared_user_mention_fields", None):
+            reference = [render_message_markdown(message, content) for content in inputs]
+
+        backend = zulip_markdown._rust_prepared_user_mention_fields
+        if backend is None:
+            actual = [render_message_markdown(message, content) for content in inputs]
+        else:
+            with mock.patch.object(
+                backend, "prepared_user_mention_fields", wraps=backend.prepared_user_mention_fields
+            ) as prepare:
+                actual = [render_message_markdown(message, content) for content in inputs]
+            names = [call.args[0] for call in prepare.call_args_list]
+            self.assertIn(f"|{user.id}", names)
+            self.assertIn("all", names)
+            self.assertIn("topic", names)
+            self.assertIn("No Such User", names)
+            self.assertNotIn(impossible_name, names)
+
+        for before, after in zip(reference, actual, strict=True):
+            self.assertEqual(before.rendered_content, after.rendered_content)
+            self.assertEqual(before.mentions_user_ids, after.mentions_user_ids)
+            self.assertEqual(before.mentions_user_group_ids, after.mentions_user_group_ids)
+            self.assertEqual(before.mentions_stream_wildcard, after.mentions_stream_wildcard)
+            self.assertEqual(before.mentions_topic_wildcard, after.mentions_topic_wildcard)
+
     def test_mention_topic_wildcard(self) -> None:
         user_profile = self.example_user("othello")
         msg = Message(
