@@ -15,7 +15,7 @@ from django.http import HttpRequest, StreamingHttpResponse
 from django.test import override_settings
 from typing_extensions import override
 
-from zerver.lib import native_thumbnail_status
+from zerver.lib import native_thumbnail_status, thumbnail
 from zerver.lib.native_backend import supports_default_rust_backend
 from zerver.lib.test_classes import ZulipTestCase
 from zerver.lib.test_helpers import (
@@ -1509,9 +1509,28 @@ class ThumbnailStatusEndpointTest(ZulipTestCase):
                     )
                 path_id = re.sub(r"/user_uploads/", "", json_response["url"])
 
-            result = self.client_get(f"/json/thumbnail/status/{path_id}")
+            with patch.object(
+                native_thumbnail_status, "completeness", wraps=native_thumbnail_status.completeness
+            ) as probe:
+                result = self.client_get(f"/json/thumbnail/status/{path_id}")
             self.assert_json_success(result)
             self.assertEqual(result.json()["has_thumbnail"], True)
+            if native_thumbnail_status.available():
+                probe.assert_called_once()
+            else:
+                probe.assert_not_called()
+
+    def test_custom_readiness_stays_in_python_without_bypassing_helper(self) -> None:
+        attachment = ImageAttachment(
+            content_type="image/webp", frames=1, original_width_px=20, original_height_px=30
+        )
+        with (
+            patch.object(thumbnail, "missing_thumbnails", return_value=[]) as missing,
+            patch.object(native_thumbnail_status, "completeness") as probe,
+        ):
+            self.assertTrue(thumbnail.has_ready_thumbnail(attachment))
+        missing.assert_called_once_with(attachment)
+        probe.assert_not_called()
 
     def test_thumbnail_status_without_ready_thumbnails(self) -> None:
         hamlet = self.example_user("hamlet")

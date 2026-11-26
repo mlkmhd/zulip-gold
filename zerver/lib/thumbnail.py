@@ -390,8 +390,50 @@ def missing_thumbnails(image_attachment: ImageAttachment) -> list[ThumbnailForma
     return needed_thumbnails
 
 
+_reference_configured_thumbnail_formats = configured_thumbnail_formats
+_reference_missing_thumbnails = missing_thumbnails
+_reference_needs_transcoded_format = needs_transcoded_format
+_reference_thumbnail_format_key = thumbnail_key
+_THUMBNAIL_READINESS_FIELDS = frozenset(
+    {"thumbnail_metadata", "content_type", "frames", "original_width_px", "original_height_px"}
+)
+
+
+def _thumbnail_format_methods() -> tuple[object, ...]:
+    return (
+        ThumbnailFormat.__init__,
+        ThumbnailFormat.__eq__,
+        ThumbnailFormat.__str__,
+        ThumbnailFormat.__hash__,
+        StoredThumbnailFormat.__init__,
+        StoredThumbnailFormat.__eq__,
+        StoredThumbnailFormat.__str__,
+        StoredThumbnailFormat.__hash__,
+    )
+
+
+_reference_thumbnail_format_methods = _thumbnail_format_methods()
+
+
 def has_ready_thumbnail(image_attachment: ImageAttachment) -> bool:
-    if native_thumbnail_status.available():
+    if (
+        native_thumbnail_status.available()
+        and configured_thumbnail_formats is _reference_configured_thumbnail_formats
+        and missing_thumbnails is _reference_missing_thumbnails
+        and needs_transcoded_format is _reference_needs_transcoded_format
+        and thumbnail_key is _reference_thumbnail_format_key
+        and type(image_attachment) is ImageAttachment
+        and _THUMBNAIL_READINESS_FIELDS.issubset(vars(image_attachment))
+        and type(THUMBNAIL_OUTPUT_FORMATS) is tuple
+        and all(type(fmt) is ThumbnailFormat for fmt in THUMBNAIL_OUTPUT_FORMATS)
+        and type(TRANSCODED_IMAGE_FORMAT) is ThumbnailFormat
+        and all(
+            current is reference
+            for current, reference in zip(
+                _thumbnail_format_methods(), _reference_thumbnail_format_methods, strict=True
+            )
+        )
+    ):
         status = native_thumbnail_status.completeness(
             image_attachment.thumbnail_metadata,
             tuple(thumbnail_key(format) for format in THUMBNAIL_OUTPUT_FORMATS),

@@ -51,7 +51,12 @@ fn supplied_key(value: &Bound<'_, PyAny>) -> Option<FormatKey> {
 
 fn stored_key(value: &Bound<'_, PyAny>) -> Option<FormatKey> {
     let row = value.cast_exact::<PyDict>().ok()?;
-    if row.len() != 8 {
+    if row.len() != 8
+        || row
+            .keys()
+            .iter()
+            .any(|key| !key.is_exact_instance_of::<PyString>())
+    {
         return None;
     }
     // Preserve Python's fallback for old or unsupported stored shapes.

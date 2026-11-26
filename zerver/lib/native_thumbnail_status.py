@@ -26,7 +26,7 @@ def load_backend(flag: str) -> ModuleType | None:
         return None
 
 
-_backend = load_backend("ZULIP_RUST_THUMBNAIL_STATUS")
+_backend = load_native_contract("ZULIP_RUST_THUMBNAIL_STATUS", "THUMBNAIL_READINESS_API")
 _selection_backend = load_backend("ZULIP_RUST_TRANSCODE_SELECTION")
 _plan_backend = load_backend("ZULIP_RUST_THUMBNAIL_PLAN")
 _stored_variant_backend = load_native_contract(
