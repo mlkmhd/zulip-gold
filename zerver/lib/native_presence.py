@@ -1,4 +1,4 @@
-"""Opt-in presence formatting for rows already selected by Django."""
+"""Native formatting for presence data already selected by Django."""
 
 import os
 from datetime import datetime, timezone
@@ -15,6 +15,9 @@ _legacy_display_backend = load_native_contract(
 )
 _single_response_backend = load_native_contract(
     "ZULIP_RUST_SINGLE_PRESENCE_RESPONSE", "PRESENCE_SINGLE_USER_RESPONSE_API"
+)
+_rows_backend = load_native_contract(
+    "ZULIP_RUST_PREPARED_PRESENCE_ROWS", "PREPARED_PRESENCE_ROWS_API"
 )
 
 LegacySpec: TypeAlias = tuple[int, str, str]
@@ -58,8 +61,13 @@ def format_legacy_display(
     return format_information(active, connected, spec, aggregate=aggregate)
 
 
+def prepared_rows_enabled() -> bool:
+    return _rows_backend is not None or _backend is not None
+
+
 def format_rows(rows: object, spec: LegacySpec | None) -> dict[str, dict[str, object]] | None:
-    native = getattr(_backend, "format_presence_rows", None)
+    backend = _rows_backend or _backend
+    native = getattr(backend, "format_presence_rows", None)
     if native is None:
         return None
     return cast(dict[str, dict[str, object]] | None, native(rows, _DATE_POLICY, spec))

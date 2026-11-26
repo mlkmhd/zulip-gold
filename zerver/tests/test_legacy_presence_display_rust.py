@@ -40,6 +40,7 @@ class LegacyPresenceDisplayContractTest(SimpleTestCase):
             expected = presence.get_legacy_user_presence_info(active, connected)
         with (
             patch.object(native_presence, "_backend", None),
+            patch.object(native_presence, "_rows_backend", None),
             patch.object(
                 backend, "format_presence_information", wraps=backend.format_presence_information
             ) as native,

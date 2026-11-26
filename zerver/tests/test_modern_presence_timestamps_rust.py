@@ -33,6 +33,7 @@ class ModernPresenceTimestampsContractTest(SimpleTestCase):
         connected = active + timedelta(seconds=17)
         with (
             patch.object(native_presence, "_backend", None),
+            patch.object(native_presence, "_rows_backend", None),
             patch.object(
                 backend,
                 "format_modern_presence_timestamps",

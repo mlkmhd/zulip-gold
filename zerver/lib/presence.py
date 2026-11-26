@@ -25,10 +25,11 @@ def get_presence_dicts_for_rows(
     #    https://zulip.com/api/register-queue
     # 3) `GET /users/{user_id_or_email}/presence`: https://zulip.com/api/get-user-presence
     if (
-        native_presence.is_enabled()
+        native_presence.prepared_rows_enabled()
         and type(all_rows) is list
         and type(slim_presence) is bool
         and datetime_to_timestamp is _REFERENCE_TIMESTAMP
+        and timestamp_module.verify_UTC is _REFERENCE_VERIFY_UTC
         and user_presence_datetime_with_date_joined_default is _REFERENCE_DATE_DEFAULT
         and (
             (slim_presence and get_modern_user_presence_info is _REFERENCE_MODERN)

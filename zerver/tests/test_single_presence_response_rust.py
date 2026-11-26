@@ -51,6 +51,7 @@ class SinglePresenceResponseContractTest(ZulipTestCase):
         }
         with (
             patch.object(native_presence, "_backend", None),
+            patch.object(native_presence, "_rows_backend", None),
             patch.object(
                 backend,
                 "finish_single_user_presence",
