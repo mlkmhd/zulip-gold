@@ -8,6 +8,7 @@ from django.test import SimpleTestCase
 from typing_extensions import override
 
 from zerver import middleware
+from zerver.lib.native_backend import supports_default_rust_backend
 
 
 class DurationTextRustTest(TestCase):
@@ -48,8 +49,21 @@ class DurationTextRustTest(TestCase):
 
 
 class DurationTextIntegrationTest(SimpleTestCase):
-    def test_real_formatter_follows_startup_flag(self) -> None:
-        enabled = os.environ.get("ZULIP_RUST_DURATION_TEXT") == "1"
+    def test_real_formatter_follows_scoped_contract(self) -> None:
+        legacy = os.environ.get("ZULIP_RUST_DURATION_TEXT") == "1"
+        prepared = os.environ.get("ZULIP_RUST_PREPARED_DURATION_TEXT")
+        try:
+            backend = import_module("_zulip_backend")
+        except ImportError:
+            backend = None
+        eligible = prepared == "1" or (
+            prepared != "0"
+            and supports_default_rust_backend()
+            and getattr(backend, "PREPARED_DURATION_TEXT_API", None) == 1
+        )
+        enabled = (legacy or eligible) and callable(
+            getattr(backend, "format_prepared_duration", None)
+        )
         method = middleware._rust_format_prepared_duration
         if enabled:
             self.assertIsNotNone(method)
@@ -66,6 +80,16 @@ class DurationTextIntegrationTest(SimpleTestCase):
             if enabled:
                 assert native is not None
                 self.assertEqual(native.call_args_list, [call(0.017), call(1.25)])
+
+    def test_prepared_default_respects_custom_millisecond_helper(self) -> None:
+        with (
+            patch.object(middleware, "_legacy_duration_requested", False),
+            patch.object(middleware, "timedelta_ms", return_value=47.0) as custom,
+            patch.object(middleware, "_rust_format_prepared_duration") as native,
+        ):
+            self.assertEqual(middleware.format_timedelta(0.012), "47ms")
+        custom.assert_called_once_with(0.012)
+        native.assert_not_called()
 
     def test_unusual_float_and_integer_use_original_format(self) -> None:
         for value, expected in (

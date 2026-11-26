@@ -33,6 +33,7 @@ from zerver.lib.db_connections import reset_queries
 from zerver.lib.debug import maybe_tracemalloc_listen
 from zerver.lib.exceptions import ErrorCode, JsonableError, MissingAuthenticationError, WebhookError
 from zerver.lib.markdown import get_markdown_requests, get_markdown_time
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.per_request_cache import flush_per_request_caches
 from zerver.lib.push_notifications import FailedToConnectBouncerError, InternalBouncerServerError
 from zerver.lib.rate_limiter import RateLimitResult
@@ -56,11 +57,18 @@ logger = logging.getLogger("zulip.requests")
 slow_query_logger = logging.getLogger("zulip.slow_queries")
 
 
+_legacy_duration_requested = os.environ.get("ZULIP_RUST_DURATION_TEXT") == "1"
+_prepared_duration_backend = (
+    None
+    if _legacy_duration_requested or os.environ.get("ZULIP_RUST_PREPARED_DURATION_TEXT") == "0"
+    else load_native_contract("ZULIP_RUST_PREPARED_DURATION_TEXT", "PREPARED_DURATION_TEXT_API")
+)
+
 try:
     _rust_duration_text = (
         import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_DURATION_TEXT") == "1"
-        else None
+        if _legacy_duration_requested
+        else _prepared_duration_backend
     )
 except ImportError:
     _rust_duration_text = None
@@ -123,8 +131,13 @@ def timedelta_ms(timedelta: float) -> float:
     return timedelta * 1000
 
 
+_original_timedelta_ms = timedelta_ms
+
+
 def format_timedelta(timedelta: float) -> str:
-    if _rust_format_prepared_duration is not None:
+    if _rust_format_prepared_duration is not None and (
+        _legacy_duration_requested or timedelta_ms is _original_timedelta_ms
+    ):
         native = _rust_format_prepared_duration(timedelta)
         if native is not None:
             return native
