@@ -13,6 +13,8 @@ pub(crate) struct DraftInput {
     pub topic: String,
     pub content: String,
     pub timestamp: Option<Timestamp>,
+    #[cfg(any(feature = "python", test))]
+    pub timestamp_provided: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -119,6 +121,8 @@ impl DraftInput {
             topic: topic.to_string(),
             content: content.into(),
             timestamp,
+            #[cfg(any(feature = "python", test))]
+            timestamp_provided: fields.contains_key("timestamp"),
         })
     }
 }
@@ -242,6 +246,7 @@ mod tests {
                 topic: " old ".into(),
                 content: "Unsent".into(),
                 timestamp: Some(Timestamp::Integer(NumberInt::Int(42))),
+                timestamp_provided: true,
             }
         );
         assert_eq!(drafts[1].timestamp, Some(Timestamp::Float(42.0)));

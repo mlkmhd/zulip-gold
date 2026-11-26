@@ -63,6 +63,9 @@ _rust_draft_timestamp = (
 _rust_draft_input = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_DRAFT_INPUT") == "1" else None
 )
+_rust_django_draft_input = load_native_contract(
+    "ZULIP_RUST_PREPARED_DJANGO_DRAFT_INPUT", "PREPARED_DJANGO_DRAFT_INPUT_API"
+)
 _rust_draft_channel_access = (
     import_module("_zulip_backend")
     if os.environ.get("ZULIP_RUST_DRAFT_CHANNEL_ACCESS") == "1"
@@ -226,6 +229,10 @@ def parse_draft_input(value: object, handler: ValidatorFunctionWrapHandler) -> D
             raise_draft_input_error(error)
         if draft is not None:
             return DraftData.model_construct(**draft)
+    elif type(value) is str:
+        prepared = getattr(_rust_django_draft_input, "parse_prepared_django_draft", None)
+        if callable(prepared) and (result := prepared(value)) is not None:
+            return DraftData.model_construct(**result)
     return cast(DraftData, handler(value))
 
 
@@ -241,6 +248,10 @@ def parse_draft_batch_input(
             raise_draft_input_error(error)
         if drafts is not None:
             return [DraftData.model_construct(**draft) for draft in drafts]
+    elif type(value) is str:
+        prepared = getattr(_rust_django_draft_input, "parse_prepared_django_draft_batch", None)
+        if callable(prepared) and (result := prepared(value)) is not None:
+            return [DraftData.model_construct(**draft) for draft in result]
     return cast(list[DraftData], handler(value))
 
 

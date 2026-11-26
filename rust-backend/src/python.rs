@@ -194,12 +194,12 @@ impl<'py> IntoPyObject<'py> for Timestamp {
     }
 }
 
-impl<'py> IntoPyObject<'py> for DraftInput {
-    type Target = PyDict;
-    type Output = Bound<'py, PyDict>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> PyResult<Self::Output> {
+impl DraftInput {
+    fn into_model_dict(
+        self,
+        py: Python<'_>,
+        include_unset_timestamp: bool,
+    ) -> PyResult<Bound<'_, PyDict>> {
         let draft = PyDict::new(py);
         draft.set_item("type", self.r#type)?;
         draft.set_item(
@@ -208,8 +208,20 @@ impl<'py> IntoPyObject<'py> for DraftInput {
         )?;
         draft.set_item("topic", self.topic)?;
         draft.set_item("content", self.content)?;
-        draft.set_item("timestamp", self.timestamp)?;
+        if include_unset_timestamp || self.timestamp_provided {
+            draft.set_item("timestamp", self.timestamp)?;
+        }
         Ok(draft)
+    }
+}
+
+impl<'py> IntoPyObject<'py> for DraftInput {
+    type Target = PyDict;
+    type Output = Bound<'py, PyDict>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> PyResult<Self::Output> {
+        self.into_model_dict(py, true)
     }
 }
 
@@ -421,6 +433,7 @@ mod _zulip_backend {
         module.add("DRAFT_TOPIC_TEXT_API", 1)?;
         module.add("DRAFT_BODY_TEXT_API", 1)?;
         module.add("DRAFT_TIMESTAMP_API", 1)?;
+        module.add("PREPARED_DJANGO_DRAFT_INPUT_API", 1)?;
         module.add("CHANNEL_FOLDER_REPLAY_API", 1)?;
         module.add("DRAFT_REPLAY_API", 1)?;
         module.add("PERSONAL_LIST_REPLAY_API", 1)?;
@@ -2060,6 +2073,45 @@ mod _zulip_backend {
     #[pyfunction]
     fn parse_draft_batch(value: &Bound<'_, PyString>) -> DraftParseResult<Vec<DraftInput>> {
         draft_parse_result(value, draft_input::parse_draft_batch)
+    }
+
+    #[pyfunction]
+    fn parse_prepared_django_draft<'py>(
+        value: &Bound<'py, PyAny>,
+    ) -> PyResult<Option<Bound<'py, PyDict>>> {
+        let Some(input) = value
+            .cast_exact::<PyString>()
+            .ok()
+            .and_then(|text| text.to_str().ok())
+        else {
+            return Ok(None);
+        };
+        draft_input::parse_draft(input)
+            .ok()
+            .map(|draft| draft.into_model_dict(value.py(), false))
+            .transpose()
+    }
+
+    #[pyfunction]
+    fn parse_prepared_django_draft_batch<'py>(
+        value: &Bound<'py, PyAny>,
+    ) -> PyResult<Option<Vec<Bound<'py, PyDict>>>> {
+        let Some(input) = value
+            .cast_exact::<PyString>()
+            .ok()
+            .and_then(|text| text.to_str().ok())
+        else {
+            return Ok(None);
+        };
+        draft_input::parse_draft_batch(input)
+            .ok()
+            .map(|drafts| {
+                drafts
+                    .into_iter()
+                    .map(|draft| draft.into_model_dict(value.py(), false))
+                    .collect()
+            })
+            .transpose()
     }
 
     #[pyfunction]
