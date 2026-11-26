@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 import platform
 import re
 import shutil
@@ -10,6 +11,8 @@ import stat
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from typing import Any
 
 BUILD_ID = re.compile(r"[0-9a-f]{40}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -89,6 +92,12 @@ def select_wheel(
             raise ValueError("Git HEAD and release build ID disagree")
     else:
         build_id = (root / "build_id").read_text().strip()
+    return _select_wheel_for_build(wheel_dir, manifest, build_id, machine)
+
+
+def _select_wheel_for_build(
+    wheel_dir: Path, manifest: dict[str, Any], build_id: str, machine: str
+) -> tuple[Path, str]:
     if not BUILD_ID.fullmatch(build_id) or manifest["build_id"] != build_id:
         raise ValueError("Staged Rust wheel belongs to a different release commit")
     entries = {}
@@ -128,15 +137,57 @@ def stage_release_wheel(root: Path, source: Path, machine: str) -> None:
     select_wheel(root, dest, machine)
 
 
+def stage_git_wheel(source: Path, store: Path, build_id: str, machine: str) -> Path:
+    if not BUILD_ID.fullmatch(build_id):
+        raise ValueError("Invalid Git build ID")
+    uid = os.geteuid()
+    _require_trusted_path(store.parent, stat.S_IFDIR, uid)
+    _require_trusted_path(store, stat.S_IFDIR, uid)
+    destination = store / build_id
+    if destination.exists() or destination.is_symlink():
+        raise FileExistsError(destination)
+    if source.is_symlink() or (source / "manifest.json").is_symlink():
+        raise ValueError("Invalid staged Rust wheel directory")
+    manifest = json.loads((source / "manifest.json").read_text())
+    wheel, digest = _select_wheel_for_build(source, manifest, build_id, machine)
+    with TemporaryDirectory(prefix=".incoming-", dir=store) as scratch:
+        incoming = Path(scratch)
+        shutil.copyfile(wheel, incoming / wheel.name)
+        manifest = {"build_id": build_id, "wheels": [{"file": wheel.name, "sha256": digest}]}
+        (incoming / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        _select_wheel_for_build(incoming, manifest, build_id, machine)
+        for entry in incoming.iterdir():
+            entry.chmod(0o644)
+        incoming.chmod(0o755)
+        # Both paths are within the same trusted store. A complete existing
+        # package is non-empty and cannot be replaced by a directory rename.
+        incoming.rename(destination)
+    return destination
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Stage a verified native wheel in a release tree")
     parser.add_argument("release_root", type=Path)
     parser.add_argument("wheel_dir", type=Path)
+    parser.add_argument(
+        "--git-build-id",
+        metavar="SHA",
+        help="Stage an exact Git wheel into the existing trusted store at release_root",
+    )
     args = parser.parse_args()
     machine = platform.machine()
     if not supported_wheel_platform(platform.freedesktop_os_release(), machine):
         parser.error("staging Rust wheels requires Ubuntu 24.04 x86-64")
-    stage_release_wheel(args.release_root.resolve(), args.wheel_dir.absolute(), machine)
+    if args.git_build_id is not None:
+        try:
+            result = stage_git_wheel(
+                args.wheel_dir.absolute(), args.release_root.absolute(), args.git_build_id, machine
+            )
+        except (OSError, ValueError) as error:
+            parser.error(str(error))
+        print(result)
+    else:
+        stage_release_wheel(args.release_root.resolve(), args.wheel_dir.absolute(), machine)
 
 
 if __name__ == "__main__":

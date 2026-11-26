@@ -11,6 +11,7 @@ from scripts.lib.select_native_wheel import (
     RELEASE_WHEEL_DIR,
     find_git_wheel_dir,
     select_wheel,
+    stage_git_wheel,
     stage_release_wheel,
 )
 
@@ -158,6 +159,47 @@ class GitWheelStoreTest(TestCase):
         for entry in wheel_dir.iterdir():
             entry.chmod(0o644)
         return wheel_dir
+
+    def test_stage_publishes_only_the_verified_exact_commit(self) -> None:
+        source = self.stage()
+        incoming = self.base / "incoming"
+        source.rename(incoming)
+        (incoming / "ignore").touch()
+        exact = stage_git_wheel(incoming, self.store, BUILD_ID, "x86_64")
+        self.assertEqual(exact, self.store / BUILD_ID)
+        self.assertEqual(self.select(), exact)
+        self.assertEqual({file.name for file in exact.iterdir()}, {WHEEL_NAME, "manifest.json"})
+        self.assertEqual((exact / WHEEL_NAME).read_bytes(), WHEEL_BYTES)
+        self.assertEqual(list(self.store.iterdir()), [exact])
+        with self.assertRaises(FileExistsError):
+            stage_git_wheel(incoming, self.store, BUILD_ID, "x86_64")
+        self.assertEqual((exact / WHEEL_NAME).read_bytes(), WHEEL_BYTES)
+
+    def test_stage_rejects_corrupt_wheel_and_wrong_commit_before_publication(self) -> None:
+        source = self.stage()
+        incoming = self.base / "incoming"
+        source.rename(incoming)
+        with self.assertRaisesRegex(ValueError, "different release commit"):
+            stage_git_wheel(incoming, self.store, "b" * 40, "x86_64")
+        (incoming / WHEEL_NAME).write_bytes(b"corrupt")
+        with self.assertRaisesRegex(ValueError, "checksum mismatch"):
+            stage_git_wheel(incoming, self.store, BUILD_ID, "x86_64")
+        self.assertEqual(list(self.store.iterdir()), [])
+
+    def test_stage_revalidates_the_copy_and_leaves_no_incomplete_entry(self) -> None:
+        source = self.stage()
+        incoming = self.base / "incoming"
+        source.rename(incoming)
+
+        def copy_corrupt_wheel(_source: Path, destination: Path) -> None:
+            destination.write_bytes(b"corrupted during copy")
+
+        with (
+            mock.patch("scripts.lib.select_native_wheel.shutil.copyfile", copy_corrupt_wheel),
+            self.assertRaisesRegex(ValueError, "checksum mismatch"),
+        ):
+            stage_git_wheel(incoming, self.store, BUILD_ID, "x86_64")
+        self.assertEqual(list(self.store.iterdir()), [])
 
     def test_missing_store_does_not_read_git(self) -> None:
         self.assertIsNone(self.select())
