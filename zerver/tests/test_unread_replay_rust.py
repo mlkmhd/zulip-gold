@@ -12,6 +12,7 @@ from typing_extensions import override
 
 from zerver.lib import message, native_unread_replay
 from zerver.lib.events import apply_events
+from zerver.lib.native_backend import supports_default_rust_backend
 from zerver.lib.test_classes import ZulipTestCase
 from zerver.lib.topic import TOPIC_NAME
 from zerver.models import UserProfile, UserTopic
@@ -317,7 +318,10 @@ class PrivateUnreadArrivalDjangoDispatchRustTest(SimpleTestCase):
         native = getattr(backend, "plan_private_unread_arrival", None)
         if not callable(native):
             self.skipTest("Rust extension does not support private unread arrival planning")
-        enabled = environ.get("ZULIP_RUST_PRIVATE_UNREAD_ARRIVAL") == "1"
+        enabled = environ.get("ZULIP_RUST_PRIVATE_UNREAD_ARRIVAL") == "1" or (
+            supports_default_rust_backend()
+            and getattr(backend, "PRIVATE_UNREAD_ARRIVAL_API", None) == 1
+        )
         self.assertIs(native_unread_replay._private_arrival_backend, backend if enabled else None)
         raw = empty_unread()
         pm = {"other_user_id": 300}

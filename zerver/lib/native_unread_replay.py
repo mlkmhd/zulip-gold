@@ -1,7 +1,5 @@
 """Native reconciliation of unread state already selected by Django."""
 
-import os
-from importlib import import_module
 from typing import cast
 
 from zerver.lib.native_backend import load_native_contract
@@ -10,16 +8,9 @@ from zerver.lib.topic import TOPIC_NAME
 _backend = load_native_contract("ZULIP_RUST_UNREAD_REPLAY", "UNREAD_REPLAY_API")
 
 
-try:
-    _private_arrival_backend = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_PRIVATE_UNREAD_ARRIVAL") == "1"
-        else None
-    )
-except ModuleNotFoundError as error:
-    if error.name != "_zulip_backend":
-        raise
-    _private_arrival_backend = None
+_private_arrival_backend = load_native_contract(
+    "ZULIP_RUST_PRIVATE_UNREAD_ARRIVAL", "PRIVATE_UNREAD_ARRIVAL_API"
+)
 
 
 def has_private_arrival_planner() -> bool:
