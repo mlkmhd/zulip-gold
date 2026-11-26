@@ -15,6 +15,13 @@ pub(crate) fn encode_hash_component(value: &str) -> String {
 }
 
 #[cfg(any(feature = "python", test))]
+pub(crate) fn encode_channel(channel_id: i64, channel_name: &str, with_operator: bool) -> String {
+    let encoded_name = encode_hash_component(&channel_name.replace(' ', "-"));
+    let operator = if with_operator { "channel/" } else { "" };
+    format!("{operator}{channel_id}-{encoded_name}")
+}
+
+#[cfg(any(feature = "python", test))]
 pub(crate) fn encode_user_ids(mut user_ids: Vec<i64>, with_operator: bool) -> String {
     user_ids.sort_unstable();
     let mut slug = user_ids
@@ -42,6 +49,15 @@ mod tests {
             "ABC.20xyz-_.2E~.25.2F.28.29.20.D8.B3.D9.84.D8.A7.D9.85"
         );
         assert_eq!(encode_hash_component(""), "");
+    }
+
+    #[test]
+    fn encodes_channel_ascii_spaces_but_not_other_whitespace_as_dashes() {
+        assert_eq!(
+            encode_channel(-9, "A  B.\u{a0}", true),
+            "channel/-9-A--B.2E.C2.A0"
+        );
+        assert_eq!(encode_channel(0, "", false), "0-");
     }
 
     #[test]

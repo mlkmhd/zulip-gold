@@ -1,7 +1,7 @@
 # See the Zulip URL spec at https://zulip.com/api/zulip-urls
 
 import urllib.parse
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlsplit
 
 import re2
@@ -12,6 +12,10 @@ from zerver.lib.types import UserDisplayRecipient
 from zerver.models import Realm, Stream, UserProfile
 
 _rust_url_fragments = load_native_contract("ZULIP_RUST_URL_FRAGMENTS", "URL_FRAGMENTS_API")
+
+_rust_channel_narrow_slug = load_native_contract(
+    "ZULIP_RUST_CHANNEL_NARROW_SLUG", "CHANNEL_NARROW_SLUG_API"
+)
 
 hash_replacements = {
     "%": ".",
@@ -43,6 +47,12 @@ def encode_channel(channel_id: int, channel_name: str, with_operator: bool = Fal
 
     e.g., "channel/99-Verona"
     """
+    native = getattr(_rust_channel_narrow_slug, "encode_narrow_channel", None)
+    if callable(native) and type(with_operator) is bool:
+        encoded = cast("str | None", native(channel_id, channel_name, with_operator))
+        if encoded is not None:
+            return encoded
+
     channel_name = channel_name.replace(" ", "-")
     encoded_channel = str(channel_id) + "-" + encode_hash_component(channel_name)
     if with_operator:

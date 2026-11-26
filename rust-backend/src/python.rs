@@ -376,6 +376,7 @@ mod _zulip_backend {
         module.add("API_ENUM_DISPLAY_API", 1)?;
         module.add("API_RETURN_INDENT_API", 1)?;
         module.add("URL_FRAGMENTS_API", 1)?;
+        module.add("CHANNEL_NARROW_SLUG_API", 1)?;
         module.add("TIMEZONE_ALIAS_SOURCE_API", 1)?;
         module.add("TIMEZONE_ALIAS_LOOKUP_API", 1)?;
         module.add("TIME_DISPLAY_API", 1)?;
@@ -3031,6 +3032,21 @@ mod _zulip_backend {
     #[pyfunction]
     fn encode_narrow_hash_component(value: &Bound<'_, PyString>) -> Option<String> {
         Some(url_fragments::encode_hash_component(value.to_str().ok()?))
+    }
+
+    #[pyfunction]
+    fn encode_narrow_channel(
+        channel_id: &Bound<'_, PyAny>,
+        channel_name: &Bound<'_, PyAny>,
+        with_operator: bool,
+    ) -> Option<String> {
+        let id = channel_id
+            .cast_exact::<PyInt>()
+            .ok()?
+            .extract::<i64>()
+            .ok()?;
+        let name = channel_name.cast_exact::<PyString>().ok()?.to_str().ok()?;
+        Some(url_fragments::encode_channel(id, name, with_operator))
     }
 
     #[pyfunction]
