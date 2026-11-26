@@ -1,23 +1,10 @@
 """Native replay of personal-list events already selected by Django."""
 
-import os
-from importlib import import_module
 from typing import cast
 
 from zerver.lib.native_backend import load_native_contract
 
-try:
-    _backend = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_PERSONAL_REPLAY") == "1"
-        else None
-    )
-except ModuleNotFoundError as error:
-    if error.name != "_zulip_backend":
-        raise
-    _backend = None
-
-
+_backend = load_native_contract("ZULIP_RUST_PERSONAL_REPLAY", "PERSONAL_LIST_REPLAY_API")
 _draft_backend = load_native_contract("ZULIP_RUST_DRAFT_REPLAY", "DRAFT_REPLAY_API")
 
 
