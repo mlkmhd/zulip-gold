@@ -1,5 +1,6 @@
 import time
 from collections.abc import Callable
+from copy import deepcopy
 from typing import Any
 from unittest import mock
 from urllib.parse import urlsplit
@@ -359,6 +360,71 @@ class EventsEndpointTest(ZulipTestCase):
                             extension.fill_legacy_register_topics(untouched, fallback), not unusual
                         )
                         self.assertEqual(untouched[0]["topic_name"], "" if unusual else fallback)
+
+    def test_register_legacy_notification_defaults_match_reference(self) -> None:
+        user = self.example_user("hamlet")
+        user.enable_stream_desktop_notifications = True
+        user.enable_stream_audible_notifications = False
+        user.enable_stream_push_notifications = True
+        user.enable_stream_email_notifications = True
+        rows = {
+            "subscriptions": [
+                {
+                    "stream_id": 1,
+                    "desktop_notifications": None,
+                    "audible_notifications": True,
+                    "push_notifications": False,
+                    "email_notifications": None,
+                },
+            ],
+            "unsubscribed": [
+                {
+                    "stream_id": 2,
+                    "desktop_notifications": False,
+                    "audible_notifications": None,
+                    "push_notifications": None,
+                    "email_notifications": False,
+                },
+            ],
+        }
+        for profile, modern in ((user, False), (None, False), (user, True)):
+            expected = deepcopy(rows)
+            actual = deepcopy(rows)
+            subscribed = actual["subscriptions"][0]
+            unsubscribed = actual["unsubscribed"][0]
+            with self.subTest(profile=profile, modern=modern):
+                with (
+                    mock.patch.object(native_register_state, "_backend", None),
+                    mock.patch.object(native_register_state, "_legacy_notifications_backend", None),
+                ):
+                    post_process_state(profile, expected, modern, True)
+                with mock.patch.object(
+                    native_register_state,
+                    "fill_legacy_notifications",
+                    wraps=native_register_state.fill_legacy_notifications,
+                ) as native:
+                    post_process_state(profile, actual, modern, True)
+                self.assertEqual(actual, expected)
+                self.assertIs(actual["subscriptions"][0], subscribed)
+                self.assertIs(actual["unsubscribed"][0], unsubscribed)
+                if modern:
+                    native.assert_not_called()
+                else:
+                    native.assert_called_once_with(
+                        actual["subscriptions"], actual["unsubscribed"], profile
+                    )
+
+        candidate = native_register_state._legacy_notifications_backend
+        if candidate is not None:
+            unusual = deepcopy(rows)
+            unusual["unsubscribed"][0]["push_notifications"] = "legacy"
+            original = deepcopy(unusual)
+            self.assertFalse(
+                candidate.fill_legacy_register_notifications(
+                    unusual["subscriptions"], unusual["unsubscribed"], user
+                )
+            )
+            self.assertEqual(unusual, original)
 
     def test_register_separates_personal_and_realm_settings_payloads(self) -> None:
         user = self.example_user("hamlet")

@@ -5,6 +5,7 @@ from importlib import import_module
 from typing import cast
 
 from zerver.lib.native_backend import load_native_contract
+from zerver.models import UserProfile
 
 try:
     _backend = (
@@ -33,6 +34,10 @@ _legacy_topics_backend = load_native_contract(
     "ZULIP_RUST_REGISTER_LEGACY_TOPICS", "REGISTER_LEGACY_TOPICS_API"
 )
 
+_legacy_notifications_backend = load_native_contract(
+    "ZULIP_RUST_REGISTER_LEGACY_NOTIFICATIONS", "REGISTER_LEGACY_NOTIFICATIONS_API"
+)
+
 
 def prune_profile_fields(raw: object, fields: object) -> bool:
     if _profile_prune_backend is None:
@@ -51,7 +56,10 @@ def partition_users(
 
 
 def fill_legacy_notifications(subscribed: object, unsubscribed: object, profile: object) -> bool:
-    native = getattr(_backend, "fill_legacy_register_notifications", None)
+    backend = _backend
+    if backend is None and (profile is None or type(profile) is UserProfile):
+        backend = _legacy_notifications_backend
+    native = getattr(backend, "fill_legacy_register_notifications", None)
     return native is not None and cast(bool, native(subscribed, unsubscribed, profile))
 
 
