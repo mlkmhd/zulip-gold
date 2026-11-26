@@ -43,6 +43,19 @@ _PLAIN_PREVIEW_TAGS = frozenset(
     }
 )
 _MAX_PREVIEW_NODES = 512
+_base_payload_backend = load_native_contract(
+    "ZULIP_RUST_MOBILE_BASE_PAYLOAD", "MOBILE_BASE_PAYLOAD_API"
+)
+
+
+MobileBaseFormatter = Callable[[tuple[str, int, str] | None, str, str, int], dict[str, object]]
+
+
+def get_base_payload_formatter() -> MobileBaseFormatter | None:
+    native = getattr(_base_payload_backend, "format_mobile_base_payload", None)
+    return cast("MobileBaseFormatter", native) if callable(native) else None
+
+
 _remove_payload_backend = load_native_contract(
     "ZULIP_RUST_MOBILE_REMOVE_PAYLOAD", "MOBILE_REMOVE_PAYLOAD_API"
 )

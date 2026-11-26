@@ -229,3 +229,23 @@ pub(crate) fn format_mobile_remove_fields(
     }
     Ok(true)
 }
+
+#[pyfunction(signature = (legacy, realm_url, realm_name, user_id))]
+pub(crate) fn format_mobile_base_payload<'py>(
+    py: Python<'py>,
+    legacy: Option<&Bound<'py, PyTuple>>,
+    realm_url: &Bound<'py, PyAny>,
+    realm_name: &Bound<'py, PyAny>,
+    user_id: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let output = PyDict::new(py);
+    if let Some(legacy) = legacy {
+        output.set_item("server", legacy.get_item(0)?)?;
+        output.set_item("realm_id", legacy.get_item(1)?)?;
+        output.set_item("realm_uri", legacy.get_item(2)?)?;
+    }
+    output.set_item("realm_url", realm_url)?;
+    output.set_item("realm_name", realm_name)?;
+    output.set_item("user_id", user_id)?;
+    Ok(output)
+}

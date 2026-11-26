@@ -1063,6 +1063,16 @@ def truncate_content(content: str) -> tuple[str, bool]:
 
 def get_base_payload(user_profile: UserProfile, for_legacy_clients: bool = True) -> dict[str, Any]:
     """Common fields for all notification payloads."""
+    native = native_push_text.get_base_payload_formatter()
+    if native is not None and type(for_legacy_clients) is bool:
+        # Preserve the time and order of both realm URL reads for legacy apps.
+        legacy = (
+            (settings.EXTERNAL_HOST, user_profile.realm.id, user_profile.realm.url)
+            if for_legacy_clients
+            else None
+        )
+        return native(legacy, user_profile.realm.url, user_profile.realm.name, user_profile.id)
+
     data: dict[str, Any] = {}
 
     # These will let the app support logging into multiple realms and servers.
