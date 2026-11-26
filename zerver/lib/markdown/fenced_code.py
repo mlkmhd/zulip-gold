@@ -126,6 +126,11 @@ _rust_tex_handlers = (
 _rust_markdown_fences = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_MARKDOWN_FENCES") == "1" else None
 )
+_rust_prepared_close_fences = (
+    None
+    if os.environ.get("ZULIP_RUST_PREPARED_CLOSE_FENCES") == "0"
+    else load_native_contract("ZULIP_RUST_PREPARED_CLOSE_FENCES", "PREPARED_CLOSE_FENCES_API")
+)
 _rust_markdown_blocks = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_MARKDOWN_BLOCKS") == "1" else None
 )
@@ -838,13 +843,33 @@ class UnclosedFenceFinder(FencedBlockPreprocessor):
         return [handler.fence for handler in reversed(self.handlers) if handler.fence is not None]
 
 
+_original_fence_finder = UnclosedFenceFinder
+_original_detect_unclosed_fences = UnclosedFenceFinder.get_unclosed_fences
+_original_fence_input_handler = FencedBlockPreprocessor.handle_lines
+_original_fence_whitespace = ZulipNormalizeWhitespace.run
+_original_fence_pattern = FENCE_RE
+
+
 def close_unclosed_fences(content: str, default_language: str | None = None) -> str:
     """Appends a closing fence for each fenced block that content leaves
     open, so that the blocks can't swallow text placed after content.
     default_language is the realm's default code block language, used
     for fences that don't name a language.
     """
-    close_fences = getattr(_rust_markdown_blocks, "close_unclosed_markdown_fences", None)
+    backend = _rust_markdown_blocks
+    if (
+        backend is None
+        and _rust_markdown_fences is None
+        and _rust_tex_handlers is None
+        and UnclosedFenceFinder is _original_fence_finder
+        and UnclosedFenceFinder.get_unclosed_fences is _original_detect_unclosed_fences
+        and FencedBlockPreprocessor.handle_lines is _original_fence_input_handler
+        and ZulipNormalizeWhitespace.run is _original_fence_whitespace
+        and parse_fence_line is _original_parse_fence_line
+        and FENCE_RE is _original_fence_pattern
+    ):
+        backend = _rust_prepared_close_fences
+    close_fences = getattr(backend, "close_unclosed_markdown_fences", None)
     if (
         close_fences is not None
         and type(content) is str

@@ -20,6 +20,33 @@ class CloseFencesRustTest(SimpleTestCase):
         if not hasattr(self.extension, "close_unclosed_markdown_fences"):
             raise SkipTest("Rust extension does not support closing fences")
 
+        isolate_reference = patch.object(fenced_code, "_rust_prepared_close_fences", None)
+        self.prepared = fenced_code._rust_prepared_close_fences
+        isolate_reference.start()
+        self.addCleanup(isolate_reference.stop)
+
+    def test_scoped_dispatch_and_custom_finder(self) -> None:
+        if self.prepared is None:
+            self.skipTest("No prepared closing-fence ABI")
+        source = "````quote\n```python\nمتن"
+        expected = fenced_code.close_unclosed_fences(source)
+        with (
+            patch.object(fenced_code, "_rust_markdown_blocks", None),
+            patch.object(fenced_code, "_rust_prepared_close_fences", self.prepared),
+            patch.object(
+                self.prepared,
+                "close_unclosed_markdown_fences",
+                wraps=self.prepared.close_unclosed_markdown_fences,
+            ) as close,
+        ):
+            self.assertEqual(fenced_code.close_unclosed_fences(source), expected)
+            close.assert_called_once_with(source, None)
+            with patch.object(
+                fenced_code.UnclosedFenceFinder, "get_unclosed_fences", return_value=["custom"]
+            ):
+                self.assertEqual(fenced_code.close_unclosed_fences(source), source + "\ncustom")
+            close.assert_called_once()
+
     def test_nested_fences_preserve_source_and_close_in_reverse_order(self) -> None:
         for content, language, suffix in [
             ("hello", None, ""),

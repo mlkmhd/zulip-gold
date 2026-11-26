@@ -92,6 +92,7 @@ def main() -> None:
     ]
     with (
         patch.object(fenced_code, "_rust_markdown_blocks", None),
+        patch.object(fenced_code, "_rust_prepared_close_fences", None),
         patch.object(fenced_code, "_rust_markdown_fences", None),
         patch("zerver.lib.markdown.whitespace._rust_markdown_whitespace", None),
     ):
