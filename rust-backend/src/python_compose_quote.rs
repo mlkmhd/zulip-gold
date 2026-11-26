@@ -1,7 +1,7 @@
 //! Pure quote/reply size calculations; Markdown fence closing stays with Django.
 
 use pyo3::prelude::*;
-use pyo3::types::{PyFunction, PyInt, PyString};
+use pyo3::types::{PyFunction, PyInt, PySlice, PyString};
 
 const MINIMUM_QUOTE: i128 = 1000;
 const TRUNCATION: &str = "\n[message truncated]";
@@ -76,4 +76,48 @@ pub(crate) fn truncate_compose_quote_text<'py>(
         end -= overflow;
     }
     Ok(Some(PyString::new(content.py(), TRUNCATION)))
+}
+
+#[pyfunction]
+pub(crate) fn truncate_exact_compose_quote_text<'py>(
+    content: &Bound<'py, PyAny>,
+    max_length: &Bound<'py, PyAny>,
+    close_fences: &Bound<'py, PyAny>,
+) -> PyResult<Option<Bound<'py, PyAny>>> {
+    let (Ok(content), Some(max_length)) = (content.cast_exact::<PyString>(), integer(max_length))
+    else {
+        return Ok(None);
+    };
+    let original_len = content.as_any().len()? as i128;
+    if original_len <= max_length {
+        return Ok(Some(content.clone().into_any()));
+    }
+    if !close_fences.is_exact_instance_of::<PyFunction>() {
+        return Ok(None);
+    }
+
+    let py = content.py();
+    let suffix_len = TRUNCATION.len() as i128;
+    let mut end = max_length - suffix_len;
+    while end > 0 {
+        // The initial stop is smaller than the exact Python length; it
+        // only decreases after an overflow.
+        let stop = isize::try_from(end).expect("the slice stop fits Python's string length");
+        let prefix = content.get_item(PySlice::new(py, 0, stop, 1))?;
+        let closed = close_fences.call1((prefix,))?;
+        let overflow = closed.len()? as i128 + suffix_len - max_length;
+        if overflow <= 0 {
+            if let Ok(text) = closed.cast_exact::<PyString>()
+                && let Ok(text) = text.to_str()
+            {
+                let result = format!("{text}{TRUNCATION}");
+                return Ok(Some(PyString::new(py, &result).into_any()));
+            }
+            // Keep the actual Python addition result or exception after the
+            // closer has run. Never replay even a custom closer result.
+            return Ok(Some(closed.add(PyString::new(py, TRUNCATION))?));
+        }
+        end -= overflow;
+    }
+    Ok(Some(PyString::new(py, TRUNCATION).into_any()))
 }

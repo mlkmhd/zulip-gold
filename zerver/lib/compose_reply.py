@@ -10,6 +10,7 @@ from django.utils.translation import gettext_lazy
 
 from zerver.lib.markdown.fenced_code import close_unclosed_fences, get_unused_fence
 from zerver.lib.message import truncate_content
+from zerver.lib.native_backend import load_native_contract
 
 CHANNEL_MESSAGE_QUOTE_CONTEXT = gettext_lazy(
     "{user_silent_mention} [said]({conversation_url}) in {topic_pretty_link}:"
@@ -23,6 +24,9 @@ QUOTE_CONTENT_MINIMUM_LENGTH = 1000
 TRUNCATION_MESSAGE = "\n[message truncated]"
 
 _python_close_unclosed_fences = close_unclosed_fences
+_rust_exact_compose_quote = load_native_contract(
+    "ZULIP_RUST_COMPOSE_QUOTE_BUDGET", "COMPOSE_QUOTE_BUDGET_API"
+)
 try:
     _rust_compose_quote = (
         import_module("_zulip_backend") if environ.get("ZULIP_RUST_COMPOSE_QUOTE") == "1" else None
@@ -50,13 +54,14 @@ def get_measurements_for_quote_and_reply_content(
     is left.
     """
     message_limit = settings.MAX_MESSAGE_LENGTH
+    backend = _rust_exact_compose_quote or _rust_compose_quote
     if (
-        _rust_compose_quote is not None
+        backend is not None
         and type(message_limit) is int
         and type(QUOTE_CONTENT_MINIMUM_LENGTH) is int
         and QUOTE_CONTENT_MINIMUM_LENGTH == 1000
     ):
-        allocate_native = getattr(_rust_compose_quote, "allocate_compose_quote_lengths", None)
+        allocate_native = getattr(backend, "allocate_compose_quote_lengths", None)
         if callable(allocate_native):
             lengths = cast(
                 "tuple[int, int] | None",
@@ -91,13 +96,16 @@ def truncate_quote_content(content: str, max_length: int) -> str:
     different set of blocks open, so this cuts until the result fits.
     """
     if (
-        _rust_compose_quote is not None
-        and close_unclosed_fences is _python_close_unclosed_fences
+        close_unclosed_fences is _python_close_unclosed_fences
         and type(max_length) is int
         and type(TRUNCATION_MESSAGE) is str
         and TRUNCATION_MESSAGE == "\n[message truncated]"
     ):
-        truncate_native = getattr(_rust_compose_quote, "truncate_compose_quote_text", None)
+        truncate_native = getattr(
+            _rust_exact_compose_quote, "truncate_exact_compose_quote_text", None
+        )
+        if not callable(truncate_native):
+            truncate_native = getattr(_rust_compose_quote, "truncate_compose_quote_text", None)
         if callable(truncate_native):
             result = cast(
                 "str | None",

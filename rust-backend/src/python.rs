@@ -359,6 +359,7 @@ mod _zulip_backend {
         module.add("EMOJI_CANONICAL_HEX_DECODE_API", 1)?;
         module.add("IMPORT_BODY_TEXT_API", 1)?;
         module.add("CHANNEL_STOCK_COLORS_API", 1)?;
+        module.add("COMPOSE_QUOTE_BUDGET_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
         module.add("MARKDOWN_HEADINGS_API", 1)?;
         module.add("MARKDOWN_HORIZONTAL_RULES_API", 1)?;
@@ -490,6 +491,7 @@ mod _zulip_backend {
     #[pymodule_export]
     use crate::python_compose_quote::{
         allocate_compose_quote_lengths, truncate_compose_quote_text,
+        truncate_exact_compose_quote_text,
     };
 
     #[pymodule_export]

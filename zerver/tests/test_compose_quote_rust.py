@@ -70,8 +70,10 @@ class ComposeQuoteDjangoDispatchRustTest(SimpleTestCase):
     @override_settings(MAX_MESSAGE_LENGTH=1500)
     def test_dispatch_keeps_exact_trusted_parser_and_rendered_composition(self) -> None:
         native = extension()
-        enabled = environ.get("ZULIP_RUST_COMPOSE_QUOTE") == "1"
-        self.assertIs(compose_reply._rust_compose_quote, native if enabled else None)
+        explicit = environ.get("ZULIP_RUST_COMPOSE_QUOTE") == "1"
+        exact = compose_reply._rust_exact_compose_quote is native
+        enabled = exact or explicit
+        self.assertIs(compose_reply._rust_compose_quote, native if explicit else None)
         reply = "Thanks! " * 240
         quoted = "```python\n" + "print('سلام🙂')\n" * 160 + "```"
 
@@ -84,18 +86,20 @@ class ComposeQuoteDjangoDispatchRustTest(SimpleTestCase):
                 quote_message_topic_pretty_link="#**Synthetic>check**",
             )
 
-        with patch.object(compose_reply, "_rust_compose_quote", None):
+        with (
+            patch.object(compose_reply, "_rust_compose_quote", None),
+            patch.object(compose_reply, "_rust_exact_compose_quote", None),
+        ):
             expected = compose()
 
+        clip_name = "truncate_exact_compose_quote_text" if exact else "truncate_compose_quote_text"
         with (
             patch.object(
                 native,
                 "allocate_compose_quote_lengths",
                 wraps=native.allocate_compose_quote_lengths,
             ) as allocate,
-            patch.object(
-                native, "truncate_compose_quote_text", wraps=native.truncate_compose_quote_text
-            ) as clip,
+            patch.object(native, clip_name, wraps=getattr(native, clip_name)) as clip,
         ):
             actual = compose()
         self.assertEqual(actual, expected)
@@ -136,7 +140,10 @@ class ComposeQuoteDjangoDispatchRustTest(SimpleTestCase):
                 "short",
             ),
         ):
-            with patch.object(compose_reply, "_rust_compose_quote", backend):
+            with (
+                patch.object(compose_reply, "_rust_compose_quote", backend),
+                patch.object(compose_reply, "_rust_exact_compose_quote", None),
+            ):
                 self.assertEqual(
                     compose_reply.get_measurements_for_quote_and_reply_content(3, 4, 1), limits
                 )
@@ -207,3 +214,47 @@ class ComposeQuoteDjangoDispatchRustTest(SimpleTestCase):
             ):
                 compose_reply.truncate_quote_content(quote, 44)
             parser.assert_called_once_with(quote[:24], None)
+
+
+class ExactComposeQuoteBudgetTest(SimpleTestCase):
+    def test_surrogate_input_with_real_closer_matches_original_without_replaying(self) -> None:
+        backend = compose_reply._rust_exact_compose_quote
+        if getattr(backend, "COMPOSE_QUOTE_BUDGET_API", None) != 1:
+            self.skipTest("Matching Rust compose quote budget contract is not available")
+        source = "~~~\n\ud800" + "🙂" * 60
+        with (
+            patch.object(compose_reply, "_rust_exact_compose_quote", None),
+            patch.object(compose_reply, "_rust_compose_quote", None),
+        ):
+            expected = compose_reply.truncate_quote_content(source, 44)
+        with patch.object(
+            backend,
+            "truncate_exact_compose_quote_text",
+            wraps=backend.truncate_exact_compose_quote_text,
+        ) as native:
+            self.assertEqual(compose_reply.truncate_quote_content(source, 44), expected)
+        self.assertEqual(native.call_count, 1)
+
+    def test_nonliteral_closer_result_does_not_replay_callbacks(self) -> None:
+        backend = compose_reply._rust_exact_compose_quote
+        if getattr(backend, "COMPOSE_QUOTE_BUDGET_API", None) != 1:
+            self.skipTest("Matching Rust compose quote budget contract is not available")
+        events: list[tuple[str, str]] = []
+
+        class Changed:
+            def __len__(self) -> int:
+                events.append(("len", ""))
+                return 3
+
+            def __add__(self, suffix: str) -> str:
+                events.append(("add", suffix))
+                return "custom" + suffix
+
+        def closer(text: str) -> Changed:
+            events.append(("close", text))
+            return Changed()
+
+        self.assertEqual(
+            backend.truncate_exact_compose_quote_text("x" * 40, 24, closer), "custom" + SUFFIX
+        )
+        self.assertEqual(events, [("close", "xxxx"), ("len", ""), ("add", SUFFIX)])
