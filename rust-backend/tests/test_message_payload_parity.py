@@ -28,6 +28,12 @@ def load_bridge(*, enabled: bool) -> ModuleType:
     module = util.module_from_spec(spec)
     with patch.dict(os.environ, {"ZULIP_RUST_MESSAGE_PAYLOAD": str(int(enabled))}):
         spec.loader.exec_module(module)
+    if not enabled:
+        # "False" is the Python comparison, including platform defaults.
+        module._default_content_backend = None
+        module._annotation_backend = None
+        module._mobile_event_backend = None
+        module._cached_frame_backend = None
     return module
 
 

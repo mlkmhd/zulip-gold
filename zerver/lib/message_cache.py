@@ -497,7 +497,7 @@ class MessageDict:
             rendered_content = save_message_rendered_content(message, content)
 
         if (
-            native_message_payload.is_enabled()
+            native_message_payload.has_cached_frame_assembler()
             and type(topic_name_key) is str
             and topic_name_key == "subject"
             and type(topic_links_key) is str

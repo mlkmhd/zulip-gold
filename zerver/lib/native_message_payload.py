@@ -36,6 +36,11 @@ _mobile_event_backend = load_native_contract(
 )
 
 
+_cached_frame_backend = load_native_contract(
+    "ZULIP_RUST_PREPARED_CACHED_MESSAGE_FRAME", "PREPARED_CACHED_MESSAGE_FRAME_API"
+)
+
+
 def is_enabled() -> bool:
     return _backend is not None
 
@@ -235,6 +240,15 @@ def assemble_submessages(messages: object, submessages: object) -> bool:
     return cast(bool, native(_message_rows(messages), submessages))
 
 
+def _cached_frame_assembler() -> object:
+    backend = _backend if _backend is not None else _cached_frame_backend
+    return getattr(backend, "assemble_cached_message_frame", None)
+
+
+def has_cached_frame_assembler() -> bool:
+    return callable(_cached_frame_assembler())
+
+
 def assemble_cached_frame(
     fields: tuple[object, ...],
     edit: tuple[int, object] | None,
@@ -242,8 +256,8 @@ def assemble_cached_frame(
     reactions: object,
     submessages: object,
 ) -> dict[str, object] | None:
-    native = getattr(_backend, "assemble_cached_message_frame", None)
-    if native is None:
+    native = _cached_frame_assembler()
+    if not callable(native):
         return None
     return cast(
         dict[str, object] | None,

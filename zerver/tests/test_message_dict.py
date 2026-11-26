@@ -1,6 +1,7 @@
 from typing import Any
 from unittest import mock
 
+import orjson
 from django.utils.timezone import now as timezone_now
 
 from zerver.lib import native_message_payload
@@ -25,6 +26,44 @@ from zerver.models.streams import get_stream
 
 
 class MessageDictTest(ZulipTestCase):
+    def test_prepared_cached_frame_keeps_cache_bytes(self) -> None:
+        reader = self.example_user("hamlet")
+        sender = self.example_user("othello")
+        message_id = self.send_personal_message(sender, reader, "/me writes فارسی")
+        Reaction.objects.create(
+            user_profile=reader,
+            message_id=message_id,
+            emoji_name="simple_smile",
+            emoji_code="1f642",
+            reaction_type=Reaction.UNICODE_EMOJI,
+        )
+        message = Message.objects.get(id=message_id)
+        with (
+            mock.patch.object(native_message_payload, "_backend", None),
+            mock.patch.object(native_message_payload, "_cached_frame_backend", None),
+        ):
+            reference = MessageDict.messages_to_encoded_cache([message])[message_id]
+        backend = native_message_payload._cached_frame_backend
+        if backend is None:
+            actual = MessageDict.messages_to_encoded_cache([message])[message_id]
+        else:
+            with (
+                mock.patch.object(native_message_payload, "_backend", None),
+                mock.patch.object(
+                    backend,
+                    "assemble_cached_message_frame",
+                    wraps=backend.assemble_cached_message_frame,
+                ) as assemble,
+            ):
+                self.assertFalse(native_message_payload.is_enabled())
+                actual = MessageDict.messages_to_encoded_cache([message])[message_id]
+            assemble.assert_called_once()
+        self.assertEqual(actual, reference)
+        data = orjson.loads(actual)
+        self.assertIs(data["is_me_message"], True)
+        self.assertEqual(data["reactions"][0]["emoji_name"], "simple_smile")
+        self.assertEqual(data["reactions"][0]["user_id"], reader.id)
+
     def test_both_codepaths(self) -> None:
         """
         We have two different codepaths that
