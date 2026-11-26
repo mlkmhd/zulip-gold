@@ -12,6 +12,9 @@ from zerver.lib.topic import DB_TOPIC_NAME
 _rust_narrow_recipient_slug = load_native_contract(
     "ZULIP_RUST_NARROW_RECIPIENT_SLUG", "NARROW_RECIPIENT_SLUG_API"
 )
+_rust_narrow_fragment_text = load_native_contract(
+    "ZULIP_RUST_NARROW_FRAGMENT_TEXT", "NARROW_FRAGMENT_TEXT_API"
+)
 
 
 def is_same_server_message_link(url: str) -> bool:
@@ -95,6 +98,11 @@ def parse_recipient_slug(slug: str) -> tuple[int | list[int], str] | None:
 
 def decode_hash_component(string: str) -> str:
     # This matches the web app's implementation of decodeHashComponent.
+    native = getattr(_rust_narrow_fragment_text, "decode_narrow_hash_component", None)
+    if callable(native):
+        decoded = cast("str | None", native(string))
+        if decoded is not None:
+            return decoded
     return unquote(string.replace(".", "%"))
 
 

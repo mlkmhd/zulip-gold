@@ -379,6 +379,7 @@ mod _zulip_backend {
         module.add("URL_FRAGMENTS_API", 1)?;
         module.add("CHANNEL_NARROW_SLUG_API", 1)?;
         module.add("NARROW_RECIPIENT_SLUG_API", 1)?;
+        module.add("NARROW_FRAGMENT_TEXT_API", 1)?;
         module.add("TIMEZONE_ALIAS_SOURCE_API", 1)?;
         module.add("TIMEZONE_ALIAS_LOOKUP_API", 1)?;
         module.add("TIME_DISPLAY_API", 1)?;
@@ -3057,6 +3058,12 @@ mod _zulip_backend {
         let value = value.cast_exact::<PyString>().ok()?.to_str().ok()?;
         let (ids, suffix) = url_fragments::parse_recipient_slug(value)?;
         Some((ids, suffix.to_owned()))
+    }
+
+    #[pyfunction]
+    fn decode_narrow_hash_component(value: &Bound<'_, PyAny>) -> Option<String> {
+        let value = value.cast_exact::<PyString>().ok()?.to_str().ok()?;
+        url_fragments::decode_hash_component_valid_utf8(value)
     }
 
     #[pyfunction]

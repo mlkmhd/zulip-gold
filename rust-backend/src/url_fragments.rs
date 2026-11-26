@@ -55,6 +55,33 @@ pub(crate) fn parse_recipient_slug(slug: &str) -> Option<(Vec<i64>, &str)> {
     Some((ids, suffix))
 }
 
+#[cfg(any(feature = "python", test))]
+pub(crate) fn decode_hash_component_valid_utf8(input: &str) -> Option<String> {
+    fn digit(value: u8) -> Option<u8> {
+        match value {
+            b'0'..=b'9' => Some(value - b'0'),
+            b'a'..=b'f' => Some(value - b'a' + 10),
+            b'A'..=b'F' => Some(value - b'A' + 10),
+            _ => None,
+        }
+    }
+
+    let mut rest = input.as_bytes();
+    let mut output = Vec::with_capacity(rest.len());
+    while let Some((value, next)) = rest.split_first() {
+        if matches!(value, b'.' | b'%') {
+            let ([high, low], tail) = next.split_first_chunk::<2>()?;
+            output.push(digit(*high)? * 16 + digit(*low)?);
+            rest = tail;
+        } else {
+            output.push(*value);
+            rest = next;
+        }
+    }
+    // Leave replacement characters for malformed UTF-8 to urllib.parse.
+    String::from_utf8(output).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -86,6 +113,16 @@ mod tests {
         assert_eq!(parse_recipient_slug("0-"), Some((vec![0], "")));
         assert_eq!(parse_recipient_slug("9223372036854775808-channel"), None);
         assert_eq!(parse_recipient_slug("a-legacy"), None);
+    }
+
+    #[test]
+    fn decodes_mixed_fragment_escapes_without_redecoding() {
+        assert_eq!(
+            decode_hash_component_valid_utf8("فارسی.20%2E.2520"),
+            Some("فارسی .%20".to_owned())
+        );
+        assert_eq!(decode_hash_component_valid_utf8(".FF"), None);
+        assert_eq!(decode_hash_component_valid_utf8(".x3"), None);
     }
 
     #[test]
