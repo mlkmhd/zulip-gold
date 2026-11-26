@@ -93,3 +93,21 @@ pub(crate) fn prepared_onboarding_email_delay_days(weekday: u8) -> Option<(u8, u
         _ => None,
     }
 }
+
+#[pyfunction]
+pub(crate) fn classify_prepared_welcome_bot_reply(
+    value: &Bound<'_, PyAny>,
+) -> Option<&'static str> {
+    let value = value.cast_exact::<PyString>().ok()?.to_str().ok()?;
+    Some(match value {
+        "app" | "apps" => "apps",
+        "profile" => "profile",
+        "theme" => "theme",
+        "stream" | "streams" | "channel" | "channels" => "channels",
+        "topic" | "topics" => "topics",
+        "keyboard" | "shortcuts" | "keyboard shortcuts" => "keyboard",
+        "formatting" | "message formatting" => "formatting",
+        "help" | "?" => "help",
+        _ => "unknown",
+    })
+}

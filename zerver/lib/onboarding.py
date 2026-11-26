@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
+from typing import cast
 
 from django.conf import settings
 from django.db import transaction
@@ -20,10 +21,15 @@ from zerver.lib.demo_organizations import get_scheduled_deletion_global_time
 from zerver.lib.emoji import get_emoji_data
 from zerver.lib.markdown.fenced_code import get_unused_fence
 from zerver.lib.message import SendMessageRequest, remove_single_newlines
+from zerver.lib.native_backend import load_native_contract
 from zerver.models import Message, OnboardingUserMessage, Realm, UserProfile
 from zerver.models.groups import SystemGroups
 from zerver.models.recipients import Recipient
 from zerver.models.users import get_system_bot
+
+_rust_welcome_bot_reply = load_native_contract(
+    "ZULIP_RUST_WELCOME_BOT_REPLY", "WELCOME_BOT_REPLY_API"
+)
 
 
 @dataclass
@@ -220,34 +226,60 @@ def bot_commands(no_help_command: bool = False) -> str:
     return ", ".join("`" + command + "`" for command in commands) + "."
 
 
+def _classify_welcome_bot_reply(value: str) -> str:
+    native = getattr(_rust_welcome_bot_reply, "classify_prepared_welcome_bot_reply", None)
+    if callable(native):
+        reply = cast("str | None", native(value))
+        if reply is not None:
+            return reply
+    if value in ["app", "apps"]:
+        return "apps"
+    elif value == "profile":
+        return "profile"
+    elif value == "theme":
+        return "theme"
+    elif value in ["stream", "streams", "channel", "channels"]:
+        return "channels"
+    elif value in ["topic", "topics"]:
+        return "topics"
+    elif value in ["keyboard", "shortcuts", "keyboard shortcuts"]:
+        return "keyboard"
+    elif value in ["formatting", "message formatting"]:
+        return "formatting"
+    elif value in ["help", "?"]:
+        return "help"
+    return "unknown"
+
+
 def select_welcome_bot_response(human_response_lower: str) -> str:
     # Given the raw (pre-markdown-rendering) content for a private
     # message from the user to Welcome Bot, select the appropriate reply.
-    if human_response_lower in ["app", "apps"]:
+    reply = _classify_welcome_bot_reply(human_response_lower)
+    if reply == "apps":
         return _("""
 You can [download](/apps/) the [mobile and desktop apps](/apps/).
 Zulip also works great in a browser.
 """)
-    elif human_response_lower == "profile":
+    elif reply == "profile":
         return _("""
 Go to [Profile settings](#settings/profile) to add a [profile picture](/help/change-your-profile-picture)
 and edit your [profile information](/help/edit-your-profile).
 """)
-    elif human_response_lower == "theme":
+    elif reply == "theme":
         return _("""
 You can switch between [light and dark theme](/help/dark-theme), [pick your
 favorite emoji set](/help/emoji-and-emoticons#change-your-emoji-set), [change
 your language](/help/change-your-language), and otherwise customize your Zulip
 experience in your [Preferences](#settings/preferences).
 """)
-    elif human_response_lower in ["stream", "streams", "channel", "channels"]:
+    elif reply == "channels":
         return _("""
 Channels organize conversations based on who needs to see them. For example,
 it's common to have a channel for each team in an organization.
 
 [Browse and subscribe to channels]({settings_link}).
 """).format(help_link="/help/introduction-to-channels", settings_link="#channels/all")
-    elif human_response_lower in ["topic", "topics"]:
+    elif reply == "topics":
         return _("""
 [Topics](/help/introduction-to-topics) summarize what each conversation in Zulip
 is about. You can read Zulip one topic at a time, seeing each message in
@@ -259,14 +291,14 @@ think about finishing the sentence: “Hey, can we chat about…?”
 Check out [Recent conversations](#recent) for a list of topics that are being
 discussed.
 """)
-    elif human_response_lower in ["keyboard", "shortcuts", "keyboard shortcuts"]:
+    elif reply == "keyboard":
         return _("""
 Zulip's [keyboard shortcuts](#keyboard-shortcuts) let you navigate the app
 quickly and efficiently.
 
 Press `?` any time to see a [cheat sheet](#keyboard-shortcuts).
 """)
-    elif human_response_lower in ["formatting", "message formatting"]:
+    elif reply == "formatting":
         return _("""
 You can **format** *your* `message` using the handy formatting buttons, or by
 typing your formatting with Markdown.
@@ -274,7 +306,7 @@ typing your formatting with Markdown.
 Check out the [cheat sheet](#message-formatting) to learn about spoilers, global
 times, and more.
 """)
-    elif human_response_lower in ["help", "?"]:
+    elif reply == "help":
         return _("""
 Here are a few messages I understand: {bot_commands}
 
