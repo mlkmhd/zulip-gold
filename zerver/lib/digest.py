@@ -79,6 +79,10 @@ _rust_render_prepared_digest_channel_labels = getattr(
     _rust_stream_rows, "render_prepared_digest_channel_labels", None
 )
 
+_rust_index_prepared_slim_channels = getattr(
+    _rust_stream_rows, "index_prepared_slim_channels", None
+)
+
 TopicKey: TypeAlias = tuple[int, str]
 
 
@@ -494,6 +498,8 @@ def get_slim_stream_id_map(stream_ids: set[int]) -> dict[int, Stream]:
     # "slim" because it only fetches the names of the stream objects,
     # suitable for passing into build_message_list.
     streams = Stream.objects.filter(id__in=stream_ids).only("id", "name")
+    if _rust_index_prepared_slim_channels is not None:
+        return _rust_index_prepared_slim_channels(streams)
     return {stream.id: stream for stream in streams}
 
 

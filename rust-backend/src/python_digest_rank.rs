@@ -253,3 +253,15 @@ pub(crate) fn render_prepared_digest_channel_labels<'py>(
     }
     PyTuple::new(py, [html, plain])
 }
+
+#[pyfunction]
+pub(crate) fn index_prepared_slim_channels<'py>(
+    streams: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let indexed = PyDict::new(streams.py());
+    for stream in streams.try_iter()? {
+        let stream = stream?;
+        indexed.set_item(stream.getattr("id")?, stream)?;
+    }
+    Ok(indexed)
+}
