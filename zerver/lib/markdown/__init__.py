@@ -110,6 +110,9 @@ _rust_markdown_channel_links = (
     if os.environ.get("ZULIP_RUST_MARKDOWN_CHANNEL_LINKS") == "1"
     else None
 )
+_attachment_link_backend = load_native_contract(
+    "ZULIP_RUST_PREPARED_MARKDOWN_ATTACHMENT_LINK", "PREPARED_MARKDOWN_ATTACHMENT_LINK_API"
+)
 _rust_markdown_lists = load_native_contract("ZULIP_RUST_MARKDOWN_LISTS", "MARKDOWN_LISTS_API")
 _rust_markdown_blockquotes = load_native_contract(
     "ZULIP_RUST_MARKDOWN_BLOCKQUOTES", "MARKDOWN_BLOCKQUOTES_API"
@@ -3457,6 +3460,11 @@ def render_message_markdown(
 
 
 def get_markdown_link_for_url(filename: str, url: str) -> str:
+    native = getattr(_attachment_link_backend, "format_prepared_markdown_attachment_link", None)
+    if callable(native):
+        rendered = cast("str | None", native(filename, url))
+        if rendered is not None:
+            return rendered
     # Our markdown has no escaping, so we cannot link any
     # text containing brackets; strip them from the
     # filename we're linking.

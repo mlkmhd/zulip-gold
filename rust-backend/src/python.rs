@@ -308,6 +308,7 @@ mod _zulip_backend {
         module.add("PREPARED_USER_DIRECTORY_API", 1)?;
         module.add("PREPARED_CLOSE_FENCES_API", 1)?;
         module.add("PREPARED_FENCE_PARSER_API", 1)?;
+        module.add("PREPARED_MARKDOWN_ATTACHMENT_LINK_API", 1)?;
         module.add("PREPARED_SEND_EVENT_LABELS_API", 1)?;
         module.add("PREPARED_ACTIVITY_BATCH_API", 1)?;
         module.add("PREPARED_ACTIVITY_INTERVAL_API", 1)?;
@@ -2846,6 +2847,28 @@ mod _zulip_backend {
         realm_host: Option<&str>,
     ) -> Option<&'py str> {
         markdown_upload::local_upload_path(url.to_str().ok()?, realm_host)
+    }
+
+    #[pyfunction]
+    fn format_prepared_markdown_attachment_link<'py>(
+        py: Python<'py>,
+        label: &Bound<'_, PyAny>,
+        url: &Bound<'_, PyAny>,
+    ) -> Option<Bound<'py, PyString>> {
+        let label = python_string_bytes(label.cast_exact::<PyString>().ok()?)?;
+        let url = python_string_bytes(url.cast_exact::<PyString>().ok()?)?;
+        let mut output = Vec::new();
+        output.push(b'[');
+        output.extend(
+            label
+                .iter()
+                .copied()
+                .filter(|byte| !matches!(byte, b'[' | b']')),
+        );
+        output.extend_from_slice(b"](");
+        output.extend_from_slice(&url);
+        output.push(b')');
+        python_string_from_bytes(py, &output)
     }
 
     #[pyfunction]
