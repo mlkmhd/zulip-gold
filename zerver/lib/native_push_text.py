@@ -73,6 +73,20 @@ def format_direct_recipient_ids(
     return cast("list[int] | None", native(recipients, get_sender_id)) if callable(native) else None
 
 
+_channel_recipient_backend = load_native_contract(
+    "ZULIP_RUST_MOBILE_CHANNEL_RECIPIENT", "MOBILE_CHANNEL_RECIPIENT_API"
+)
+
+
+def format_channel_recipient(
+    payload: dict[str, object], channel_id: int, channel_name: str, legacy: bool
+) -> bool:
+    native = getattr(_channel_recipient_backend, "format_mobile_channel_recipient", None)
+    if not callable(native) or type(legacy) is not bool:
+        return False
+    return cast(bool, native(payload, channel_id, channel_name, legacy))
+
+
 MobileBaseFormatter = Callable[[tuple[str, int, str] | None, str, str, int], dict[str, object]]
 
 

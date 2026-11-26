@@ -314,3 +314,24 @@ pub(crate) fn format_mobile_direct_recipient_ids<'py>(
     }
     Ok(Some(PyList::new(recipients.py(), ids.into_values())?))
 }
+
+#[pyfunction]
+pub(crate) fn format_mobile_channel_recipient(
+    payload: &Bound<'_, PyAny>,
+    channel_id: &Bound<'_, PyAny>,
+    channel_name: &Bound<'_, PyAny>,
+    legacy: bool,
+) -> PyResult<bool> {
+    let Ok(payload) = payload.cast_exact::<PyDict>() else {
+        return Ok(false);
+    };
+    let (kind, name_key, id_key) = if legacy {
+        ("stream", "stream", "stream_id")
+    } else {
+        ("channel", "channel_name", "channel_id")
+    };
+    payload.set_item("recipient_type", kind)?;
+    payload.set_item(name_key, channel_name)?;
+    payload.set_item(id_key, channel_id)?;
+    Ok(true)
+}

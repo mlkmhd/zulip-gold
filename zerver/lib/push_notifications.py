@@ -1130,14 +1130,17 @@ def get_message_payload(
         channel_id = message.recipient.type_id
         channel_name = get_message_stream_name_from_database(message)
 
-        if for_legacy_clients:
-            data["recipient_type"] = "stream"
-            data["stream"] = channel_name
-            data["stream_id"] = channel_id
-        else:
-            data["recipient_type"] = "channel"
-            data["channel_name"] = channel_name
-            data["channel_id"] = channel_id
+        if not native_push_text.format_channel_recipient(
+            data, channel_id, channel_name, for_legacy_clients
+        ):
+            if for_legacy_clients:
+                data["recipient_type"] = "stream"
+                data["stream"] = channel_name
+                data["stream_id"] = channel_id
+            else:
+                data["recipient_type"] = "channel"
+                data["channel_name"] = channel_name
+                data["channel_id"] = channel_id
 
         data["topic"] = get_topic_display_name(message.topic_name(), user_profile.default_language)
     else:
