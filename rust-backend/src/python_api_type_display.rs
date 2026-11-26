@@ -285,3 +285,42 @@ pub(crate) fn render_prepared_api_parameter_list<'py>(
     }
     Ok(lines)
 }
+
+#[pyfunction]
+pub(crate) fn render_prepared_api_object_properties<'py>(
+    schema: &Bound<'py, PyAny>,
+    name: &Bound<'py, PyAny>,
+    oneof: &Bound<'py, PyAny>,
+    renderer: &Bound<'py, PyAny>,
+    markdown: &Bound<'py, PyAny>,
+    templates: &Bound<'py, pyo3::types::PyTuple>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let py = schema.py();
+    let objects = schema.call_method1("get", ("properties", PyDict::new(py)))?;
+    let lines = PyList::empty(py);
+    for value in objects.try_iter()? {
+        let value = value?;
+        if objects
+            .get_item(&value)?
+            .call_method1("get", ("readOnly", false))?
+            .is_truthy()?
+        {
+            continue;
+        }
+        lines.append(renderer.call_method1(
+            "_render_object_property",
+            (schema, &objects, value, markdown),
+        )?)?;
+    }
+    let oneof = oneof.is_truthy()?;
+    let template = templates.get_item(usize::from(oneof))?.getattr("format")?;
+    let fields = PyDict::new(py);
+    if !oneof {
+        fields.set_item("argument", name)?;
+    }
+    fields.set_item(
+        "values",
+        PyString::new(py, "\n").call_method1("join", (lines,))?,
+    )?;
+    template.call((), Some(&fields))
+}

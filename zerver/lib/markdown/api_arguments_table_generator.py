@@ -56,6 +56,10 @@ _rust_render_prepared_api_parameter_list = getattr(
     _rust_api_type_tree, "render_prepared_api_parameter_list", None
 )
 
+_rust_render_prepared_api_object_properties = getattr(
+    _rust_api_type_tree, "render_prepared_api_object_properties", None
+)
+
 try:
     _rust_api_enum_display = load_native_contract(
         "ZULIP_RUST_API_ENUM_DISPLAY", "API_ENUM_DISPLAY_API"
@@ -318,6 +322,15 @@ class APIArgumentsTablePreprocessor(Preprocessor):
         self, schema: Mapping[str, Any], name: str, oneof: bool = False
     ) -> str:
         md_engine = markdown.Markdown(extensions=[])
+        if _rust_render_prepared_api_object_properties is not None:
+            return _rust_render_prepared_api_object_properties(
+                schema,
+                name,
+                oneof,
+                self,
+                md_engine,
+                (OBJECT_DETAILS_TEMPLATE, ONEOF_OBJECT_DETAILS_TEMPLATE),
+            )
         li_elements = []
 
         object_values = schema.get("properties", {})
@@ -327,61 +340,9 @@ class APIArgumentsTablePreprocessor(Preprocessor):
                 # but not in requests.
                 continue
 
-            description = ""
-            if "description" in object_values[value]:
-                description = object_values[value]["description"]
-
-            # check for default, enum, required or example in documentation
-            additions: list[str] = []
-
-            default = object_values.get(value, {}).get("default")
-            if default is not None:
-                formatted_default = OBJECT_CODE_TEMPLATE.format(value=json.dumps(default))
-                additions += f"Defaults to {formatted_default}. "
-
-            enums = object_values.get(value, {}).get("enum")
-            if enums is not None:
-                formatted_enums = [
-                    OBJECT_CODE_TEMPLATE.format(value=json.dumps(enum)) for enum in enums
-                ]
-                additions += f"Must be one of: {_join_api_enum_examples(formatted_enums)}. "
-
-            if "example" in object_values[value]:
-                example = json.dumps(object_values[value]["example"])
-                formatted_example = OBJECT_CODE_TEMPLATE.format(value=escape_html(example))
-                additions += (
-                    f'<span class="api-argument-example-label">Example</span>: {formatted_example}'
-                )
-
-            if len(additions) > 0:
-                additional_information = "".join(additions).strip()
-                description_final = OBJECT_DESCRIPTION_TEMPLATE.format(
-                    description=md_engine.convert(description),
-                    additional_information=additional_information,
-                )
-            else:
-                description_final = md_engine.convert(description)
-
-            required_block = ""
-            if "required" in schema:
-                if value in schema["required"]:
-                    required_block = '<span class="api-argument-required">required</span>'
-                else:
-                    required_block = '<span class="api-argument-optional">optional</span>'
-
-            data_type = generate_data_type(object_values[value])
-
-            details = _render_api_property_detail(self, object_values, value, data_type)
-
-            li = OBJECT_LIST_ITEM_TEMPLATE.format(
-                value=value,
-                data_type=data_type,
-                required=required_block,
-                description=description_final,
-                object_details=details,
+            li_elements.append(
+                self._render_object_property(schema, object_values, value, md_engine)
             )
-
-            li_elements.append(li)
         if oneof:
             object_details = ONEOF_OBJECT_DETAILS_TEMPLATE.format(
                 values="\n".join(li_elements),
@@ -392,6 +353,68 @@ class APIArgumentsTablePreprocessor(Preprocessor):
                 values="\n".join(li_elements),
             )
         return object_details
+
+    def _render_object_property(
+        self,
+        schema: Mapping[str, Any],
+        object_values: Mapping[str, Any],
+        value: str,
+        md_engine: markdown.Markdown,
+    ) -> str:
+        description = ""
+        if "description" in object_values[value]:
+            description = object_values[value]["description"]
+
+        # check for default, enum, required or example in documentation
+        additions: list[str] = []
+
+        default = object_values.get(value, {}).get("default")
+        if default is not None:
+            formatted_default = OBJECT_CODE_TEMPLATE.format(value=json.dumps(default))
+            additions += f"Defaults to {formatted_default}. "
+
+        enums = object_values.get(value, {}).get("enum")
+        if enums is not None:
+            formatted_enums = [
+                OBJECT_CODE_TEMPLATE.format(value=json.dumps(enum)) for enum in enums
+            ]
+            additions += f"Must be one of: {_join_api_enum_examples(formatted_enums)}. "
+
+        if "example" in object_values[value]:
+            example = json.dumps(object_values[value]["example"])
+            formatted_example = OBJECT_CODE_TEMPLATE.format(value=escape_html(example))
+            additions += (
+                f'<span class="api-argument-example-label">Example</span>: {formatted_example}'
+            )
+
+        if len(additions) > 0:
+            additional_information = "".join(additions).strip()
+            description_final = OBJECT_DESCRIPTION_TEMPLATE.format(
+                description=md_engine.convert(description),
+                additional_information=additional_information,
+            )
+        else:
+            description_final = md_engine.convert(description)
+
+        required_block = ""
+        if "required" in schema:
+            if value in schema["required"]:
+                required_block = '<span class="api-argument-required">required</span>'
+            else:
+                required_block = '<span class="api-argument-optional">optional</span>'
+
+        data_type = generate_data_type(object_values[value])
+
+        details = _render_api_property_detail(self, object_values, value, data_type)
+
+        li = OBJECT_LIST_ITEM_TEMPLATE.format(
+            value=value,
+            data_type=data_type,
+            required=required_block,
+            description=description_final,
+            object_details=details,
+        )
+        return li
 
 
 def makeExtension(*args: Any, **kwargs: str) -> MarkdownArgumentsTableGenerator:
