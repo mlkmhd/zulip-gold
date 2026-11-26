@@ -99,25 +99,46 @@ class MessageWindowRustTest(ZulipTestCase):
                             [{"operator": "channel", "operand": channel}]
                         ).decode(),
                     }
-                    with patch.object(native_message_window, "_backend", None):
+                    with (
+                        patch.object(native_message_window, "_backend", None),
+                        patch(
+                            "zerver.lib.narrow.capture_message_fetch_query_for_testing"
+                        ) as ref_query,
+                    ):
                         if path == "/json/messages":
                             reference = self.client_get(path, params)
                         else:
                             reference = self.api_get(reader, path, params)
+                    ref_query.assert_called_once()
+                    reference_sql = ref_query.call_args.args[0].query.sql_with_params()
                     reference_payload = self.assert_json_success(reference)
                     self.assertTrue(
                         all(row["id"] >= message_ids[2] for row in reference_payload["messages"])
                     )
                     self.assertTrue(reference_payload["messages"])
-                    with patch.object(
-                        native_message_window,
-                        "_backend",
-                        SimpleNamespace(plan_sorted_message_window=native),
+                    override = (
+                        patch.object(backend, "plan_sorted_message_window", native)
+                        if native_message_window._backend is backend
+                        else patch.object(
+                            native_message_window,
+                            "_backend",
+                            SimpleNamespace(plan_sorted_message_window=native),
+                        )
+                    )
+                    with (
+                        override,
+                        patch(
+                            "zerver.lib.narrow.capture_message_fetch_query_for_testing"
+                        ) as opt_query,
                     ):
                         if path == "/json/messages":
                             optimized = self.client_get(path, params)
                         else:
                             optimized = self.api_get(reader, path, params)
+                    opt_query.assert_called_once()
+                    self.assertEqual(
+                        opt_query.call_args.args[0].query.sql_with_params(), reference_sql
+                    )
                     self.assertEqual(optimized.content, reference.content)
                     native.assert_called()
                     visible = native.call_args.args[0]

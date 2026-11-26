@@ -388,6 +388,7 @@ mod _zulip_backend {
         module.add("RECENT_CONVERSATION_REPLAY_API", 1)?;
         module.add("REGISTER_LEGACY_TOPICS_API", 1)?;
         module.add("REGISTER_LEGACY_NOTIFICATIONS_API", 1)?;
+        module.add("VISIBLE_MESSAGE_WINDOW_API", 1)?;
         module.add("PREPARED_RECENT_DM_ROWS_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
         module.add("MARKDOWN_HEADINGS_API", 1)?;

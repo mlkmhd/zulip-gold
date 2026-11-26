@@ -1,20 +1,11 @@
-"""Optional window assembly for Django-selected, already sorted visible rows."""
+"""Native window assembly for Django-selected, already sorted visible rows."""
 
-import os
 from collections.abc import Sequence
-from importlib import import_module
 from typing import cast
 
-try:
-    _backend = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_MESSAGE_WINDOW") == "1"
-        else None
-    )
-except ModuleNotFoundError as error:
-    if error.name != "_zulip_backend":
-        raise
-    _backend = None
+from zerver.lib.native_backend import load_native_contract
+
+_backend = load_native_contract("ZULIP_RUST_MESSAGE_WINDOW", "VISIBLE_MESSAGE_WINDOW_API")
 
 
 def plan(
