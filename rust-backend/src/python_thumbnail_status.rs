@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyDict, PyInt, PyList, PyString, PyTuple};
+use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString, PyTuple};
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct FormatKey {
@@ -329,5 +329,56 @@ mod tests {
             1,
             true
         ));
+    }
+}
+
+#[pyfunction]
+pub(crate) fn thumbnail_frame_load_options(
+    frames: &Bound<'_, PyAny>,
+    width: &Bound<'_, PyAny>,
+    height: &Bound<'_, PyAny>,
+    animated: &Bound<'_, PyAny>,
+    limit: &Bound<'_, PyAny>,
+) -> Option<String> {
+    let frames = integer(frames)?;
+    if frames <= 1 {
+        return Some(String::new());
+    }
+    if !animated
+        .cast_exact::<PyBool>()
+        .ok()?
+        .extract::<bool>()
+        .ok()?
+    {
+        return Some("n=1".into());
+    }
+    let (width, height) = (integer(width)?, integer(height)?);
+    if width <= 0 || height <= 0 {
+        return None;
+    }
+    let pixels_per_frame = width.checked_mul(height)?;
+    let total = pixels_per_frame.checked_mul(frames)?;
+    let (limit, suffix) = if limit.is_exact_instance_of::<PyInt>() {
+        (integer(limit)?, "")
+    } else {
+        let limit = limit.cast_exact::<PyFloat>().ok()?.extract::<f64>().ok()?;
+        // The configured budget is an integral float. Preserve its output
+        // spelling and leave other floating-point behavior to CPython.
+        if !(0.0..=1_099_511_627_776.0).contains(&limit)
+            || limit.fract() != 0.0
+            || limit.is_sign_negative()
+            || pixels_per_frame > (1_i64 << 40)
+        {
+            return None;
+        }
+        (limit as i64, ".0")
+    };
+    if limit < 0 {
+        return None;
+    }
+    if total < limit {
+        Some("n=-1".into())
+    } else {
+        Some(format!("n={}{}", limit / pixels_per_frame, suffix))
     }
 }

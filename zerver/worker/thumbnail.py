@@ -2,7 +2,7 @@ import logging
 import time
 from dataclasses import asdict, dataclass
 from io import BytesIO
-from typing import Any
+from typing import Any, cast
 
 import pyvips
 from django.db import transaction
@@ -11,6 +11,7 @@ from typing_extensions import override
 from zerver.actions.message_edit import do_update_embedded_data
 from zerver.lib import native_thumbnail_status
 from zerver.lib.mime_types import guess_type
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.thumbnail import (
     IMAGE_MAX_ANIMATED_PIXELS,
     MarkdownImageMetadata,
@@ -31,6 +32,29 @@ logger = logging.getLogger(__name__)
 _select_needed_thumbnails = (
     plan_missing_thumbnails if native_thumbnail_status.plan_available() else missing_thumbnails
 )
+
+
+_frame_backend = load_native_contract(
+    "ZULIP_RUST_THUMBNAIL_FRAME_OPTIONS", "THUMBNAIL_FRAME_OPTIONS_API"
+)
+
+
+def _thumbnail_load_options(
+    frames: int, width: int, height: int, animated: bool, pixel_limit: float
+) -> str:
+    native = getattr(_frame_backend, "thumbnail_frame_load_options", None)
+    if callable(native):
+        options = cast("str | None", native(frames, width, height, animated, pixel_limit))
+        if options is not None:
+            return options
+    if frames <= 1:
+        return ""
+    if not animated:
+        return "n=1"
+    pixels_per_frame = width * height
+    if pixels_per_frame * frames < pixel_limit:
+        return "n=-1"
+    return f"n={pixel_limit // pixels_per_frame}"
 
 
 @assign_queue("thumbnail")
@@ -115,24 +139,14 @@ def ensure_thumbnails(image_attachment: ImageAttachment) -> ThumbnailingResult:
                 image_attachment.original_width_px,
                 image_attachment.original_height_px,
             )
-            load_opts = ""
-            if image_attachment.frames > 1:
-                # If the original has multiple frames, we want to load
-                # one of them if we're outputting to a static format,
-                # otherwise we load them all.
-                if thumbnail_format.animated:
-                    # We compute how many frames to thumbnail based on
-                    # how many frames it will take us to get to
-                    # IMAGE_MAX_ANIMATED_PIXELS
-                    pixels_per_frame = (
-                        image_attachment.original_width_px * image_attachment.original_height_px
-                    )
-                    if pixels_per_frame * image_attachment.frames < IMAGE_MAX_ANIMATED_PIXELS:
-                        load_opts = "n=-1"
-                    else:
-                        load_opts = f"n={IMAGE_MAX_ANIMATED_PIXELS // pixels_per_frame}"
-                else:
-                    load_opts = "n=1"
+            # Load one frame for still output, or respect the pixel budget for animation.
+            load_opts = _thumbnail_load_options(
+                image_attachment.frames,
+                image_attachment.original_width_px,
+                image_attachment.original_height_px,
+                thumbnail_format.animated,
+                IMAGE_MAX_ANIMATED_PIXELS,
+            )
             start_time = time.perf_counter()
             resized = pyvips.Image.thumbnail_buffer(
                 image_bytes,
