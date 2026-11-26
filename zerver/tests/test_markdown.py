@@ -1,6 +1,7 @@
 import os
 import re
 import warnings
+from collections.abc import Callable
 from dataclasses import dataclass
 from html import escape
 from textwrap import dedent
@@ -13,6 +14,7 @@ import responses
 from bs4 import BeautifulSoup, MarkupResemblesLocatorWarning
 from django.conf import settings
 from django.test import override_settings
+from django.utils.translation import override as override_language
 from markdown import Markdown
 from responses import matchers
 from typing_extensions import override
@@ -3313,6 +3315,54 @@ class MarkdownMentionTest(ZulipTestCase):
         return check_add_user_group(
             get_realm("zulip"), user_group_name, [othello], acting_user=othello
         )
+
+    def test_prepared_group_mention_fields_match_reference_in_active_locale(self) -> None:
+        sender = self.example_user("othello")
+        group = self.create_user_group_for_test("Groupe <&> 📝")
+        admins = NamedUserGroup.objects.get(
+            name=SystemGroups.ADMINISTRATORS, realm_for_sharding=sender.realm, is_system_group=True
+        )
+        message = Message(sender=sender, sending_client=get_client("test"), realm=sender.realm)
+        content = f"@*{group.name}* @_*{admins.name}* @*Missing group*"
+        backend = zulip_markdown._rust_prepared_group_mention_fields
+        timeout = zulip_markdown.unsafe_timeout
+
+        def render_in_language(seconds: int, render: Callable[[], str]) -> str:
+            # Django's active language is local to the actual Markdown thread.
+            def run() -> str:
+                with override_language(language):
+                    return render()
+
+            return timeout(seconds, run)
+
+        for language, expected_label in [("en", "Administrators"), ("de", "Administratoren")]:
+            with (
+                self.subTest(language=language),
+                mock.patch.object(zulip_markdown, "unsafe_timeout", side_effect=render_in_language),
+            ):
+                with mock.patch.object(zulip_markdown, "_rust_prepared_group_mention_fields", None):
+                    reference = render_message_markdown(message, content)
+                if backend is None:
+                    actual = render_message_markdown(message, content)
+                else:
+                    with mock.patch.object(
+                        backend,
+                        "group_markdown_mention_fields",
+                        wraps=backend.group_markdown_mention_fields,
+                    ) as prepare:
+                        actual = render_message_markdown(message, content)
+                    self.assertEqual(
+                        [call.args[0] for call in prepare.call_args_list], [group.id, admins.id]
+                    )
+                    self.assertEqual(
+                        prepare.call_args_list[1].args[1],
+                        expected_label,
+                    )
+                self.assertEqual(actual.rendered_content, reference.rendered_content)
+                self.assertEqual(actual.mentions_user_group_ids, reference.mentions_user_group_ids)
+                self.assertEqual(actual.mentions_user_group_ids, {group.id})
+                self.assertIn("Groupe &lt;&amp;&gt; 📝", actual.rendered_content)
+                self.assertIn(f">{expected_label}</span>", actual.rendered_content)
 
     def test_user_group_mention_single(self) -> None:
         sender_user_profile = self.example_user("othello")

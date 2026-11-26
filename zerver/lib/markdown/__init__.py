@@ -87,7 +87,7 @@ from zerver.lib.types import LinkifierDict
 from zerver.lib.url_encoding import encode_channel, encode_hash_component
 from zerver.lib.url_preview.types import UrlEmbedData, UrlOEmbedData
 from zerver.models import Message, Realm, UserProfile
-from zerver.models.groups import SystemGroups
+from zerver.models.groups import NamedUserGroup, SystemGroups
 from zerver.models.linkifiers import linkifiers_for_realm
 from zerver.models.realm_emoji import EmojiInfo, get_name_keyed_dict_for_active_realm_emoji
 from zerver.models.streams import StreamTopicsPolicyEnum
@@ -143,6 +143,9 @@ _rust_prepared_quote_mentions = load_native_contract(
 )
 _rust_prepared_user_mention_fields = load_native_contract(
     "ZULIP_RUST_PREPARED_USER_MENTION_FIELDS", "PREPARED_USER_MENTION_FIELDS_API"
+)
+_rust_prepared_group_mention_fields = load_native_contract(
+    "ZULIP_RUST_PREPARED_GROUP_MENTION_FIELDS", "PREPARED_GROUP_MENTION_FIELDS_API"
 )
 _rust_markdown_inline_mentions = (
     import_module("_zulip_backend")
@@ -2256,6 +2259,10 @@ class UserMentionPattern(CompiledInlineProcessor):
         return None, None, None
 
 
+_reference_group_mention_display_name = get_user_group_mention_display_name
+_reference_system_group_mention_labels = SystemGroups.GROUP_DISPLAY_NAME_MAP.copy()
+
+
 class UserGroupMentionPattern(CompiledInlineProcessor):
     @override
     def handleMatch(  # type: ignore[override] # https://github.com/python/mypy/issues/10197
@@ -2268,6 +2275,8 @@ class UserGroupMentionPattern(CompiledInlineProcessor):
         if db_data is not None:
             user_group = db_data.mention_data.get_user_group(name)
             if user_group:
+                fields = None
+                prepared_label = None
                 if _rust_markdown_inline_mentions is not None:
                     fields = _rust_markdown_inline_mentions.group_markdown_mention_fields(
                         user_group.id,
@@ -2275,17 +2284,46 @@ class UserGroupMentionPattern(CompiledInlineProcessor):
                         silent,
                         user_group.deactivated,
                     )
-                    if fields is not None:
-                        el = build_mention_span(self.zmd, fields)
-                        assert el is not None
-                        return el, m.start(), m.end()
+                elif (
+                    _rust_prepared_group_mention_fields is not None
+                    and build_mention_span is _reference_mention_span_builder
+                    and get_user_group_mention_display_name is _reference_group_mention_display_name
+                    and type(user_group) is NamedUserGroup
+                    and type(user_group.id) is int
+                    and -(2**31) <= user_group.id < 2**31
+                    and type(user_group.is_system_group) is bool
+                    and type(user_group.deactivated) is bool
+                    and type(user_group.name) is str
+                    and (
+                        not user_group.is_system_group
+                        or (
+                            type(SystemGroups.GROUP_DISPLAY_NAME_MAP) is dict
+                            and user_group.name in _reference_system_group_mention_labels
+                            and SystemGroups.GROUP_DISPLAY_NAME_MAP.get(user_group.name)
+                            is _reference_system_group_mention_labels[user_group.name]
+                        )
+                    )
+                ):
+                    # Resolve lazy labels under the active Django locale first.
+                    prepared_label = f"{get_user_group_mention_display_name(user_group)}"
+                    fields = _rust_prepared_group_mention_fields.group_markdown_mention_fields(
+                        user_group.id, prepared_label, silent, user_group.deactivated
+                    )
+                if fields is not None:
+                    el = build_mention_span(self.zmd, fields)
+                    assert el is not None
+                    return el, m.start(), m.end()
 
                 if user_group.deactivated:
                     silent = True
 
                 if not silent:
                     self.zmd.zulip_rendering_result.mentions_user_group_ids.add(user_group.id)
-                name = get_user_group_mention_display_name(user_group)
+                name = (
+                    prepared_label
+                    if prepared_label is not None
+                    else get_user_group_mention_display_name(user_group)
+                )
                 user_group_id = str(user_group.id)
             else:
                 # Don't highlight @-mentions that don't refer to a valid user

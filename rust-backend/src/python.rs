@@ -416,6 +416,7 @@ mod _zulip_backend {
         module.add("PREPARED_GROUP_MENTION_SCAN_API", 1)?;
         module.add("PREPARED_QUOTE_MENTION_API", 1)?;
         module.add("PREPARED_USER_MENTION_FIELDS_API", 1)?;
+        module.add("PREPARED_GROUP_MENTION_FIELDS_API", 1)?;
         module.add("EXACT_MESSAGE_BODY_API", 1)?;
         module.add("PREPARED_RECENT_DM_ROWS_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
