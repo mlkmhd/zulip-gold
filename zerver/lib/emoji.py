@@ -168,18 +168,40 @@ def check_remove_custom_emoji(user_profile: UserProfile, emoji_name: str) -> Non
         raise JsonableError(_("Must be an organization administrator or emoji author"))
 
 
+_rust_custom_emoji_name = load_native_contract(
+    "ZULIP_RUST_PREPARED_CUSTOM_EMOJI_NAME", "PREPARED_CUSTOM_EMOJI_NAME_API"
+)
+_classify_prepared_custom_emoji_name = getattr(
+    _rust_custom_emoji_name, "classify_prepared_custom_emoji_name", None
+)
+_reference_emoji_name_match = re.match
+
+
 def check_valid_emoji_name(emoji_name: str) -> None:
-    if emoji_name:
-        if re.match(r"^[0-9a-z\-_]+(?<![\-_])$", emoji_name):
-            return
-        if re.match(r"^[0-9a-z\-_]+$", emoji_name):
-            raise JsonableError(_("Emoji names must end with either a letter or digit."))
-        raise JsonableError(
-            _(
-                "Emoji names must contain only lowercase English letters, digits, spaces, dashes, and underscores.",
-            )
+    reason = None
+    if _classify_prepared_custom_emoji_name is not None and re.match is _reference_emoji_name_match:
+        reason = _classify_prepared_custom_emoji_name(emoji_name)
+    if reason is None:
+        if not emoji_name:
+            reason = 1
+        elif re.match(r"^[0-9a-z\-_]+(?<![\-_])$", emoji_name):
+            reason = 0
+        elif re.match(r"^[0-9a-z\-_]+$", emoji_name):
+            reason = 2
+        else:
+            reason = 3
+
+    if reason == 0:
+        return
+    if reason == 1:
+        raise JsonableError(_("Emoji name is missing"))
+    if reason == 2:
+        raise JsonableError(_("Emoji names must end with either a letter or digit."))
+    raise JsonableError(
+        _(
+            "Emoji names must contain only lowercase English letters, digits, spaces, dashes, and underscores."
         )
-    raise JsonableError(_("Emoji name is missing"))
+    )
 
 
 def get_emoji_file_name(content_type: str, emoji_id: int) -> str:

@@ -209,3 +209,22 @@ pub(crate) fn translate_prepared_emoticons(
     }
     Some(translate_known_emoticons(text.to_owned()))
 }
+
+/// Return the outcome only. Django owns the translated error and exception type.
+#[pyfunction]
+pub(crate) fn classify_prepared_custom_emoji_name(input: &Bound<'_, PyAny>) -> Option<u8> {
+    let name = python_string_bytes(input.cast_exact::<PyString>().ok()?)?;
+    if name.is_empty() {
+        return Some(1);
+    }
+    // Python regex $ accepts one final newline after the name.
+    let core = name.strip_suffix(b"\n").unwrap_or(&name);
+    let Some((&last, prefix)) = core.split_last() else {
+        return Some(3);
+    };
+    let valid = |byte: u8| matches!(byte, b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_');
+    if !valid(last) || prefix.iter().any(|&byte| !valid(byte)) {
+        return Some(3);
+    }
+    Some(if matches!(last, b'-' | b'_') { 2 } else { 0 })
+}
