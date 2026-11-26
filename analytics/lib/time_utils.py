@@ -1,7 +1,18 @@
 from datetime import datetime, timedelta
 
 from analytics.lib.counts import CountStat
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.timestamp import floor_to_day, floor_to_hour, verify_UTC
+
+try:
+    _rust_time_grid = load_native_contract(
+        "ZULIP_RUST_ANALYTICS_TIME_BUCKETS", "ANALYTICS_TIME_BUCKETS_API"
+    )
+except ImportError:
+    _rust_time_grid = None
+_walk_prepared_analytics_time_grid = getattr(
+    _rust_time_grid, "walk_prepared_analytics_time_grid", None
+)
 
 
 # If min_length is None, returns end_times from ceiling(start) to floor(end), inclusive.
@@ -22,9 +33,12 @@ def time_range(
     else:
         raise AssertionError(f"Unknown frequency: {frequency}")
 
-    times = []
     if min_length is not None:
         start = min(start, end - (min_length - 1) * step)
+    if _walk_prepared_analytics_time_grid is not None:
+        return _walk_prepared_analytics_time_grid(start, end, step)
+
+    times = []
     current = end
     while current >= start:
         times.append(current)

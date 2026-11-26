@@ -1,7 +1,7 @@
 //! Bucket arithmetic for preselected UTC chart boundaries.
 
 use pyo3::prelude::*;
-use pyo3::types::PyInt;
+use pyo3::types::{PyInt, PyList};
 
 const HOUR_US: i64 = 3_600_000_000;
 const DAY_US: i64 = 24 * HOUR_US;
@@ -53,4 +53,21 @@ pub(crate) fn plan_analytics_time_buckets(
         return None;
     }
     Some((first, count, step))
+}
+
+#[pyfunction]
+pub(crate) fn walk_prepared_analytics_time_grid<'py>(
+    start: &Bound<'py, PyAny>,
+    mut end: Bound<'py, PyAny>,
+    step: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyList>> {
+    let py = start.py();
+    let times = PyList::empty(py);
+    let subtract = py.import("operator")?.getattr("isub")?;
+    while end.ge(start)? {
+        times.append(&end)?;
+        end = subtract.call1((end, step))?;
+    }
+    times.call_method0("reverse")?;
+    Ok(times)
 }
