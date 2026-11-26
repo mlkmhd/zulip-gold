@@ -57,6 +57,7 @@ from zerver.lib.exceptions import (
     UserDeactivatedError,
 )
 from zerver.lib.mobile_auth_otp import otp_encrypt_api_key
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.push_notifications import push_notifications_configured
 from zerver.lib.pysa import mark_sanitized
 from zerver.lib.rate_limiter import readable_expiry_string_for_html
@@ -1229,6 +1230,41 @@ def check_server_incompatibility(request: HttpRequest) -> bool:
     return user_agent["name"] == "ZulipInvalid"
 
 
+_public_server_settings_backend = load_native_contract(
+    "ZULIP_RUST_PUBLIC_SERVER_SETTINGS_RESPONSE", "PUBLIC_SERVER_SETTINGS_RESPONSE_API"
+)
+
+_PUBLIC_SERVER_CONTEXT_FIELDS = (
+    "email_auth_enabled",
+    "require_email_format_usernames",
+    "realm_url",
+    "realm_name",
+    "realm_icon",
+    "realm_description",
+    "realm_web_public_access_enabled",
+    "external_authentication_methods",
+)
+
+
+def _append_public_server_settings(
+    result: dict[str, Any], context: dict[str, Any]
+) -> dict[str, Any]:
+    native = getattr(_public_server_settings_backend, "append_prepared_server_settings", None)
+    if callable(native):
+        prepared = cast(
+            "dict[str, Any] | None", native(result, context, _PUBLIC_SERVER_CONTEXT_FIELDS)
+        )
+        if prepared is not None:
+            return prepared
+
+    for settings_item in _PUBLIC_SERVER_CONTEXT_FIELDS:
+        if context[settings_item] is not None:
+            result[settings_item] = context[settings_item]
+    # TODO/compatibility: Backwards-compatibility name for realm_url.
+    result["realm_uri"] = result["realm_url"]
+    return result
+
+
 @require_safe
 @csrf_exempt
 def api_get_server_settings(request: HttpRequest) -> HttpResponse:
@@ -1249,21 +1285,7 @@ def api_get_server_settings(request: HttpRequest) -> HttpResponse:
     # * If they do, that means the server URL has only one realm on it
     # * If they don't, the server has multiple realms, and it's not clear which is
     #   the requested realm, so we can't send back these data.
-    for settings_item in [
-        "email_auth_enabled",
-        "require_email_format_usernames",
-        "realm_url",
-        "realm_name",
-        "realm_icon",
-        "realm_description",
-        "realm_web_public_access_enabled",
-        "external_authentication_methods",
-    ]:
-        if context[settings_item] is not None:
-            result[settings_item] = context[settings_item]
-    # TODO/compatibility: Backwards-compatibility name for realm_url.
-    result["realm_uri"] = result["realm_url"]
-    return json_success(request, data=result)
+    return json_success(request, data=_append_public_server_settings(result, context))
 
 
 @typed_endpoint

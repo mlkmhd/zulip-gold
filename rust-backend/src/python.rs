@@ -415,6 +415,7 @@ mod _zulip_backend {
         module.add("VISIBLE_MESSAGE_WINDOW_API", 1)?;
         module.add("SETTINGS_CATALOGS_API", 1)?;
         module.add("SETTINGS_SNAPSHOT_API", 1)?;
+        module.add("PUBLIC_SERVER_SETTINGS_RESPONSE_API", 1)?;
         module.add("GROUP_ROSTER_REPLAY_API", 1)?;
         module.add("PREPARED_GROUP_MEMBERSHIP_API", 1)?;
         module.add("REGISTER_PROFILE_PRUNE_API", 1)?;
@@ -502,8 +503,8 @@ mod _zulip_backend {
 
     #[pymodule_export]
     use crate::python_settings_payload::{
-        format_settings_emoji_choices, format_settings_notification_sounds,
-        snapshot_settings_properties,
+        append_prepared_server_settings, format_settings_emoji_choices,
+        format_settings_notification_sounds, snapshot_settings_properties,
     };
 
     #[pymodule_export]

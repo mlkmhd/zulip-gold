@@ -96,3 +96,42 @@ mod tests {
         }
     }
 }
+
+#[pyfunction]
+pub(crate) fn append_prepared_server_settings<'py>(
+    result: &Bound<'py, PyAny>,
+    context: &Bound<'py, PyAny>,
+    fields: &Bound<'py, PyAny>,
+) -> PyResult<Option<Bound<'py, PyDict>>> {
+    let (Ok(result), Ok(context), Ok(fields)) = (
+        result.cast_exact::<PyDict>(),
+        context.cast_exact::<PyDict>(),
+        fields.cast_exact::<PyTuple>(),
+    ) else {
+        return Ok(None);
+    };
+    if ![result, context].into_iter().all(|values| {
+        values
+            .iter()
+            .all(|(key, _)| key.is_exact_instance_of::<PyString>())
+    }) {
+        return Ok(None);
+    }
+    let prepared = result.copy()?;
+    for field in fields.iter() {
+        if !field.is_exact_instance_of::<PyString>() {
+            return Ok(None);
+        }
+        let Some(value) = context.get_item(&field)? else {
+            return Ok(None);
+        };
+        if !value.is_none() {
+            prepared.set_item(&field, value)?;
+        }
+    }
+    let Some(realm_url) = prepared.get_item("realm_url")? else {
+        return Ok(None);
+    };
+    prepared.set_item("realm_uri", realm_url)?;
+    Ok(Some(prepared))
+}
