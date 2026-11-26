@@ -52,6 +52,10 @@ _rust_build_prepared_pr_event_body = getattr(
     _rust_git_commit_summary, "build_prepared_pr_event_body", None
 )
 
+_rust_render_prepared_issue_taxonomy = getattr(
+    _rust_git_commit_summary, "render_prepared_issue_taxonomy", None
+)
+
 TOPIC_WITH_BRANCH_TEMPLATE = "{repo} / {branch}"
 TOPIC_WITH_PR_OR_ISSUE_INFO_TEMPLATE = "{repo} / {type} #{id} {title}"
 TOPIC_WITH_RELEASE_TEMPLATE = "{repo} / {tag} {title}"
@@ -444,6 +448,13 @@ def get_issue_labeled_or_unlabeled_event_message(
     user_url: str,
     title: str | None = None,
 ) -> str:
+    if _rust_render_prepared_issue_taxonomy is not None:
+        return _rust_render_prepared_issue_taxonomy(
+            (user_name, action, url, number, label_name, user_url, title),
+            False,
+            ISSUE_LABELED_OR_UNLABELED_MESSAGE_TEMPLATE,
+            ISSUE_LABELED_OR_UNLABELED_MESSAGE_TEMPLATE_WITH_TITLE,
+        )
     args = {
         "user_name": user_name,
         "action": action,
@@ -469,6 +480,13 @@ def get_issue_milestoned_or_demilestoned_event_message(
     user_url: str,
     title: str | None = None,
 ) -> str:
+    if _rust_render_prepared_issue_taxonomy is not None:
+        return _rust_render_prepared_issue_taxonomy(
+            (user_name, action, url, number, milestone_name, user_url, title, milestone_url),
+            True,
+            ISSUE_MILESTONED_OR_DEMILESTONED_MESSAGE_TEMPLATE,
+            ISSUE_MILESTONED_OR_DEMILESTONED_MESSAGE_TEMPLATE_WITH_TITLE,
+        )
     args = {
         "user_name": user_name,
         "action": action,

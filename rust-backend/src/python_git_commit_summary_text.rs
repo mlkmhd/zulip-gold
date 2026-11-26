@@ -248,3 +248,33 @@ pub(crate) fn build_prepared_pr_event_body<'py>(
     }
     body.call_method0("rstrip")
 }
+
+#[pyfunction]
+pub(crate) fn render_prepared_issue_taxonomy<'py>(
+    input: &Bound<'py, PyTuple>,
+    milestone: bool,
+    plain: &Bound<'py, PyAny>,
+    titled: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let fields = PyDict::new(input.py());
+    let action = input.get_item(1)?;
+    let title = input.get_item(6)?;
+    fields.set_item("user_name", input.get_item(0)?)?;
+    fields.set_item("action", &action)?;
+    fields.set_item("url", input.get_item(2)?)?;
+    fields.set_item("id", input.get_item(3)?)?;
+    if milestone {
+        fields.set_item("milestone_name", input.get_item(4)?)?;
+        fields.set_item("milestone_url", input.get_item(7)?)?;
+    } else {
+        fields.set_item("label_name", input.get_item(4)?)?;
+    }
+    fields.set_item("user_url", input.get_item(5)?)?;
+    fields.set_item("title", &title)?;
+    fields.set_item(
+        "preposition",
+        if action.eq("added")? { "to" } else { "from" },
+    )?;
+    let template = if title.is_none() { plain } else { titled };
+    template.call_method("format", (), Some(&fields))
+}
