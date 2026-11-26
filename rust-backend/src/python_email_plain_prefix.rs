@@ -3,7 +3,7 @@
 use std::sync::LazyLock;
 
 use pyo3::prelude::*;
-use pyo3::types::PyString;
+use pyo3::types::{PyList, PyString};
 use regex::{Captures, Regex};
 
 use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes};
@@ -127,4 +127,34 @@ pub(crate) fn redact_prepared_email_plaintext_spoilers<'py>(
         }
     }
     Ok(python_string_from_bytes(py, &rendered))
+}
+
+#[pyfunction]
+pub(crate) fn group_prepared_email_sender_blocks(
+    messages: &Bound<'_, PyAny>,
+    blocks: &Bound<'_, PyList>,
+    sender_of: &Bound<'_, PyAny>,
+    build_message: &Bound<'_, PyAny>,
+    build_sender_block: &Bound<'_, PyAny>,
+) -> PyResult<()> {
+    for message in messages.try_iter()? {
+        let message = message?;
+        let sender = sender_of.call1((&message,))?;
+        if blocks
+            .as_any()
+            .get_item(-1)?
+            .getattr("sender")?
+            .eq(sender)?
+        {
+            let append = blocks
+                .as_any()
+                .get_item(-1)?
+                .getattr("content")?
+                .getattr("append")?;
+            append.call1((build_message.call1((&message,))?,))?;
+        } else {
+            blocks.append(build_sender_block.call1((&message,))?)?;
+        }
+    }
+    Ok(())
 }

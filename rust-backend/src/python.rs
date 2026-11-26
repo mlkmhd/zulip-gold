@@ -326,6 +326,7 @@ mod _zulip_backend {
         module.add("DISPLAY_MENTION_API", 1)?;
         module.add("EMAIL_PLAIN_PREFIX_API", 1)?;
         module.add("EMAIL_PLAIN_SPOILER_API", 1)?;
+        module.add("EMAIL_SENDER_BLOCKS_API", 1)?;
         module.add("EMAIL_PLAINTEXT_URLS_API", 1)?;
         module.add("ONBOARDING_TEXT_API", 1)?;
         module.add("LOCALE_CATALOG_API", 1)?;
@@ -609,8 +610,9 @@ mod _zulip_backend {
 
     #[pymodule_export]
     use crate::python_email_plain_prefix::{
-        format_prepared_email_plaintext_urls, prepend_prepared_email_plaintext_sender,
-        quote_prepared_email_plaintext, redact_prepared_email_plaintext_spoilers,
+        format_prepared_email_plaintext_urls, group_prepared_email_sender_blocks,
+        prepend_prepared_email_plaintext_sender, quote_prepared_email_plaintext,
+        redact_prepared_email_plaintext_spoilers,
     };
 
     #[pymodule_export]

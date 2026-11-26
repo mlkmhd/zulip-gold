@@ -122,6 +122,32 @@ class EmailPlainPrefixDjangoDispatchRustTest(SimpleTestCase):
             self.reader, [self.fixture_message(self.sender, plain, "<p>synthetic body</p>")]
         )
 
+    def test_native_sender_blocks_only_collapse_adjacent_sorted_messages(self) -> None:
+        backend = email_notifications._rust_email_sender_blocks
+        if backend is None:
+            self.skipTest("No prepared Rust email sender blocks ABI")
+        kind = ("first", "follow-up", "other", "later")
+        order = [self.sender, self.sender, self.other_sender, self.sender]
+        messages = [
+            self.fixture_message(sender, body, f"<p>{body}</p>", minute)
+            for minute, (sender, body) in enumerate(zip(order, kind, strict=True))
+        ]
+        with patch.object(email_notifications, "_rust_email_sender_blocks", None):
+            expected = build_message_list(self.reader, messages[::-1])
+        with patch.object(
+            backend,
+            "group_prepared_email_sender_blocks",
+            wraps=backend.group_prepared_email_sender_blocks,
+        ) as group:
+            actual = build_message_list(self.reader, messages[::-1])
+        group.assert_called_once()
+        self.assertEqual(actual, expected)
+        self.assertEqual([len(block.content) for block in actual.senders], [2, 1, 1])
+        self.assertEqual(
+            [block.sender for block in actual.senders],
+            [self.sender.full_name, self.other_sender.full_name, self.sender.full_name],
+        )
+
     def test_real_builder_only_passes_processed_plaintext_and_keeps_html(self) -> None:
         native = extension()
         enabled = environ.get("ZULIP_RUST_EMAIL_PLAIN_PREFIX") == "1" or (

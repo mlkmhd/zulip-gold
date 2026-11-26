@@ -80,6 +80,10 @@ _rust_email_plain_spoilers = load_native_contract(
 )
 _original_email_fence = FENCE_RE
 
+_rust_email_sender_blocks = load_native_contract(
+    "ZULIP_RUST_EMAIL_SENDER_BLOCKS", "EMAIL_SENDER_BLOCKS_API"
+)
+
 
 def relative_to_full_url(fragment: lxml.html.HtmlElement, base_url: str) -> None:
     # We handle narrow URLs separately because of two reasons:
@@ -417,6 +421,13 @@ def build_message_list(
     if stream_id_map:
         # Needed only for digest emails
         messages_to_render.header = digest_block_header(messages[0])
+
+    group = getattr(_rust_email_sender_blocks, "group_prepared_email_sender_blocks", None)
+    if callable(group):
+        group(
+            messages[1:], sender_block, sender_string, build_message_payload, build_sender_payload
+        )
+        return messages_to_render
 
     for message in messages[1:]:
         sender = sender_string(message)
