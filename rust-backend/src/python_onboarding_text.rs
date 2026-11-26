@@ -132,3 +132,24 @@ pub(crate) fn select_prepared_organization_guide<'py>(
     }
     Ok(None)
 }
+
+#[pyfunction]
+pub(crate) fn select_prepared_welcome_sender<'py>(
+    settings: &Bound<'py, PyAny>,
+    addresses: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyTuple>> {
+    let py = settings.py();
+    let fields = if settings.getattr("WELCOME_EMAIL_SENDER")?.is_none() {
+        [
+            py.None().into_bound(py),
+            addresses.getattr("support_placeholder")?,
+        ]
+    } else {
+        let name = settings.getattr("WELCOME_EMAIL_SENDER")?.get_item("name")?;
+        let address = settings
+            .getattr("WELCOME_EMAIL_SENDER")?
+            .get_item("email")?;
+        [name, address]
+    };
+    PyTuple::new(py, fields)
+}

@@ -936,7 +936,13 @@ def get_org_type_zulip_guide(realm: Realm) -> tuple[Any, str]:
     return (None, "")
 
 
+_rust_welcome_sender = load_native_contract("ZULIP_RUST_WELCOME_SENDER", "WELCOME_SENDER_API")
+
+
 def welcome_sender_information() -> tuple[str | None, str]:
+    native = getattr(_rust_welcome_sender, "select_prepared_welcome_sender", None)
+    if callable(native):
+        return native(settings, FromAddress)
     if settings.WELCOME_EMAIL_SENDER is not None:
         from_name = settings.WELCOME_EMAIL_SENDER["name"]
         from_address = settings.WELCOME_EMAIL_SENDER["email"]
