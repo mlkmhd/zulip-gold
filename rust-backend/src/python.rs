@@ -406,6 +406,7 @@ mod _zulip_backend {
         module.add("MOBILE_DIRECT_RECIPIENTS_API", 1)?;
         module.add("MOBILE_CHANNEL_RECIPIENT_API", 1)?;
         module.add("APNS_ALERT_TITLE_API", 1)?;
+        module.add("APNS_ALERT_SUBTITLE_API", 1)?;
         module.add("MOBILE_QUOTE_COLLAPSE_API", 1)?;
         module.add("MOBILE_PLAIN_PREVIEW_TREE_API", 1)?;
         module.add("MOBILE_ORDERED_LIST_API", 1)?;
@@ -840,7 +841,8 @@ mod _zulip_backend {
         format_mobile_channel_recipient, format_mobile_direct_recipient_ids,
         format_mobile_message_identity, format_mobile_ordered_list, format_mobile_remove_fields,
         format_mobile_spoiler_header, format_prepared_android_message, plan_mobile_quote_collapse,
-        quote_mobile_push_text, render_plain_mobile_preview_tree, truncate_mobile_push_text,
+        quote_mobile_push_text, render_plain_mobile_preview_tree, render_prepared_apns_subtitle,
+        truncate_mobile_push_text,
     };
 
     #[pymodule_export]

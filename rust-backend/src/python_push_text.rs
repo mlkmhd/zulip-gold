@@ -386,3 +386,38 @@ pub(crate) fn format_apns_channel_title<'py>(
     title.extend_from_slice(&topic_text);
     python_string_from_bytes(channel.py(), &title)
 }
+
+#[pyfunction]
+pub(crate) fn render_prepared_apns_subtitle<'py>(
+    sender_name: &Bound<'py, PyAny>,
+    trigger: &Bound<'py, PyAny>,
+    group_name: &Bound<'py, PyAny>,
+    trigger_names: &Bound<'py, PyTuple>,
+    is_small_group: &Bound<'py, PyAny>,
+    render_mention: &Bound<'py, PyAny>,
+) -> PyResult<Option<Bound<'py, PyAny>>> {
+    let (Ok(sender_name), Ok(trigger)) = (
+        sender_name.cast_exact::<PyString>(),
+        trigger.cast_exact::<PyString>(),
+    ) else {
+        return Ok(None);
+    };
+    if trigger.as_any().eq(trigger_names.get_item(0)?)? {
+        let kind = if group_name.is_none() { "you" } else { "group" };
+        return Ok(Some(render_mention.call1((kind,))?));
+    }
+    if trigger_names.get_item(1)?.contains(trigger)? {
+        return Ok(Some(render_mention.call1(("all",))?));
+    }
+    if is_small_group.call0()?.is_truthy()? {
+        return Ok(Some(PyString::new(sender_name.py(), "").into_any()));
+    }
+
+    // No decline after the recipient callback: even allocation errors from
+    // concatenation must propagate without loading recipients twice.
+    Ok(Some(
+        sender_name
+            .as_any()
+            .add(PyString::new(sender_name.py(), ":"))?,
+    ))
+}

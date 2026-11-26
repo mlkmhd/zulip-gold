@@ -122,6 +122,28 @@ def format_apns_channel_title(channel: str, topic: str) -> str | None:
     return cast("str | None", native(channel, topic)) if callable(native) else None
 
 
+_apns_alert_subtitle_backend = load_native_contract(
+    "ZULIP_RUST_APNS_ALERT_SUBTITLE", "APNS_ALERT_SUBTITLE_API"
+)
+
+
+def render_apns_subtitle(
+    sender_name: str,
+    trigger: str,
+    group_name: str | None,
+    trigger_names: tuple[str, tuple[str, ...]],
+    is_small_group: Callable[[], bool],
+    render_mention: Callable[[str], str],
+) -> str | None:
+    native = getattr(_apns_alert_subtitle_backend, "render_prepared_apns_subtitle", None)
+    if not callable(native):
+        return None
+    return cast(
+        "str | None",
+        native(sender_name, trigger, group_name, trigger_names, is_small_group, render_mention),
+    )
+
+
 MobileBaseFormatter = Callable[[tuple[str, int, str] | None, str, str, int], dict[str, object]]
 
 

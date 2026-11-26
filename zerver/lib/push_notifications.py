@@ -1214,24 +1214,46 @@ def get_apns_alert_subtitle(
         # access to the user if they where previously inaccessible.
         sender_name = str(UserProfile.INACCESSIBLE_USER_NAME)
 
-    if trigger == NotificationTriggers.MENTION:
-        if mentioned_user_group_name is not None:
-            return _("{full_name} mentioned @{user_group_name}:").format(
-                full_name=sender_name, user_group_name=mentioned_user_group_name
-            )
-        else:
-            return _("{full_name} mentioned you:").format(full_name=sender_name)
-    elif trigger in (
+    wildcard_triggers = (
         NotificationTriggers.TOPIC_WILDCARD_MENTION_IN_FOLLOWED_TOPIC,
         NotificationTriggers.STREAM_WILDCARD_MENTION_IN_FOLLOWED_TOPIC,
         NotificationTriggers.TOPIC_WILDCARD_MENTION,
         NotificationTriggers.STREAM_WILDCARD_MENTION,
-    ):
+    )
+
+    def render_mention(kind: str) -> str:
+        if kind == "group":
+            assert mentioned_user_group_name is not None
+            return _("{full_name} mentioned @{user_group_name}:").format(
+                full_name=sender_name, user_group_name=mentioned_user_group_name
+            )
+        if kind == "you":
+            return _("{full_name} mentioned you:").format(full_name=sender_name)
         return _("{full_name} mentioned everyone:").format(full_name=sender_name)
-    elif message.recipient.type == Recipient.DIRECT_MESSAGE_GROUP:
-        recipients = get_display_recipient(message.recipient)
-        if len(recipients) <= 2:
-            return ""
+
+    def is_small_direct_group() -> bool:
+        if message.recipient.type == Recipient.DIRECT_MESSAGE_GROUP:
+            recipients = get_display_recipient(message.recipient)
+            return len(recipients) <= 2
+        return False
+
+    prepared = native_push_text.render_apns_subtitle(
+        sender_name,
+        trigger,
+        mentioned_user_group_name,
+        (NotificationTriggers.MENTION, wildcard_triggers),
+        is_small_direct_group,
+        render_mention,
+    )
+    if prepared is not None:
+        return prepared
+
+    if trigger == NotificationTriggers.MENTION:
+        return render_mention("you" if mentioned_user_group_name is None else "group")
+    if trigger in wildcard_triggers:
+        return render_mention("all")
+    if is_small_direct_group():
+        return ""
     # For group direct messages, or regular messages to a stream,
     # just use a colon to indicate this is the sender.
     return sender_name + ":"
