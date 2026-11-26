@@ -1408,6 +1408,40 @@ class EventQueueTest(ZulipTestCase):
                 [dict(flag, id=1, messages=[1, 2], timestamp=4)],
             )
 
+    def test_default_rust_fold_preserves_alias_and_timestamp(self) -> None:
+        backend = native_event_queue._fold_backend
+        if backend is None:
+            self.skipTest("No prepared event fold ABI")
+        self.assertIsNone(native_event_queue._backend)
+        event = {
+            "type": "update_message_flags",
+            "all": False,
+            "flag": "read",
+            "operation": "add",
+            "messages": [1],
+            "timestamp": 7,
+        }
+
+        queue = self.get_client_descriptor().event_queue
+        queue.push(event)
+        previous = queue.virtual_events["flags/add/read"]
+        ids = previous["messages"]
+        next_event = {key: value for key, value in event.items() if key != "timestamp"}
+        with mock.patch.object(
+            backend, "fold_queued_flag_event", wraps=backend.fold_queued_flag_event
+        ) as witness:
+            queue.push(dict(next_event, messages=[2, 1]))
+            witness.assert_called_once()
+        self.assertIs(previous, queue.virtual_events["flags/add/read"])
+        self.assertIs(previous["messages"], ids)
+        self.assertEqual(previous["messages"], [1, 2, 1])
+        self.assertEqual((previous["id"], previous["timestamp"]), (1, 7))
+        self.assertEqual(event["messages"], [1])
+
+        before = dict(previous)
+        self.assertFalse(native_event_queue.fold_flag_event(previous, {"id": 2, "messages": (4,)}))
+        self.assertEqual(previous, before)
+
     def test_event_collapsing(self) -> None:
         client = self.get_client_descriptor()
         queue = client.event_queue

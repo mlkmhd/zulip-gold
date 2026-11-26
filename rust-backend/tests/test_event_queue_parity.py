@@ -27,6 +27,7 @@ def load_bridge(*, enabled: bool) -> ModuleType:
         {
             "ZULIP_RUST_EVENT_QUEUE": str(int(enabled)),
             "ZULIP_RUST_PREPARED_EVENT_CLASSIFICATION": "0",
+            "ZULIP_RUST_PREPARED_EVENT_FOLD": "0",
         },
     ):
         spec.loader.exec_module(module)

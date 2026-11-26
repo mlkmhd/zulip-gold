@@ -16,6 +16,12 @@ _classification_backend = (
     )
 )
 
+_fold_backend = (
+    None
+    if _legacy_requested or os.environ.get("ZULIP_RUST_PREPARED_EVENT_FOLD") == "0"
+    else load_native_contract("ZULIP_RUST_PREPARED_EVENT_FOLD", "PREPARED_EVENT_FOLD_API")
+)
+
 try:
     _backend = import_module("_zulip_backend") if _legacy_requested else None
 except ModuleNotFoundError as error:
@@ -33,7 +39,8 @@ def classify(event: object) -> str | None:
 
 
 def fold_flag_event(previous: object, current: object) -> bool:
-    native = getattr(_backend, "fold_queued_flag_event", None)
+    backend = _backend if _legacy_requested else _fold_backend
+    native = getattr(backend, "fold_queued_flag_event", None)
     return native is not None and cast(bool, native(previous, current))
 
 

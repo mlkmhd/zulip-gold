@@ -302,6 +302,7 @@ mod _zulip_backend {
         module.add("USER_STATUS_READ_API", 1)?;
         module.add("PREPARED_USER_STATUS_PERSISTENCE_API", 1)?;
         module.add("PREPARED_EVENT_CLASSIFICATION_API", 1)?;
+        module.add("PREPARED_EVENT_FOLD_API", 1)?;
         module.add("PREPARED_MATTERMOST_NAME_API", 1)?;
         module.add("PREPARED_DURATION_TEXT_API", 1)?;
         module.add("USER_STATUS_REPLAY_API", 1)?;
