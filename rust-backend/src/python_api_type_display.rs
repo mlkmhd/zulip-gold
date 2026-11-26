@@ -517,3 +517,69 @@ pub(crate) fn render_prepared_api_property_row<'py>(
         .get_item(2)?
         .call_method("format", (), Some(&kwargs))
 }
+
+/// Drive the prepared API reference event sections; this does not read or deliver events.
+#[pyfunction]
+pub(crate) fn render_prepared_api_event_sections<'py>(
+    schema: &Bound<'py, PyAny>,
+    renderer: &Bound<'py, PyAny>,
+    event_data: &Bound<'py, PyAny>,
+    serialize_example: &Bound<'py, PyAny>,
+    ordered_dict: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let py = schema.py();
+    let lines = PyList::empty(py);
+    let by_type = PyDict::new(py);
+    for event in schema.get_item("oneOf")?.try_iter()? {
+        let event = event?;
+        // The normal documentation caller has privately deep-copied the schema.
+        let op = event
+            .get_item("properties")?
+            .call_method1("pop", ("op", py.None()))?;
+        // Reading the op enum comes before any other schema fields.
+        let op_type = if op.is_none() {
+            py.None().into_bound(py)
+        } else {
+            op.get_item("enum")?.get_item(0)?
+        };
+        let kind = event
+            .get_item("properties")?
+            .get_item("type")?
+            .get_item("enum")?
+            .get_item(0)?;
+        let description = event.get_item("description")?;
+        let properties = event.get_item("properties")?;
+        let serialize_options = PyDict::new(py);
+        serialize_options.set_item("indent", 4)?;
+        serialize_options.set_item("sort_keys", true)?;
+        let example =
+            serialize_example.call((event.get_item("example")?,), Some(&serialize_options))?;
+        let kwargs = PyDict::new(py);
+        kwargs.set_item("type", kind)?;
+        kwargs.set_item("description", description)?;
+        kwargs.set_item("properties", properties)?;
+        kwargs.set_item("example", example)?;
+        kwargs.set_item("op_type", op_type)?;
+        let data = event_data.call((), Some(&kwargs))?;
+        lines.call_method1(
+            "extend",
+            (renderer.call_method1("generate_event_strings", (&data,))?,),
+        )?;
+
+        let op_type = data.getattr("op_type")?;
+        let kind = data.getattr("type")?;
+        if op_type.is_none() {
+            by_type.set_item(kind, PyList::empty(py))?;
+        } else if let Some(ops) = by_type.get_item(&kind)? {
+            ops.call_method1("append", (op_type,))?;
+        } else {
+            by_type.set_item(kind, PyList::new(py, [op_type])?)?;
+        }
+    }
+    let ordered = py
+        .import("builtins")?
+        .call_method1("sorted", (by_type.items(),))?;
+    let index =
+        renderer.call_method1("generate_events_table", (ordered_dict.call1((ordered,))?,))?;
+    index.add(lines)
+}

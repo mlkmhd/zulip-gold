@@ -41,6 +41,9 @@ except ImportError:
 _rust_expand_prepared_api_return_macros = getattr(
     _rust_api_doc_type_tree, "expand_prepared_api_doc_macros", None
 )
+_rust_render_prepared_api_event_sections = getattr(
+    _rust_api_doc_type_tree, "render_prepared_api_event_sections", None
+)
 
 REGEXP = re.compile(r"\{generate_return_values_table\|\s*(.+?)\s*\|\s*(.+)\s*\}")
 
@@ -337,6 +340,10 @@ class APIReturnValuesTablePreprocessor(Preprocessor):
         return [EVENTS_TABLE_TEMPLATE.format(events_list="\n".join(event_links))]
 
     def render_events(self, events_dict: dict[str, Any]) -> list[str]:
+        if _rust_render_prepared_api_event_sections is not None and type(events_dict) is dict:
+            return _rust_render_prepared_api_event_sections(
+                events_dict, self, EventData, json.dumps, OrderedDict
+            )
         events: list[str] = []
         events_for_table: OrderedDict[str, list[str]] = OrderedDict()
         for event in events_dict["oneOf"]:
