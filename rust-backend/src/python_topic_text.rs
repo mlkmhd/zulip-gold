@@ -1,7 +1,9 @@
 //! Pure format operations on already selected topic names.
 
 use pyo3::prelude::*;
-use pyo3::types::{PyInt, PyString};
+use pyo3::types::{PyBool, PyInt, PyString};
+
+use crate::python_text_bytes::python_string_bytes;
 
 const TOPIC_SUFFIX: &str = "...";
 const RESOLUTION_PREFIX: &str = "✔ ";
@@ -47,5 +49,40 @@ pub(crate) fn split_resolved_topic_title<'py>(
     match value.strip_prefix(RESOLUTION_PREFIX) {
         Some(bare) => Some((true, PyString::new(topic.py(), bare))),
         None => Some((false, topic.clone())),
+    }
+}
+
+#[pyfunction]
+pub(crate) fn normalize_empty_topic_alias<'py>(
+    topic: &Bound<'py, PyAny>,
+    alias: &Bound<'py, PyAny>,
+) -> Option<Bound<'py, PyString>> {
+    let topic = topic.cast_exact::<PyString>().ok()?;
+    let alias = alias.cast_exact::<PyString>().ok()?;
+    if python_string_bytes(topic)? == python_string_bytes(alias)? {
+        Some(PyString::new(topic.py(), ""))
+    } else {
+        Some(topic.clone())
+    }
+}
+
+#[pyfunction]
+pub(crate) fn format_legacy_empty_topic<'py>(
+    topic: &Bound<'py, PyAny>,
+    is_channel_message: &Bound<'py, PyAny>,
+    allow_empty_topic_name: &Bound<'py, PyAny>,
+    fallback: &Bound<'py, PyAny>,
+) -> Option<Bound<'py, PyString>> {
+    let topic = topic.cast_exact::<PyString>().ok()?;
+    let fallback = fallback.cast_exact::<PyString>().ok()?;
+    let is_channel_message = is_channel_message.cast_exact::<PyBool>().ok()?.is_true();
+    let allow_empty_topic_name = allow_empty_topic_name
+        .cast_exact::<PyBool>()
+        .ok()?
+        .is_true();
+    if is_channel_message && python_string_bytes(topic)?.is_empty() && !allow_empty_topic_name {
+        Some(fallback.clone())
+    } else {
+        Some(topic.clone())
     }
 }

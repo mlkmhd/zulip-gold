@@ -441,6 +441,7 @@ mod _zulip_backend {
         module.add("TOPIC_LINK_LABEL_ESCAPE_API", 1)?;
         module.add("REMINDER_RECIPIENT_LABELS_API", 1)?;
         module.add("DRAFT_TOPIC_TEXT_API", 1)?;
+        module.add("EMPTY_TOPIC_COMPAT_API", 1)?;
         module.add("DRAFT_BODY_TEXT_API", 1)?;
         module.add("DRAFT_TIMESTAMP_API", 1)?;
         module.add("PREPARED_DJANGO_DRAFT_INPUT_API", 1)?;
@@ -630,7 +631,10 @@ mod _zulip_backend {
     };
 
     #[pymodule_export]
-    use crate::python_topic_text::{split_resolved_topic_title, truncate_topic_title};
+    use crate::python_topic_text::{
+        format_legacy_empty_topic, normalize_empty_topic_alias, split_resolved_topic_title,
+        truncate_topic_title,
+    };
 
     #[pymodule_export]
     use crate::python_compose_quote::{

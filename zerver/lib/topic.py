@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from datetime import datetime
 from importlib import import_module
-from typing import Any
+from typing import Any, cast
 
 import orjson
 from django.db import connection
@@ -22,6 +22,7 @@ from django.utils.translation import gettext as _
 from django.utils.translation import override as override_language
 
 from zerver.lib import native_topic_text
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.native_topic_history import TopicHistoryEntry, format_visible_rows
 from zerver.lib.types import EditHistoryEvent, StreamMessageEditRequest
 from zerver.lib.utils import assert_is_not_none
@@ -415,21 +416,44 @@ def participants_for_topic(realm_id: int, recipient_id: int, topic_name: str) ->
     return participants
 
 
+_rust_empty_topic_compat = load_native_contract(
+    "ZULIP_RUST_EMPTY_TOPIC_COMPAT", "EMPTY_TOPIC_COMPAT_API"
+)
+
+
+def _normalize_empty_topic_alias(topic_name: str, alias: str) -> str:
+    normalize = getattr(_rust_empty_topic_compat, "normalize_empty_topic_alias", None)
+    if callable(normalize):
+        normalized = cast("str | None", normalize(topic_name, alias))
+        if normalized is not None:
+            return normalized
+    return "" if topic_name == alias else topic_name
+
+
 def maybe_rename_general_chat_to_empty_topic(topic_name: str) -> str:
-    if topic_name == Message.EMPTY_TOPIC_FALLBACK_NAME:
-        topic_name = ""
-    return topic_name
+    return _normalize_empty_topic_alias(topic_name, Message.EMPTY_TOPIC_FALLBACK_NAME)
 
 
 def maybe_rename_no_topic_to_empty_topic(topic_name: str) -> str:
-    if topic_name == "(no topic)":
-        topic_name = ""
-    return topic_name
+    return _normalize_empty_topic_alias(topic_name, "(no topic)")
 
 
 def maybe_rename_empty_topic_to_general_chat(
     topic_name: str, is_channel_message: bool, allow_empty_topic_name: bool
 ) -> str:
+    format_legacy = getattr(_rust_empty_topic_compat, "format_legacy_empty_topic", None)
+    if callable(format_legacy):
+        result = cast(
+            "str | None",
+            format_legacy(
+                topic_name,
+                is_channel_message,
+                allow_empty_topic_name,
+                Message.EMPTY_TOPIC_FALLBACK_NAME,
+            ),
+        )
+        if result is not None:
+            return result
     if is_channel_message and topic_name == "" and not allow_empty_topic_name:
         return Message.EMPTY_TOPIC_FALLBACK_NAME
     return topic_name
