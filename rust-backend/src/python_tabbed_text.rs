@@ -67,3 +67,32 @@ pub(crate) fn parse_prepared_tab_markers<'py>(
     }
     Some(result)
 }
+
+#[pyfunction]
+pub(crate) fn build_prepared_tab_nav<'py>(
+    section: &Bound<'py, PyAny>,
+    labels: &Bound<'py, PyAny>,
+    list_item_template: &Bound<'py, PyAny>,
+    nav_template: &Bound<'py, PyAny>,
+    unknown_label: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let py = section.py();
+    let items = PyList::empty(py);
+    for (index, row) in section.get_item("tabs")?.try_iter()?.enumerate() {
+        let key = row?.call_method1("get", ("tab_key",))?;
+        let label = labels.call_method1("get", (&key,))?;
+        if label.is_none() {
+            return unknown_label.call1((key,));
+        }
+
+        let kw = PyDict::new(py);
+        kw.set_item("class_", if index == 0 { "active" } else { "" })?;
+        kw.set_item("data_tab_key", key)?;
+        kw.set_item("label", label)?;
+        items.append(list_item_template.call_method("format", (), Some(&kw))?)?;
+    }
+    let joined = PyString::new(py, "\n").call_method1("join", (items,))?;
+    let kw = PyDict::new(py);
+    kw.set_item("tabs", joined)?;
+    nav_template.call_method("format", (), Some(&kw))
+}

@@ -1,6 +1,6 @@
 import re
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Never
 
 import markdown
 from markdown.extensions import Extension
@@ -20,6 +20,7 @@ _rust_normalize_prepared_tabbed_lines = getattr(
 )
 _rust_join_prepared_tabbed_blocks = getattr(_rust_tabbed_text, "join_prepared_tabbed_blocks", None)
 _rust_parse_prepared_tab_markers = getattr(_rust_tabbed_text, "parse_prepared_tab_markers", None)
+_rust_build_prepared_tab_nav = getattr(_rust_tabbed_text, "build_prepared_tab_nav", None)
 
 START_TABBED_SECTION_REGEX = re.compile(r"^\{start_tabs\}$")
 END_TABBED_SECTION_REGEX = re.compile(r"^\{end_tabs\}$")
@@ -70,6 +71,12 @@ TAB_SECTION_LABELS = {
     "send-channel-message": "Send a channel message",
     "send-dm": "Send a DM",
 }
+
+
+def _raise_unknown_nav_tab(tab_key: object) -> Never:
+    raise ValueError(
+        f"Tab '{tab_key}' is not present in TAB_SECTION_LABELS in zerver/lib/markdown/tabbed_sections.py"
+    )
 
 
 class TabbedSectionsGenerator(Extension):
@@ -187,14 +194,21 @@ class TabbedSectionsPreprocessor(Preprocessor):
         return lines
 
     def generate_nav_bar(self, tab_section: dict[str, Any]) -> str:
+        if _rust_build_prepared_tab_nav is not None:
+            return _rust_build_prepared_tab_nav(
+                tab_section,
+                TAB_SECTION_LABELS,
+                NAV_LIST_ITEM_TEMPLATE,
+                NAV_BAR_TEMPLATE,
+                _raise_unknown_nav_tab,
+            )
+
         li_elements = []
         for index, tab in enumerate(tab_section["tabs"]):
             tab_key = tab.get("tab_key")
             tab_label = TAB_SECTION_LABELS.get(tab_key)
             if tab_label is None:
-                raise ValueError(
-                    f"Tab '{tab_key}' is not present in TAB_SECTION_LABELS in zerver/lib/markdown/tabbed_sections.py"
-                )
+                _raise_unknown_nav_tab(tab_key)
             class_ = "active" if index == 0 else ""
 
             li = NAV_LIST_ITEM_TEMPLATE.format(class_=class_, data_tab_key=tab_key, label=tab_label)
