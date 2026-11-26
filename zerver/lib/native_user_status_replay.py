@@ -1,18 +1,12 @@
-"""Optional replay of the status row that Django has already selected."""
+"""Replay the status row that Django has already selected."""
 
-from importlib import import_module
 from os import environ
 
-try:
-    _backend = (
-        import_module("_zulip_backend")
-        if environ.get("ZULIP_RUST_USER_STATUS_REPLAY") == "1"
-        else None
-    )
-except ModuleNotFoundError as error:
-    if error.name != "_zulip_backend":
-        raise
-    _backend = None
+from zerver.lib.native_backend import load_native_contract
+
+_FLAG = "ZULIP_RUST_USER_STATUS_REPLAY"
+_explicit_replay = environ.get(_FLAG) == "1"
+_backend = load_native_contract(_FLAG, "USER_STATUS_REPLAY_API")
 
 _MISSING = object()
 
@@ -27,6 +21,9 @@ def apply(statuses: object, user_id: str, event: object) -> bool:
         or type(user_id) is not str
         or type(event) is not dict
     ):
+        return False
+    # Custom dictionary keys can observe reference-path lookup and insertion.
+    if not _explicit_replay and any(type(key) is not str for key in statuses):
         return False
     row = statuses.get(user_id, _MISSING)
     is_new = row is _MISSING

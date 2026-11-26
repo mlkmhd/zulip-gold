@@ -156,7 +156,7 @@ class UserStatusBatchRustTest(ZulipTestCase):
         native = getattr(backend, "apply_user_status_row_event", None)
         if not callable(native):
             self.skipTest("Rust extension does not support status replay")
-        enabled = environ.get("ZULIP_RUST_USER_STATUS_REPLAY") == "1"
+        enabled = native_user_status_replay._backend is backend
 
         owner = self.example_user("hamlet")
         peer = self.example_user("cordelia")
@@ -264,6 +264,22 @@ class UserStatusBatchRustTest(ZulipTestCase):
                         with patch.object(native_user_status_replay, "_backend", candidate):
                             self.assertEqual(request(session), expected)
                     self.assertEqual(decline.call_count, len(events))
+
+    def test_default_status_replay_does_not_access_foreign_outer_keys(self) -> None:
+        class ForeignKey(str):
+            __slots__ = ()
+
+        native = Mock()
+        backend = SimpleNamespace(apply_user_status_row_event=native)
+        row: dict[str, object] = {"away": True}
+        statuses = {ForeignKey("7"): row}
+        with (
+            patch.object(native_user_status_replay, "_backend", backend),
+            patch.object(native_user_status_replay, "_explicit_replay", False),
+        ):
+            self.assertFalse(native_user_status_replay.apply(statuses, "7", {"away": False}))
+        native.assert_not_called()
+        self.assertEqual(row, {"away": True})
 
     def test_adapter_declines_foreign_rows_and_container_aliases(self) -> None:
         backend = extension()
