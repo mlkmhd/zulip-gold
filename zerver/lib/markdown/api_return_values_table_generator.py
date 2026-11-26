@@ -28,6 +28,17 @@ _rust_indent_prepared_api_return_description = getattr(
     _rust_api_return_indent, "indent_prepared_api_return_description", None
 )
 
+try:
+    _rust_api_doc_type_tree = load_native_contract(
+        "ZULIP_RUST_API_DOC_TYPE_TREE", "API_DOC_TYPE_TREE_API"
+    )
+except ImportError:
+    _rust_api_doc_type_tree = None
+
+_rust_expand_prepared_api_return_macros = getattr(
+    _rust_api_doc_type_tree, "expand_prepared_api_doc_macros", None
+)
+
 REGEXP = re.compile(r"\{generate_return_values_table\|\s*(.+?)\s*\|\s*(.+)\s*\}")
 
 EVENT_HEADER_TEMPLATE = """
@@ -84,6 +95,9 @@ class APIReturnValuesTablePreprocessor(Preprocessor):
 
     @override
     def run(self, lines: list[str]) -> list[str]:
+        if _rust_expand_prepared_api_return_macros is not None and type(lines) is list:
+            return _rust_expand_prepared_api_return_macros(lines, REGEXP, self)
+
         done = False
         while not done:
             for line in lines:
@@ -94,19 +108,7 @@ class APIReturnValuesTablePreprocessor(Preprocessor):
                     continue
 
                 doc_name = match.group(2)
-                endpoint, method = doc_name.rsplit(":", 1)
-                return_values = get_openapi_return_values(endpoint, method)
-                if doc_name == "/events:get":
-                    return_values = copy.deepcopy(return_values)
-                    events = return_values["events"].pop("items", None)
-                    text = self.render_table(return_values, 0)
-                    # Another heading for the events documentation
-                    text.append("\n\n## Events by `type`\n\n")
-                    text += self.render_events(events)
-                else:
-                    text = self.render_table(return_values, 0)
-                if len(text) > 0:
-                    text = ["#### Return values", *text]
+                text = self._render_macro_document(doc_name)
                 line_split = REGEXP.split(line, maxsplit=0)
                 preceding = line_split[0]
                 following = line_split[-1]
@@ -116,6 +118,22 @@ class APIReturnValuesTablePreprocessor(Preprocessor):
             else:
                 done = True
         return lines
+
+    def _render_macro_document(self, doc_name: str) -> list[str]:
+        endpoint, method = doc_name.rsplit(":", 1)
+        return_values = get_openapi_return_values(endpoint, method)
+        if doc_name == "/events:get":
+            return_values = copy.deepcopy(return_values)
+            events = return_values["events"].pop("items", None)
+            text = self.render_table(return_values, 0)
+            # Another heading for the events documentation
+            text.append("\n\n## Events by `type`\n\n")
+            text += self.render_events(events)
+        else:
+            text = self.render_table(return_values, 0)
+        if len(text) > 0:
+            text = ["#### Return values", *text]
+        return text
 
     def render_desc(
         self, description: str, spacing: int, data_type: str, return_value: str | None = None
