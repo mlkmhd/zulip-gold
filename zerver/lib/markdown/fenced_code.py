@@ -105,6 +105,7 @@ from zerver.models.realm_playgrounds import PLAYGROUND_LANGUAGE_REGEX
 _native_parse_hl_lines = parse_hl_lines
 
 _rust_code_header = load_native_contract("ZULIP_RUST_CODE_HEADER", "FENCED_CODE_HEADER_API")
+_rust_code_escape = load_native_contract("ZULIP_RUST_FENCED_CODE_ESCAPE", "FENCED_CODE_ESCAPE_API")
 
 _rust_code_highlight = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_CODE_HIGHLIGHT") == "1" else None
@@ -787,11 +788,14 @@ class FencedBlockPreprocessor(Preprocessor):
 
     def _escape(self, txt: str) -> str:
         """basic html escaping"""
-        escape_code = getattr(_rust_code_highlight, "escape_fenced_code", None)
-        if escape_code is not None and type(txt) is str:
-            result = escape_code(txt)
-            if result is not None:
-                return cast(str, result)
+        if type(txt) is str:
+            escape_code = getattr(_rust_code_escape, "escape_exact_fenced_code", None)
+            if escape_code is None:
+                escape_code = getattr(_rust_code_highlight, "escape_fenced_code", None)
+            if escape_code is not None:
+                result = escape_code(txt)
+                if result is not None:
+                    return cast(str, result)
         txt = txt.replace("&", "&amp;")
         txt = txt.replace("<", "&lt;")
         txt = txt.replace(">", "&gt;")

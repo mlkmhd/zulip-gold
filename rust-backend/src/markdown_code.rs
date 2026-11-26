@@ -48,8 +48,36 @@ pub(crate) fn escape_code(code: &str) -> String {
 }
 
 #[cfg(any(feature = "python", test))]
-pub(crate) fn escape_fenced_code(code: &str) -> String {
-    escape_code(code).replace('"', "&quot;")
+pub(crate) fn escape_fenced_code(code: &[u8]) -> std::borrow::Cow<'_, [u8]> {
+    fn entity(byte: u8) -> Option<&'static [u8]> {
+        match byte {
+            b'&' => Some(b"&amp;"),
+            b'<' => Some(b"&lt;"),
+            b'>' => Some(b"&gt;"),
+            b'"' => Some(b"&quot;"),
+            _ => None,
+        }
+    }
+
+    let mut replacements = code
+        .iter()
+        .enumerate()
+        .filter_map(|(index, byte)| entity(*byte).map(|value| (index, value)));
+    let Some((first, value)) = replacements.next() else {
+        return std::borrow::Cow::Borrowed(code);
+    };
+
+    let mut output = Vec::with_capacity(code.len().saturating_add(value.len() - 1));
+    output.extend_from_slice(&code[..first]);
+    output.extend_from_slice(value);
+    let mut start = first + 1;
+    for (index, value) in replacements {
+        output.extend_from_slice(&code[start..index]);
+        output.extend_from_slice(value);
+        start = index + 1;
+    }
+    output.extend_from_slice(&code[start..]);
+    std::borrow::Cow::Owned(output)
 }
 
 pub(crate) fn find_inline_code(data: &str, position: usize) -> Option<CodeMatch<'_>> {
@@ -129,10 +157,17 @@ mod tests {
     #[test]
     fn fenced_code_escapes_quotes_without_reescaping_entities() {
         assert_eq!(
-            escape_fenced_code("<&>\"' &amp; فارسی 😀\n\r"),
-            "&lt;&amp;&gt;&quot;' &amp;amp; فارسی 😀\n\r"
+            escape_fenced_code("<&>\"' &amp; فارسی 😀\n\r".as_bytes()).as_ref(),
+            "&lt;&amp;&gt;&quot;' &amp;amp; فارسی 😀\n\r".as_bytes()
         );
-        assert_eq!(escape_fenced_code(""), "");
+        assert!(matches!(
+            escape_fenced_code(b""),
+            std::borrow::Cow::Borrowed(_)
+        ));
+        assert_eq!(
+            escape_fenced_code(b"\xed\xa0\x80&\xed\xbf\xbf").as_ref(),
+            b"\xed\xa0\x80&amp;\xed\xbf\xbf",
+        );
         assert_eq!(escape_code("\"'"), "\"'");
     }
 

@@ -21,6 +21,9 @@ class CodeEscapeRustTest(SimpleTestCase):
             raise SkipTest("Rust extension is not installed") from None
         if not hasattr(self.extension, "escape_fenced_code"):
             raise SkipTest("Rust extension does not support fenced code escaping")
+        patcher = patch.object(fenced_code, "_rust_code_escape", None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_escapes_html_and_quotes_exactly_once(self) -> None:
         processor = fenced_code.FencedBlockPreprocessor(Markdown())
@@ -106,3 +109,39 @@ class CodeEscapeRustTest(SimpleTestCase):
         ):
             processor._escape("<x>")
         escape.assert_called_once_with("<x>")
+
+
+class FencedCodeEscapeContractTest(SimpleTestCase):
+    def test_fenced_code_keeps_literal_text_without_highlighting(self) -> None:
+        html = Markdown(extensions=[fenced_code.FencedCodeExtension()]).convert(
+            '~~~\n<p title="x">&amp; فارسی 😀\'\n~~~'
+        )
+        self.assertEqual(
+            html, "<pre><code>&lt;p title=&quot;x&quot;&gt;&amp;amp; فارسی 😀'\n</code></pre>"
+        )
+
+    def test_matching_default_preserves_identity_and_unicode(self) -> None:
+        backend = fenced_code._rust_code_escape
+        if getattr(backend, "FENCED_CODE_ESCAPE_API", None) != 1:
+            self.skipTest("Matching Rust fenced code escaping contract is not available")
+
+        processor = fenced_code.FencedBlockPreprocessor(Markdown())
+        unchanged = "plain \ud800😀"
+        source = "x" * (8 * 1024 * 1024) + '\ud800<&"'
+        with patch.object(
+            backend, "escape_exact_fenced_code", wraps=backend.escape_exact_fenced_code
+        ) as native:
+            self.assertIs(processor._escape(unchanged), unchanged)
+            self.assertEqual(processor._escape(source), source[:-3] + "&lt;&amp;&quot;")
+        self.assertEqual(native.call_count, 2)
+
+    def test_custom_replace_stays_in_python(self) -> None:
+        class Source(str):
+            __slots__ = ()
+
+            @override
+            def replace(self, old: str, new: str, count: SupportsIndex = -1) -> str:
+                return "<custom>"
+
+        processor = fenced_code.FencedBlockPreprocessor(Markdown())
+        self.assertEqual(processor._escape(Source("original")), "&lt;custom&gt;")

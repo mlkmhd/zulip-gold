@@ -4,6 +4,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyString, PyTuple, PyType};
 
 use crate::markdown_blocks::BlockStep;
+use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes};
 use crate::{markdown_code, markdown_code_header};
 
 #[pyfunction]
@@ -355,7 +356,19 @@ pub(crate) fn escape_fenced_code(source: &Bound<'_, PyString>) -> Option<String>
     if source.len() > 8 * 1024 * 1024 {
         return None;
     }
-    Some(markdown_code::escape_fenced_code(source))
+    String::from_utf8(markdown_code::escape_fenced_code(source.as_bytes()).into_owned()).ok()
+}
+
+#[pyfunction]
+pub(crate) fn escape_exact_fenced_code<'py>(
+    source: &Bound<'py, PyAny>,
+) -> Option<Bound<'py, PyString>> {
+    let source = source.cast_exact::<PyString>().ok()?;
+    let bytes = python_string_bytes(source)?;
+    match markdown_code::escape_fenced_code(&bytes) {
+        std::borrow::Cow::Borrowed(_) => Some(source.clone()),
+        std::borrow::Cow::Owned(escaped) => python_string_from_bytes(source.py(), &escaped),
+    }
 }
 
 type CodeHeader = (String, Option<(String, bool, Option<String>)>);

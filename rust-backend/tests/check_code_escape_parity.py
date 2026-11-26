@@ -31,6 +31,10 @@ def main() -> None:
         nonlocal checked, accepted, delegated
         expected = processor._escape(source)
         result = extension.escape_fenced_code(source)
+        exact = extension.escape_exact_fenced_code(source)
+        assert exact == expected, repr(source[:100])
+        if expected is source:
+            assert exact is source, repr(source[:100])
         try:
             supported = len(source.encode("utf-8")) <= 8 * 1024 * 1024
         except UnicodeEncodeError:
@@ -51,7 +55,10 @@ def main() -> None:
                 }
             )
 
-    with patch.object(fenced_code, "_rust_code_highlight", None):
+    with (
+        patch.object(fenced_code, "_rust_code_highlight", None),
+        patch.object(fenced_code, "_rust_code_escape", None),
+    ):
         for source in [
             "",
             '<script a="x">\'&amp;</script>',
@@ -74,8 +81,6 @@ def main() -> None:
             check(source)
         if args.unicode and not differences:
             for value in range(0x110000):
-                if 0xD800 <= value <= 0xDFFF:
-                    continue
                 char = chr(value)
                 check(f"<{char}&\"{char}'>")
     report = {

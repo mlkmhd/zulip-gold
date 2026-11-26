@@ -350,6 +350,7 @@ mod _zulip_backend {
         module.add("MOBILE_ORDERED_LIST_API", 1)?;
         module.add("SEARCH_HIGHLIGHTS_API", 1)?;
         module.add("FENCED_CODE_HEADER_API", 1)?;
+        module.add("FENCED_CODE_ESCAPE_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
         module.add("MARKDOWN_HEADINGS_API", 1)?;
         module.add("MARKDOWN_HORIZONTAL_RULES_API", 1)?;
@@ -676,8 +677,8 @@ mod _zulip_backend {
     #[pymodule_export]
     use crate::python_highlight::{
         create_fenced_block_handler, dispatch_fenced_input_lines, dispatch_new_fenced_block,
-        escape_fenced_code, find_invalid_fenced_curl_line, finish_fenced_block,
-        finish_fenced_highlight, finish_fenced_input, format_fenced_spoiler,
+        escape_exact_fenced_code, escape_fenced_code, find_invalid_fenced_curl_line,
+        finish_fenced_block, finish_fenced_highlight, finish_fenced_input, format_fenced_spoiler,
         handle_fenced_block_line, handle_nested_fenced_block_line, normalize_fenced_code_language,
         parse_fenced_code_header, parse_fenced_highlight_lines, prepare_fenced_highlight,
     };
