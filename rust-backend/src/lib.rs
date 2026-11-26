@@ -242,6 +242,8 @@ mod python_analytics_chart_order;
 mod python_analytics_time_buckets;
 
 #[cfg(feature = "python")]
+mod python_stream_color;
+#[cfg(feature = "python")]
 mod python_timezone_aliases;
 
 #[cfg(feature = "python")]

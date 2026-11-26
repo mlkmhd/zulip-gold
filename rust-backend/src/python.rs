@@ -358,6 +358,7 @@ mod _zulip_backend {
         module.add("EMOJI_HEX_LABEL_API", 1)?;
         module.add("EMOJI_CANONICAL_HEX_DECODE_API", 1)?;
         module.add("IMPORT_BODY_TEXT_API", 1)?;
+        module.add("CHANNEL_STOCK_COLORS_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
         module.add("MARKDOWN_HEADINGS_API", 1)?;
         module.add("MARKDOWN_HORIZONTAL_RULES_API", 1)?;
@@ -528,6 +529,9 @@ mod _zulip_backend {
 
     #[pymodule_export]
     use crate::python_timezone_aliases::{lookup_timezone_alias, parse_timezone_alias_lines};
+
+    #[pymodule_export]
+    use crate::python_stream_color::pick_exact_stock_channel_colors;
 
     #[pymodule_export]
     use crate::python_description_text::normalize_description_text;

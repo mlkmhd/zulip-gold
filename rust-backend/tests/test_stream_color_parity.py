@@ -3,6 +3,7 @@ import random
 import unittest
 from importlib import import_module
 
+from zerver.lib import stream_color
 from zerver.lib.stream_color import STREAM_ASSIGNMENT_COLORS, _pick_colors_python, pick_colors
 
 
@@ -17,7 +18,11 @@ class StreamColorParityTest(unittest.TestCase):
         self.assertEqual((used, explicit, recipient_ids), original)
 
     def test_uses_rust_extension(self) -> None:
-        self.assertIs(pick_colors, import_module("_zulip_backend").pick_colors)
+        extension = import_module("_zulip_backend")
+        self.assertTrue(
+            stream_color._rust_stock_colors is extension
+            or stream_color._legacy_picker is extension.pick_colors
+        )
 
     def test_all_palette_slots(self) -> None:
         # Also detects changes to either copy of the palette during migration.

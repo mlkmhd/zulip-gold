@@ -1,5 +1,12 @@
 import os
 from importlib import import_module
+from typing import cast
+
+from zerver.lib.native_backend import load_native_contract
+
+_rust_stock_colors = load_native_contract(
+    "ZULIP_RUST_CHANNEL_STOCK_COLORS", "CHANNEL_STOCK_COLORS_API"
+)
 
 STREAM_ASSIGNMENT_COLORS = [
     "#76ce90",
@@ -59,6 +66,21 @@ def _pick_colors_python(
     return result
 
 
-pick_colors = _pick_colors_python
-if os.environ.get("ZULIP_RUST_STREAM_COLOR") == "1":
-    pick_colors = import_module("_zulip_backend").pick_colors
+_legacy_picker = (
+    import_module("_zulip_backend").pick_colors
+    if os.environ.get("ZULIP_RUST_STREAM_COLOR") == "1"
+    else None
+)
+
+
+def pick_colors(
+    used_colors: set[str], color_map: dict[int, str], recipient_ids: list[int]
+) -> dict[int, str]:
+    pick_stock = getattr(_rust_stock_colors, "pick_exact_stock_channel_colors", None)
+    if pick_stock is not None:
+        result = pick_stock(used_colors, color_map, recipient_ids, STREAM_ASSIGNMENT_COLORS)
+        if result is not None:
+            return cast(dict[int, str], result)
+    if _legacy_picker is not None:
+        return cast(dict[int, str], _legacy_picker(used_colors, color_map, recipient_ids))
+    return _pick_colors_python(used_colors, color_map, recipient_ids)
