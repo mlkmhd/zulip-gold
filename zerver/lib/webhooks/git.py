@@ -39,6 +39,10 @@ _rust_finish_git_commit_summary_text = getattr(
     _rust_git_commit_summary, "finish_git_commit_summary_text", None
 )
 
+_rust_render_prepared_git_commit_rows = getattr(
+    _rust_git_commit_summary, "render_prepared_git_commit_rows", None
+)
+
 TOPIC_WITH_BRANCH_TEMPLATE = "{repo} / {branch}"
 TOPIC_WITH_PR_OR_ISSUE_INFO_TEMPLATE = "{repo} / {type} #{id} {title}"
 TOPIC_WITH_RELEASE_TEMPLATE = "{repo} / {tag} {title}"
@@ -478,13 +482,22 @@ def _try_finish_git_commit_summary_text(rows: str, omission: int | None) -> str 
 
 
 def get_commits_content(commits_data: list[dict[str, Any]], is_truncated: bool = False) -> str:
-    commits_content = ""
-    for commit in commits_data[:COMMITS_LIMIT]:
-        commits_content += COMMIT_ROW_TEMPLATE.format(
-            commit_short_sha=_commit_row_short_sha(commit["sha"]),
-            commit_url=commit.get("url"),
-            commit_msg=_commit_row_first_lf_line(commit["message"]),
+    if _rust_render_prepared_git_commit_rows is not None:
+        commits_content = _rust_render_prepared_git_commit_rows(
+            commits_data,
+            COMMITS_LIMIT,
+            COMMIT_ROW_TEMPLATE,
+            _commit_row_short_sha,
+            _commit_row_first_lf_line,
         )
+    else:
+        commits_content = ""
+        for commit in commits_data[:COMMITS_LIMIT]:
+            commits_content += COMMIT_ROW_TEMPLATE.format(
+                commit_short_sha=_commit_row_short_sha(commit["sha"]),
+                commit_url=commit.get("url"),
+                commit_msg=_commit_row_first_lf_line(commit["message"]),
+            )
 
     if len(commits_data) > COMMITS_LIMIT:
         suffix_template = COMMITS_MORE_THAN_LIMIT_TEMPLATE

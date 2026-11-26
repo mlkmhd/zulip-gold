@@ -1,7 +1,7 @@
 //! Finish prepared display text without inspecting its rows.
 
 use pyo3::prelude::*;
-use pyo3::types::{PyInt, PyString};
+use pyo3::types::{PyDict, PyInt, PySlice, PyString};
 
 use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes};
 
@@ -65,4 +65,34 @@ pub(crate) fn finish_git_commit_summary_text<'py>(
     let mut result = text.into_owned();
     result.extend_from_slice(suffix.as_bytes());
     python_string_from_bytes(py, &result)
+}
+
+#[pyfunction]
+pub(crate) fn render_prepared_git_commit_rows<'py>(
+    commits: &Bound<'py, PyAny>,
+    limit: &Bound<'py, PyAny>,
+    template: &Bound<'py, PyAny>,
+    short_sha: &Bound<'py, PyAny>,
+    first_line: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let py = commits.py();
+    let selected = commits.get_item(py.get_type::<PySlice>().call1((py.None(), limit))?)?;
+    let mut rendered = PyString::new(py, "").into_any();
+    let add = py.import("operator")?.getattr("iadd")?;
+    for commit in selected.try_iter()? {
+        let commit = commit?;
+        let render_row = template.getattr("format")?;
+        let fields = PyDict::new(py);
+        fields.set_item(
+            "commit_short_sha",
+            short_sha.call1((commit.get_item("sha")?,))?,
+        )?;
+        fields.set_item("commit_url", commit.call_method1("get", ("url",))?)?;
+        fields.set_item(
+            "commit_msg",
+            first_line.call1((commit.get_item("message")?,))?,
+        )?;
+        rendered = add.call1((rendered, render_row.call((), Some(&fields))?))?;
+    }
+    Ok(rendered)
 }

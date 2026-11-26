@@ -772,7 +772,9 @@ mod _zulip_backend {
     };
 
     #[pymodule_export]
-    use crate::python_git_commit_summary_text::finish_git_commit_summary_text;
+    use crate::python_git_commit_summary_text::{
+        finish_git_commit_summary_text, render_prepared_git_commit_rows,
+    };
 
     #[pymodule_export]
     use crate::python_updown_duration_display::format_updown_duration_display;
