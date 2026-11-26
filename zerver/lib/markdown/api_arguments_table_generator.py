@@ -62,6 +62,9 @@ _rust_render_prepared_api_parameter_row = getattr(
 _rust_render_prepared_api_object_properties = getattr(
     _rust_api_type_tree, "render_prepared_api_object_properties", None
 )
+_rust_render_prepared_api_property_row = getattr(
+    _rust_api_type_tree, "render_prepared_api_property_row", None
+)
 
 _rust_expand_prepared_api_doc_macros = getattr(
     _rust_api_type_tree, "expand_prepared_api_doc_macros", None
@@ -389,6 +392,22 @@ class APIArgumentsTablePreprocessor(Preprocessor):
         value: str,
         md_engine: markdown.Markdown,
     ) -> str:
+        if _rust_render_prepared_api_property_row is not None:
+            return _rust_render_prepared_api_property_row(
+                schema,
+                object_values,
+                value,
+                md_engine,
+                self,
+                (OBJECT_CODE_TEMPLATE, OBJECT_DESCRIPTION_TEMPLATE, OBJECT_LIST_ITEM_TEMPLATE),
+                (
+                    json.dumps,
+                    escape_html,
+                    _join_api_enum_examples,
+                    generate_data_type,
+                    _render_api_property_detail,
+                ),
+            )
         description = ""
         if "description" in object_values[value]:
             description = object_values[value]["description"]

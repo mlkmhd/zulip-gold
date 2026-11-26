@@ -420,3 +420,100 @@ pub(crate) fn render_prepared_api_parameter_row<'py>(
     kwargs.set_item("object_details", details)?;
     format.call((), Some(&kwargs))
 }
+
+/// Render one prepared request property, retaining the original Markdown and encoding callbacks.
+#[pyfunction]
+pub(crate) fn render_prepared_api_property_row<'py>(
+    schema: &Bound<'py, PyAny>,
+    objects: &Bound<'py, PyAny>,
+    value: &Bound<'py, PyAny>,
+    markdown: &Bound<'py, PyAny>,
+    renderer: &Bound<'py, PyAny>,
+    templates: &Bound<'py, PyTuple>,
+    formatters: &Bound<'py, PyTuple>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let py = schema.py();
+    let description = if objects.get_item(value)?.contains("description")? {
+        objects.get_item(value)?.get_item("description")?
+    } else {
+        PyString::new(py, "").into_any()
+    };
+    let additions = PyList::empty(py);
+    let code = |entry: Bound<'py, PyAny>| -> PyResult<Bound<'py, PyAny>> {
+        let kwargs = PyDict::new(py);
+        kwargs.set_item("value", entry)?;
+        templates
+            .get_item(0)?
+            .call_method("format", (), Some(&kwargs))
+    };
+    let default = objects
+        .call_method1("get", (value, PyDict::new(py)))?
+        .call_method1("get", ("default",))?;
+    if !default.is_none() {
+        let formatted = code(formatters.get_item(0)?.call1((default,))?)?;
+        additions
+            .append(PyString::new(py, "Defaults to {}. ").call_method1("format", (formatted,))?)?;
+    }
+    let enums = objects
+        .call_method1("get", (value, PyDict::new(py)))?
+        .call_method1("get", ("enum",))?;
+    if !enums.is_none() {
+        let formatted = PyList::empty(py);
+        for entry in enums.try_iter()? {
+            formatted.append(code(formatters.get_item(0)?.call1((entry?,))?)?)?;
+        }
+        let joined = formatters.get_item(2)?.call1((formatted,))?;
+        additions
+            .append(PyString::new(py, "Must be one of: {}. ").call_method1("format", (joined,))?)?;
+    }
+    if objects.get_item(value)?.contains("example")? {
+        let example = formatters
+            .get_item(0)?
+            .call1((objects.get_item(value)?.get_item("example")?,))?;
+        let formatted = code(formatters.get_item(1)?.call1((example,))?)?;
+        let label = PyString::new(
+            py,
+            r#"<span class="api-argument-example-label">Example</span>: {}"#,
+        );
+        additions.append(label.call_method1("format", (formatted,))?)?;
+    }
+
+    let description = if additions.is_empty() {
+        markdown.call_method1("convert", (description,))?
+    } else {
+        let details = PyString::new(py, "")
+            .call_method1("join", (additions,))?
+            .call_method0("strip")?;
+        let format = templates.get_item(1)?.getattr("format")?;
+        let kwargs = PyDict::new(py);
+        kwargs.set_item(
+            "description",
+            markdown.call_method1("convert", (description,))?,
+        )?;
+        kwargs.set_item("additional_information", details)?;
+        format.call((), Some(&kwargs))?
+    };
+
+    let required = if schema.contains("required")? {
+        if schema.get_item("required")?.contains(value)? {
+            r#"<span class="api-argument-required">required</span>"#
+        } else {
+            r#"<span class="api-argument-optional">optional</span>"#
+        }
+    } else {
+        ""
+    };
+    let data_type = formatters.get_item(3)?.call1((objects.get_item(value)?,))?;
+    let detail = formatters
+        .get_item(4)?
+        .call1((renderer, objects, value, &data_type))?;
+    let kwargs = PyDict::new(py);
+    kwargs.set_item("value", value)?;
+    kwargs.set_item("data_type", data_type)?;
+    kwargs.set_item("required", required)?;
+    kwargs.set_item("description", description)?;
+    kwargs.set_item("object_details", detail)?;
+    templates
+        .get_item(2)?
+        .call_method("format", (), Some(&kwargs))
+}
