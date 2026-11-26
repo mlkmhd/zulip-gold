@@ -411,6 +411,7 @@ mod _zulip_backend {
         module.add("PREPARED_ALERT_WORD_ADDITIONS_API", 1)?;
         module.add("PREPARED_CHANNEL_LINK_FIELDS_API", 1)?;
         module.add("PREPARED_BOT_STORAGE_DELTA_API", 1)?;
+        module.add("PREPARED_USER_MENTION_SCAN_API", 1)?;
         module.add("EXACT_MESSAGE_BODY_API", 1)?;
         module.add("PREPARED_RECENT_DM_ROWS_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
@@ -1760,6 +1761,27 @@ mod _zulip_backend {
         Some(markdown_mentions::possible_user_mentions(
             content.to_str().ok()?,
         ))
+    }
+
+    #[pyfunction]
+    fn scan_prepared_markdown_user_mentions<'py>(
+        py: Python<'py>,
+        content: &Bound<'py, PyAny>,
+    ) -> PyResult<Option<(Bound<'py, pyo3::types::PySet>, bool, bool)>> {
+        let Some(content) = content
+            .cast_exact::<PyString>()
+            .ok()
+            .and_then(|text| text.to_str().ok())
+        else {
+            return Ok(None);
+        };
+        let (names, topic_wildcard, channel_wildcard) =
+            markdown_mentions::ordered_possible_user_mentions(content);
+        let texts = pyo3::types::PySet::empty(py)?;
+        for name in names {
+            texts.add(name)?;
+        }
+        Ok(Some((texts, topic_wildcard, channel_wildcard)))
     }
 
     #[pyfunction]

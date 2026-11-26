@@ -17,18 +17,40 @@ fn visit_mentions(content: &str, stars: &str, mut visit: impl FnMut(Range<usize>
     }
 }
 
-pub(crate) fn possible_user_mentions(content: &str) -> (HashSet<String>, bool, bool) {
-    let mut names = HashSet::new();
+fn visit_user_candidates(content: &str, mut remember: impl FnMut(&str)) -> (bool, bool) {
     let mut topic_wildcard = false;
     let mut channel_wildcard = false;
     visit_mentions(content, "**", |_range, name, _silent| match name {
         "topic" => topic_wildcard = true,
         "all" | "everyone" | "stream" | "channel" => channel_wildcard = true,
-        _ => {
-            names.insert(name.to_owned());
-        }
+        _ => remember(name),
+    });
+    (topic_wildcard, channel_wildcard)
+}
+
+pub(crate) fn possible_user_mentions(content: &str) -> (HashSet<String>, bool, bool) {
+    let mut names = HashSet::new();
+    let (topic_wildcard, channel_wildcard) = visit_user_candidates(content, |name| {
+        names.insert(name.to_owned());
     });
     (names, topic_wildcard, channel_wildcard)
+}
+
+#[cfg(any(feature = "python", test))]
+pub(crate) fn ordered_possible_user_mentions(content: &str) -> (Vec<String>, bool, bool) {
+    let mut names = Vec::new();
+    let (topic_wildcard, channel_wildcard) =
+        visit_user_candidates(content, |name| names.push(name.to_owned()));
+    (names, topic_wildcard, channel_wildcard)
+}
+
+#[cfg(test)]
+#[test]
+fn ordered_scan_keeps_first_encounter_and_duplicate_events() {
+    assert_eq!(
+        ordered_possible_user_mentions("@**Z** @**topic** @_**ش** @**Z** @**all**"),
+        (["Z", "ش", "Z"].map(str::to_owned).into(), true, true),
+    );
 }
 
 pub(crate) fn possible_group_mentions(content: &str) -> HashMap<String, &'static str> {

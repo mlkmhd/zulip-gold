@@ -12,6 +12,7 @@ from django.db import connection
 from django.db.models import Q
 from django_stubs_ext import StrPromise
 
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.streams import get_content_access_streams
 from zerver.lib.topic import get_latest_message_for_user_in_topic
 from zerver.lib.types import UserDisplayRecipient
@@ -30,6 +31,10 @@ _rust_markdown_mentions = (
     import_module("_zulip_backend")
     if os.environ.get("ZULIP_RUST_MARKDOWN_MENTIONS") == "1"
     else None
+)
+
+_rust_prepared_user_mention_scan = load_native_contract(
+    "ZULIP_RUST_PREPARED_USER_MENTION_SCAN", "PREPARED_USER_MENTION_SCAN_API"
 )
 
 _rust_markdown_group_members = (
@@ -331,11 +336,31 @@ def extract_mention_text(m: Match[str]) -> MentionText:
     return MentionText(text=text, is_topic_wildcard=False, is_stream_wildcard=False)
 
 
+_reference_user_mention_regex = MENTIONS_RE
+_reference_user_mention_text = extract_mention_text
+_reference_topic_wildcards = topic_wildcards
+_reference_stream_wildcards = stream_wildcards
+
+
 def possible_mentions(content: str) -> PossibleMentions:
     if _rust_markdown_mentions is not None:
         rust_result = _rust_markdown_mentions.possible_markdown_user_mentions(content)
         if rust_result is not None:
             return PossibleMentions(*rust_result)
+    elif (
+        type(content) is str
+        and MENTIONS_RE is _reference_user_mention_regex
+        and extract_mention_text is _reference_user_mention_text
+        and topic_wildcards is _reference_topic_wildcards
+        and stream_wildcards is _reference_stream_wildcards
+    ):
+        scan = getattr(
+            _rust_prepared_user_mention_scan, "scan_prepared_markdown_user_mentions", None
+        )
+        if scan is not None:
+            prepared = scan(content)
+            if prepared is not None:
+                return PossibleMentions(*prepared)
 
     # mention texts can either be names, or an extended name|id syntax.
     texts = set()
