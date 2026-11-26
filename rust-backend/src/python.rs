@@ -434,6 +434,7 @@ mod _zulip_backend {
         module.add("DRAFT_BODY_TEXT_API", 1)?;
         module.add("DRAFT_TIMESTAMP_API", 1)?;
         module.add("PREPARED_DJANGO_DRAFT_INPUT_API", 1)?;
+        module.add("PREPARED_DRAFT_CREATE_MODELS_API", 1)?;
         module.add("CHANNEL_FOLDER_REPLAY_API", 1)?;
         module.add("DRAFT_REPLAY_API", 1)?;
         module.add("PERSONAL_LIST_REPLAY_API", 1)?;
@@ -2112,6 +2113,27 @@ mod _zulip_backend {
                     .collect()
             })
             .transpose()
+    }
+
+    #[pyfunction]
+    fn prepare_draft_create_models<'py>(
+        drafts: &Bound<'py, PyAny>,
+        user: &Bound<'py, PyAny>,
+        validate: &Bound<'py, PyAny>,
+        model: &Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyList>> {
+        let py = drafts.py();
+        let output = PyList::empty(py);
+        for draft in drafts.try_iter()? {
+            let prepared = validate.call1((draft?, user))?;
+            let fields = PyDict::new(py);
+            fields.set_item("user_profile", user)?;
+            for key in ["recipient_id", "topic", "content", "last_edit_time"] {
+                fields.set_item(key, prepared.getattr(key)?)?;
+            }
+            output.append(model.call((), Some(&fields))?)?;
+        }
+        Ok(output)
     }
 
     #[pyfunction]

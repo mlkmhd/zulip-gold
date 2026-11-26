@@ -66,6 +66,9 @@ _rust_draft_input = (
 _rust_django_draft_input = load_native_contract(
     "ZULIP_RUST_PREPARED_DJANGO_DRAFT_INPUT", "PREPARED_DJANGO_DRAFT_INPUT_API"
 )
+_rust_draft_create_models = load_native_contract(
+    "ZULIP_RUST_PREPARED_DRAFT_CREATE_MODELS", "PREPARED_DRAFT_CREATE_MODELS_API"
+)
 _rust_draft_channel_access = (
     import_module("_zulip_backend")
     if os.environ.get("ZULIP_RUST_DRAFT_CHANNEL_ACCESS") == "1"
@@ -376,11 +379,11 @@ def draft_endpoint(
     return draft_view_func
 
 
-def do_create_drafts(drafts: list[DraftData], user_profile: UserProfile) -> list[Draft]:
-    """Create drafts in bulk for a given user based on the DraftData objects. Since
-    currently, the only place this method is being used (apart from tests) is from
-    the create_draft view, we assume that these are syntactically valid
-    (i.e. they satisfy the @typed_endpoint validation for DraftData)."""
+def _prepare_draft_create_models(drafts: list[DraftData], user_profile: UserProfile) -> list[Draft]:
+    prepare = getattr(_rust_draft_create_models, "prepare_draft_create_models", None)
+    if callable(prepare):
+        return cast(list[Draft], prepare(drafts, user_profile, further_validated_draft_dict, Draft))
+
     draft_objects = []
     for draft_data in drafts:
         valid_draft_dict = further_validated_draft_dict(draft_data, user_profile)
@@ -393,6 +396,15 @@ def do_create_drafts(drafts: list[DraftData], user_profile: UserProfile) -> list
                 last_edit_time=valid_draft_dict.last_edit_time,
             )
         )
+    return draft_objects
+
+
+def do_create_drafts(drafts: list[DraftData], user_profile: UserProfile) -> list[Draft]:
+    """Create drafts in bulk for a given user based on the DraftData objects. Since
+    currently, the only place this method is being used (apart from tests) is from
+    the create_draft view, we assume that these are syntactically valid
+    (i.e. they satisfy the @typed_endpoint validation for DraftData)."""
+    draft_objects = _prepare_draft_create_models(drafts, user_profile)
 
     with transaction.atomic(durable=True):
         if _rust_draft_creation is None:
