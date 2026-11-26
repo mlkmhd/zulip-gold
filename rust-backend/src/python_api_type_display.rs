@@ -207,3 +207,27 @@ pub(crate) fn decorate_prepared_api_description<'py>(
     }
     Ok(text)
 }
+
+#[pyfunction]
+pub(crate) fn prepare_api_doc_badges<'py>(
+    parameter: &Bound<'py, PyAny>,
+    description: &Bound<'py, PyAny>,
+    validate: &Bound<'py, PyAny>,
+) -> PyResult<(&'static str, &'static str)> {
+    let path = parameter.getattr("kind")?.eq("path")?;
+    if path && !parameter.getattr("required")?.is_truthy()? {
+        return Err(pyo3::exceptions::PyAssertionError::new_err(()));
+    }
+    let required = match (parameter.getattr("required")?.is_truthy()?, path) {
+        (true, true) => "<span class=\"api-argument-required\">required in path</span>",
+        (true, false) => "<span class=\"api-argument-required\">required</span>",
+        (false, _) => "<span class=\"api-argument-optional\">optional</span>",
+    };
+    validate.call1((parameter.getattr("deprecated")?, description))?;
+    let deprecated = if parameter.getattr("deprecated")?.is_truthy()? {
+        "<span class=\"api-argument-deprecated\">Deprecated</span>"
+    } else {
+        ""
+    };
+    Ok((required, deprecated))
+}

@@ -9602,3 +9602,9 @@ Markdown و قالب HTML همان Python هستند و رفتار escaping، sc
 Rust فقط ترتیب ساخت توضیح از enum و default را انجام می‌دهد. رمزگذاری
 JSON، قالب code، و Markdown قبلی باقی مانده‌اند. تغییر schema، escaping
 یا رفتار API در کار نیست.
+
+### نشان‌های required و Deprecated در مستندات API
+
+Rust نشان‌ها را پس از بررسی قبلی می‌سازد. ترتیب اعتبارسنجی مسیر و
+توضیح Deprecated، مقدار پرچم‌ها و HTML ثابت مانده‌اند. رفتار API
+و اعتبارسنجی درخواست تغییر نکردند.

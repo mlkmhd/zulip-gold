@@ -47,6 +47,8 @@ _rust_decorate_prepared_api_description = getattr(
     _rust_api_type_tree, "decorate_prepared_api_description", None
 )
 
+_rust_prepare_api_doc_badges = getattr(_rust_api_type_tree, "prepare_api_doc_badges", None)
+
 try:
     _rust_api_enum_display = load_native_contract(
         "ZULIP_RUST_API_ENUM_DISPLAY", "API_ENUM_DISPLAY_API"
@@ -134,6 +136,29 @@ def _decorate_parameter_description(description: str, parameter: Parameter) -> s
     if default is not None:
         description += f"\nDefaults to `{json.dumps(default)}`."
     return description
+
+
+def _prepare_parameter_badges(parameter: Parameter, description: str) -> tuple[str, str]:
+    if __debug__ and _rust_prepare_api_doc_badges is not None:
+        return _rust_prepare_api_doc_badges(parameter, description, check_deprecated_consistency)
+
+    required_string: str = "required"
+    if parameter.kind == "path":
+        # Any path variable is required
+        assert parameter.required
+        required_string = "required in path"
+
+    if parameter.required:
+        required_block = f'<span class="api-argument-required">{required_string}</span>'
+    else:
+        required_block = '<span class="api-argument-optional">optional</span>'
+
+    check_deprecated_consistency(parameter.deprecated, description)
+    if parameter.deprecated:
+        deprecated_block = '<span class="api-argument-deprecated">Deprecated</span>'
+    else:
+        deprecated_block = ""
+    return required_block, deprecated_block
 
 
 class MarkdownArgumentsTableGenerator(Extension):
@@ -235,22 +260,7 @@ class APIArgumentsTablePreprocessor(Preprocessor):
             # * For integers, it is a noop, since json.dumps(3) == str(3) == "3".
             example = json.dumps(parameter.example)
 
-            required_string: str = "required"
-            if parameter.kind == "path":
-                # Any path variable is required
-                assert parameter.required
-                required_string = "required in path"
-
-            if parameter.required:
-                required_block = f'<span class="api-argument-required">{required_string}</span>'
-            else:
-                required_block = '<span class="api-argument-optional">optional</span>'
-
-            check_deprecated_consistency(parameter.deprecated, description)
-            if parameter.deprecated:
-                deprecated_block = '<span class="api-argument-deprecated">Deprecated</span>'
-            else:
-                deprecated_block = ""
+            required_block, deprecated_block = _prepare_parameter_badges(parameter, description)
 
             object_block = ""
             # TODO: There are some endpoint parameters with object properties
