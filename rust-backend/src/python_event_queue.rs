@@ -152,3 +152,18 @@ pub(crate) fn merge_prepared_queued_events<'py>(
     }
     merge_queued_events(py, queue, deque_type, virtual_events)
 }
+
+#[pyfunction]
+pub(crate) fn plan_prepared_queue_retry(
+    event: &Bound<'_, PyAny>,
+    limit: &Bound<'_, PyAny>,
+) -> Option<(i64, bool)> {
+    let event = plain_event(event)?;
+    let limit = limit.cast_exact::<PyInt>().ok()?.extract::<i64>().ok()?;
+    let attempts = match event.get_item("failed_tries").ok()? {
+        None => 0,
+        Some(value) => value.cast_exact::<PyInt>().ok()?.extract::<i64>().ok()?,
+    };
+    let next_attempts = attempts.checked_add(1)?;
+    Some((next_attempts, next_attempts > limit))
+}

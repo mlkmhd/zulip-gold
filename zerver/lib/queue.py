@@ -6,7 +6,7 @@ import time
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from collections.abc import Callable, Mapping
-from typing import Any, Generic, TypeAlias, TypeVar
+from typing import Any, Generic, TypeAlias, TypeVar, cast
 
 import orjson
 import pika
@@ -21,9 +21,13 @@ from pika.spec import Basic
 from tornado import ioloop
 from typing_extensions import override
 
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.utils import assert_is_not_none
 
 MAX_REQUEST_RETRIES = 3
+_queue_retry_backend = load_native_contract(
+    "ZULIP_RUST_PREPARED_QUEUE_RETRY", "PREPARED_QUEUE_RETRY_API"
+)
 ChannelT = TypeVar("ChannelT", Channel, BlockingChannel)
 Consumer: TypeAlias = Callable[[ChannelT, Basic.Deliver, pika.BasicProperties, bytes], None]
 
@@ -510,10 +514,20 @@ def high_latency_queue_name() -> str:
 def retry_event(
     queue_name: str, event: dict[str, Any], failure_processor: Callable[[dict[str, Any]], None]
 ) -> None:
-    if "failed_tries" not in event:
-        event["failed_tries"] = 0
-    event["failed_tries"] += 1
-    if event["failed_tries"] > MAX_REQUEST_RETRIES:
+    native = getattr(_queue_retry_backend, "plan_prepared_queue_retry", None)
+    plan = (
+        cast("tuple[int, bool] | None", native(event, MAX_REQUEST_RETRIES))
+        if callable(native)
+        else None
+    )
+    if plan is None:
+        if "failed_tries" not in event:
+            event["failed_tries"] = 0
+        event["failed_tries"] += 1
+        exhausted = event["failed_tries"] > MAX_REQUEST_RETRIES
+    else:
+        event["failed_tries"], exhausted = plan
+    if exhausted:
         failure_processor(event)
     else:
         queue_json_publish_rollback_unsafe(queue_name, event)

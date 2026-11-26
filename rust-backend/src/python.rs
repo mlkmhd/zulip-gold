@@ -304,6 +304,7 @@ mod _zulip_backend {
         module.add("PREPARED_EVENT_CLASSIFICATION_API", 1)?;
         module.add("PREPARED_EVENT_FOLD_API", 1)?;
         module.add("PREPARED_EVENT_MERGE_API", 1)?;
+        module.add("PREPARED_QUEUE_RETRY_API", 1)?;
         module.add("PREPARED_USER_DIRECTORY_API", 1)?;
         module.add("PREPARED_CLOSE_FENCES_API", 1)?;
         module.add("PREPARED_FENCE_PARSER_API", 1)?;
@@ -484,6 +485,9 @@ mod _zulip_backend {
         append_and_sort_register_group_ids, assemble_group_membership,
         assemble_realm_group_payload, subtract_register_group_ids,
     };
+
+    #[pymodule_export]
+    use crate::python_event_queue::plan_prepared_queue_retry;
 
     #[pymodule_export]
     use crate::python_event_queue::{
