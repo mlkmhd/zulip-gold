@@ -3,8 +3,9 @@
 use std::borrow::Cow;
 
 use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes};
+use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyString;
+use pyo3::types::{PyDict, PyString, PyTuple};
 
 fn python_space(ch: char) -> bool {
     matches!(
@@ -84,4 +85,45 @@ mod tests {
         assert_eq!(normalize("\u{200b}\u{feff}\0"), "\u{200b}\u{feff}\0");
         assert_eq!(normalize("\t\u{2028}\u{a0}"), "");
     }
+}
+
+#[pyfunction]
+pub(crate) fn collect_prepared_description_segments<'py>(
+    elements: &Bound<'py, PyAny>,
+    separators: &Bound<'py, PyDict>,
+) -> PyResult<Bound<'py, PyString>> {
+    let mut text = Vec::new();
+    let mut characters = 0;
+    for element in elements.try_iter()? {
+        let element = element?.cast_into_exact::<PyTuple>()?;
+        if element.len() != 2 {
+            return Err(PyValueError::new_err(
+                "Expected a prepared description pair",
+            ));
+        }
+        let tag = element.get_item(0)?.cast_into_exact::<PyString>()?;
+        let content = element.get_item(1)?.cast_into_exact::<PyString>()?;
+        let content = python_string_bytes(&content)
+            .ok_or_else(|| PyValueError::new_err("Invalid prepared description text"))?;
+        if !text.is_empty() {
+            let separator = separators
+                .get_item(&tag)?
+                .ok_or_else(|| PyKeyError::new_err(tag.to_string()))?
+                .cast_into_exact::<PyString>()?;
+            let separator = python_string_bytes(&separator)
+                .ok_or_else(|| PyValueError::new_err("Invalid prepared description separator"))?;
+            characters += separator
+                .iter()
+                .filter(|byte| **byte & 0xc0 != 0x80)
+                .count();
+            text.extend_from_slice(&separator);
+        }
+        characters += content.iter().filter(|byte| **byte & 0xc0 != 0x80).count();
+        text.extend_from_slice(&content);
+        if characters > 500 {
+            break;
+        }
+    }
+    python_string_from_bytes(elements.py(), &text)
+        .ok_or_else(|| PyValueError::new_err("Invalid prepared description"))
 }

@@ -358,6 +358,7 @@ mod _zulip_backend {
         module.add("TIMEZONE_ALIAS_LOOKUP_API", 1)?;
         module.add("TIME_DISPLAY_API", 1)?;
         module.add("DESCRIPTION_TEXT_API", 1)?;
+        module.add("DESCRIPTION_SEGMENTS_API", 1)?;
         module.add("LOG_DISPLAY_API", 1)?;
         module.add("MIGRATION_DISPLAY_API", 1)?;
         module.add("TABBED_TEXT_API", 1)?;
@@ -636,7 +637,9 @@ mod _zulip_backend {
     use crate::python_stream_color::pick_exact_stock_channel_colors;
 
     #[pymodule_export]
-    use crate::python_description_text::normalize_description_text;
+    use crate::python_description_text::{
+        collect_prepared_description_segments, normalize_description_text,
+    };
 
     #[pymodule_export]
     use crate::python_slack_import_pieces::join_slack_import_pieces;
