@@ -405,6 +405,7 @@ mod _zulip_backend {
         module.add("EXACT_CHANNEL_TOPIC_API", 1)?;
         module.add("PREPARED_SCHEDULED_RESPONSE_API", 1)?;
         module.add("PREPARED_SCHEDULED_INPUT_API", 1)?;
+        module.add("PREPARED_TOPIC_LINK_SELECTION_API", 1)?;
         module.add("EXACT_MESSAGE_BODY_API", 1)?;
         module.add("PREPARED_RECENT_DM_ROWS_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
@@ -821,6 +822,11 @@ mod _zulip_backend {
         candidates: &Bound<'_, PyList>,
     ) -> Option<Vec<crate::markdown_topic_links::Payload>> {
         crate::markdown_topic_links::select(extract_topic_link_candidates(candidates)?)
+    }
+
+    #[pyfunction]
+    fn select_prepared_topic_link_indices(candidates: &Bound<'_, PyList>) -> Option<Vec<usize>> {
+        crate::markdown_topic_links::select_indices(extract_topic_link_candidates(candidates)?)
     }
 
     type DropboxPreview = (bool, String, Option<String>);

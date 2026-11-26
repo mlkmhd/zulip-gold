@@ -88,18 +88,18 @@ fn starts_inside(current: &Candidate, previous: &Candidate) -> bool {
     previous.start <= current.start && current.start < previous.end
 }
 
-pub fn select(candidates: Vec<WireCandidate>) -> Option<Vec<Payload>> {
+fn select_prepared(candidates: Vec<WireCandidate>) -> Option<Vec<(usize, Candidate)>> {
     if candidates.len() > MAX_CANDIDATES {
         return None;
     }
-    let mut candidates: Vec<_> = candidates
+    let mut candidates = candidates
         .into_iter()
-        .map(Candidate::try_from)
-        .collect::<Result<_, _>>()
-        .ok()?;
-    // The reference sorts linkifiers by (priority, index), then appends the
-    // raw matches in scan order. Stable ties preserve their original order.
-    candidates.sort_by_key(|candidate| {
+        .enumerate()
+        .map(|(index, candidate)| Some((index, Candidate::try_from(candidate).ok()?)))
+        .collect::<Option<Vec<_>>>()?;
+    // Linkifiers are ordered by priority and position. Raw matches retain
+    // their input scan order, and equal positions retain the original order.
+    candidates.sort_by_key(|(_, candidate)| {
         (
             candidate.precedence.is_none(),
             candidate
@@ -107,21 +107,48 @@ pub fn select(candidates: Vec<WireCandidate>) -> Option<Vec<Payload>> {
                 .map(|priority| (priority, candidate.start)),
         )
     });
-    let mut applied = Vec::<Candidate>::new();
-    for candidate in candidates {
-        if applied.iter().all(|previous| {
+    let mut applied = Vec::<(usize, Candidate)>::new();
+    for (index, candidate) in candidates {
+        if applied.iter().all(|(_, previous)| {
             !starts_inside(&candidate, previous) && !starts_inside(previous, &candidate)
         }) {
-            applied.push(candidate);
+            applied.push((index, candidate));
         }
     }
-    applied.sort_by_key(|candidate| candidate.start);
+    applied.sort_by_key(|(_, candidate)| candidate.start);
+    Some(applied)
+}
+
+pub fn select(candidates: Vec<WireCandidate>) -> Option<Vec<Payload>> {
     Some(
-        applied
+        select_prepared(candidates)?
             .into_iter()
-            .map(|candidate| (candidate.url, candidate.text))
+            .map(|(_, candidate)| (candidate.url, candidate.text))
             .collect(),
     )
+}
+
+#[cfg(any(feature = "python", test))]
+pub(crate) fn select_indices(candidates: Vec<WireCandidate>) -> Option<Vec<usize>> {
+    Some(
+        select_prepared(candidates)?
+            .into_iter()
+            .map(|(index, _)| index)
+            .collect(),
+    )
+}
+
+#[cfg(test)]
+#[test]
+fn selects_original_offsets_without_recreating_payloads() {
+    let candidates = vec![
+        ("raw".into(), "🙂".into(), 4, None),
+        ("linkifier".into(), "سلام".into(), 4, Some(1)),
+        ("outside".into(), "x".into(), 0, Some(1)),
+        ("same start and priority".into(), "X".into(), 4, Some(1)),
+        ("later".into(), "z".into(), 8, None),
+    ];
+    assert_eq!(select_indices(candidates), Some(vec![2, 1, 4]));
 }
 
 #[cfg(test)]

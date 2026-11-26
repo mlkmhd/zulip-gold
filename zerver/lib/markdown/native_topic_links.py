@@ -1,8 +1,10 @@
-"""Opt-in native candidate discovery and resolution for topic links."""
+"""Native resolution of prepared topic links, with optional discovery."""
 
 import os
 from importlib import import_module
 from typing import TYPE_CHECKING, TypeAlias
+
+from zerver.lib.native_backend import load_native_contract
 
 if TYPE_CHECKING:
     from zerver.lib.markdown import TopicLinkMatch
@@ -19,6 +21,11 @@ except ModuleNotFoundError as error:
     if error.name != "_zulip_backend":
         raise
     _backend = None
+
+
+_selection_backend = load_native_contract(
+    "ZULIP_RUST_PREPARED_TOPIC_LINK_SELECTION", "PREPARED_TOPIC_LINK_SELECTION_API"
+)
 
 
 def _wire(matches: list["TopicLinkMatch"]) -> list[WireCandidate]:
@@ -59,7 +66,28 @@ def plan(topic: str, linkifiers: list["TopicLinkMatch"]) -> list[dict[str, str]]
 
 
 def select(matches: list["TopicLinkMatch"]) -> list[dict[str, str]] | None:
-    native = getattr(_backend, "select_markdown_topic_links", None)
-    if native is None:
+    legacy = getattr(_backend, "select_markdown_topic_links", None)
+    if legacy is not None:
+        return _format(legacy(_wire(matches)))
+    native = getattr(_selection_backend, "select_prepared_topic_link_indices", None)
+    if native is None or type(matches) is not list:
         return None
-    return _format(native(_wire(matches)))
+
+    from zerver.lib.markdown import TopicLinkMatch
+
+    wire: list[WireCandidate] = []
+    for match in matches:
+        if (
+            type(match) is not TopicLinkMatch
+            or type(match.url) is not str
+            or type(match.text) is not str
+            or type(match.index) is not int
+            or (match.precedence is not None and type(match.precedence) is not int)
+        ):
+            return None
+        wire.append((match.url, match.text, match.index, match.precedence))
+    selected = native(wire)
+    if selected is None:
+        return None
+    # URL discovery and the payload objects remain exactly as Python prepared them.
+    return [{"url": matches[i].url, "text": matches[i].text} for i in selected]
