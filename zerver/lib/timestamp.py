@@ -14,6 +14,14 @@ except ImportError:
 _rust_wrap_global_time_display = getattr(_rust_time_display, "wrap_global_time_display", None)
 _rust_format_gmt_display_name = getattr(_rust_time_display, "format_gmt_display_name", None)
 
+try:
+    _rust_utc_floor = load_native_contract(
+        "ZULIP_RUST_ANALYTICS_TIME_BUCKETS", "ANALYTICS_TIME_BUCKETS_API"
+    )
+except ImportError:
+    _rust_utc_floor = None
+_make_prepared_utc_floor = getattr(_rust_utc_floor, "make_prepared_utc_floor", None)
+
 
 class TimeZoneNotUTCError(Exception):
     pass
@@ -36,11 +44,15 @@ def convert_to_UTC(dt: datetime) -> datetime:
 
 def floor_to_hour(dt: datetime) -> datetime:
     verify_UTC(dt)
+    if _make_prepared_utc_floor is not None and type(dt) is datetime:
+        return _make_prepared_utc_floor(dt, datetime, timezone.utc, False)
     return datetime(*dt.timetuple()[:4], tzinfo=timezone.utc)
 
 
 def floor_to_day(dt: datetime) -> datetime:
     verify_UTC(dt)
+    if _make_prepared_utc_floor is not None and type(dt) is datetime:
+        return _make_prepared_utc_floor(dt, datetime, timezone.utc, True)
     return datetime(*dt.timetuple()[:3], tzinfo=timezone.utc)
 
 

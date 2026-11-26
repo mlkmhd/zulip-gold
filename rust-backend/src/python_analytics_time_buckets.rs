@@ -1,7 +1,7 @@
 //! Bucket arithmetic for preselected UTC chart boundaries.
 
 use pyo3::prelude::*;
-use pyo3::types::{PyInt, PyList};
+use pyo3::types::{PyDict, PyInt, PyList, PySlice, PyTuple};
 
 const HOUR_US: i64 = 3_600_000_000;
 const DAY_US: i64 = 24 * HOUR_US;
@@ -70,4 +70,22 @@ pub(crate) fn walk_prepared_analytics_time_grid<'py>(
     }
     times.call_method0("reverse")?;
     Ok(times)
+}
+
+#[pyfunction]
+pub(crate) fn make_prepared_utc_floor<'py>(
+    dt: &Bound<'py, PyAny>,
+    constructor: &Bound<'py, PyAny>,
+    utc: &Bound<'py, PyAny>,
+    day: bool,
+) -> PyResult<Bound<'py, PyAny>> {
+    let py = dt.py();
+    let stop = if day { 3 } else { 4 };
+    let fields = dt
+        .call_method0("timetuple")?
+        .get_item(PySlice::new(py, 0, stop, 1))?;
+    let fields = fields.cast::<PyTuple>()?;
+    let kwargs = PyDict::new(py);
+    kwargs.set_item("tzinfo", utc)?;
+    constructor.call(fields, Some(&kwargs))
 }
