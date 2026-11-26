@@ -1,23 +1,12 @@
-"""Optional replay of direct-message conversations already selected by Django."""
+"""Native replay of direct-message conversations already selected by Django."""
 
-import os
-from importlib import import_module
 from typing import cast
 
 from zerver.lib.native_backend import load_native_contract
 
-try:
-    _backend = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_RECENT_CONVERSATION_REPLAY") == "1"
-        else None
-    )
-except ModuleNotFoundError as error:
-    if error.name != "_zulip_backend":
-        raise
-    _backend = None
-
-
+_backend = load_native_contract(
+    "ZULIP_RUST_RECENT_CONVERSATION_REPLAY", "RECENT_CONVERSATION_REPLAY_API"
+)
 _pin_backend = load_native_contract(
     "ZULIP_RUST_RECENT_CONVERSATION_PIN_REPLAY", "RECENT_CONVERSATION_PIN_REPLAY_API"
 )

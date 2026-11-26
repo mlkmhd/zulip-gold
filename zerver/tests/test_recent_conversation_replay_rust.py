@@ -107,7 +107,10 @@ class RecentConversationReplayRustTest(ZulipTestCase):
         assembly_enabled = (
             legacy_flag_enabled or native_recent_conversations._assembly_backend is backend
         )
-        replay_enabled = environ.get("ZULIP_RUST_RECENT_CONVERSATION_REPLAY") == "1"
+        replay_enabled = (
+            environ.get("ZULIP_RUST_RECENT_CONVERSATION_REPLAY") == "1"
+            or native_recent_conversation_replay._backend is backend
+        )
         pin_enabled = replay_enabled or native_recent_conversation_replay._pin_backend is backend
         self.assertEqual(native_recent_conversations.assembly_available(), assembly_enabled)
         finalize_enabled = (
