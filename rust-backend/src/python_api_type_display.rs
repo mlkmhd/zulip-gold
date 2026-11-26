@@ -231,3 +231,36 @@ pub(crate) fn prepare_api_doc_badges<'py>(
     };
     Ok((required, deprecated))
 }
+
+#[pyfunction]
+pub(crate) fn choose_prepared_api_property_detail<'py>(
+    objects: &Bound<'py, PyAny>,
+    value: &Bound<'py, PyAny>,
+    data_type: &Bound<'py, PyAny>,
+    renderer: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let py = objects.py();
+    let empty = PyString::new(py, "");
+    let rendered =
+        if data_type.contains("object")? && objects.get_item(value)?.contains("properties")? {
+            renderer
+                .getattr("render_object_details")?
+                .call1((objects.get_item(value)?, value.str()?))?
+        } else if objects.get_item(value)?.contains("items")?
+            && objects
+                .get_item(value)?
+                .get_item("items")?
+                .contains("properties")?
+        {
+            renderer
+                .getattr("render_object_details")?
+                .call1((objects.get_item(value)?.get_item("items")?, value.str()?))?
+        } else if objects.get_item(value)?.contains("oneOf")? {
+            renderer
+                .getattr("render_oneof_block")?
+                .call1((objects.get_item(value)?, value.str()?))?
+        } else {
+            return Ok(empty.into_any());
+        };
+    empty.as_any().add(rendered)
+}

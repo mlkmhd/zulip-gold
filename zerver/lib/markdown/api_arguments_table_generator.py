@@ -48,6 +48,9 @@ _rust_decorate_prepared_api_description = getattr(
 )
 
 _rust_prepare_api_doc_badges = getattr(_rust_api_type_tree, "prepare_api_doc_badges", None)
+_rust_choose_prepared_api_property_detail = getattr(
+    _rust_api_type_tree, "choose_prepared_api_property_detail", None
+)
 
 try:
     _rust_api_enum_display = load_native_contract(
@@ -159,6 +162,25 @@ def _prepare_parameter_badges(parameter: Parameter, description: str) -> tuple[s
     else:
         deprecated_block = ""
     return required_block, deprecated_block
+
+
+def _render_api_property_detail(
+    renderer: "APIArgumentsTablePreprocessor",
+    object_values: Mapping[str, Any],
+    value: str,
+    data_type: str,
+) -> str:
+    if _rust_choose_prepared_api_property_detail is not None:
+        return _rust_choose_prepared_api_property_detail(object_values, value, data_type, renderer)
+
+    details = ""
+    if "object" in data_type and "properties" in object_values[value]:
+        details += renderer.render_object_details(object_values[value], str(value))
+    elif "items" in object_values[value] and "properties" in object_values[value]["items"]:
+        details += renderer.render_object_details(object_values[value]["items"], str(value))
+    elif "oneOf" in object_values[value]:
+        details += renderer.render_oneof_block(object_values[value], str(value))
+    return details
 
 
 class MarkdownArgumentsTableGenerator(Extension):
@@ -346,13 +368,7 @@ class APIArgumentsTablePreprocessor(Preprocessor):
 
             data_type = generate_data_type(object_values[value])
 
-            details = ""
-            if "object" in data_type and "properties" in object_values[value]:
-                details += self.render_object_details(object_values[value], str(value))
-            elif "items" in object_values[value] and "properties" in object_values[value]["items"]:
-                details += self.render_object_details(object_values[value]["items"], str(value))
-            elif "oneOf" in object_values[value]:
-                details += self.render_oneof_block(object_values[value], str(value))
+            details = _render_api_property_detail(self, object_values, value, data_type)
 
             li = OBJECT_LIST_ITEM_TEMPLATE.format(
                 value=value,
