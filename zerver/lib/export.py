@@ -42,6 +42,7 @@ from version import ZULIP_VERSION
 from zerver.lib.avatar_hash import user_avatar_base_path_from_ids
 from zerver.lib.display_recipient import get_display_recipient
 from zerver.lib.migration_status import MigrationStatusJson, parse_migration_status
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.parallel import run_parallel, run_parallel_queue
 from zerver.lib.pysa import mark_sanitized
 from zerver.lib.stream_color import STREAM_ASSIGNMENT_COLORS
@@ -416,30 +417,46 @@ def sanity_check_output(data: TableData) -> None:
             logging.warning("??? NO DATA EXPORTED FOR TABLE %s!!!", table)
 
 
+_rust_export_json_framing = load_native_contract(
+    "ZULIP_RUST_EXPORT_JSON_FRAMING", "EXPORT_JSON_FRAMING_API"
+)
+
+
 def orjson_stream(
     it: Iterable[Any],
     options: int = orjson.OPT_INDENT_2,
     indent: bytes = b"",
     chunk_size: int = ORJSON_ITERABLE_BATCH_SIZE,
 ) -> Iterator[bytes]:
+    native = getattr(_rust_export_json_framing, "frame_prepared_export_json", None)
+
+    def frame(kind: str, batch: bytes | None = None) -> bytes | None:
+        return cast("bytes | None", native(kind, indent, batch)) if callable(native) else None
+
     first_chunk = True
     for batch in batched(it, chunk_size):
         if not first_chunk:
-            yield b",\n" + indent
+            separator = frame("separator")
+            yield b",\n" + indent if separator is None else separator
         chunk = orjson.dumps(batch, option=options)
-        if not first_chunk:
-            assert chunk.startswith(b"[\n")
-            chunk = chunk[2:]
-        assert chunk.endswith(b"\n]")
-        chunk = chunk[:-2]
-        if indent != b"":
-            chunk = chunk.replace(b"\n", b"\n" + indent)
-        yield chunk
+        framed = frame("first" if first_chunk else "following", chunk)
+        if framed is None:
+            if not first_chunk:
+                assert chunk.startswith(b"[\n")
+                chunk = chunk[2:]
+            assert chunk.endswith(b"\n]")
+            chunk = chunk[:-2]
+            if indent != b"":
+                chunk = chunk.replace(b"\n", b"\n" + indent)
+            framed = chunk
+        yield framed
         first_chunk = False
     if first_chunk:
-        yield b"[]"
+        empty = frame("empty")
+        yield b"[]" if empty is None else empty
     else:
-        yield b"\n" + indent + b"]"
+        end = frame("end")
+        yield b"\n" + indent + b"]" if end is None else end
 
 
 def orjson_serialize_iterable(
