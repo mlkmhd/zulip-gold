@@ -13,6 +13,9 @@ _modern_backend = load_native_contract(
 _legacy_display_backend = load_native_contract(
     "ZULIP_RUST_LEGACY_PRESENCE_DISPLAY", "PRESENCE_LEGACY_DISPLAY_API"
 )
+_single_response_backend = load_native_contract(
+    "ZULIP_RUST_SINGLE_PRESENCE_RESPONSE", "PRESENCE_SINGLE_USER_RESPONSE_API"
+)
 
 LegacySpec: TypeAlias = tuple[int, str, str]
 _DATE_POLICY = (datetime, timezone.utc)
@@ -78,10 +81,15 @@ def format_information(
     )
 
 
+def single_response_enabled() -> bool:
+    return _single_response_backend is not None or _backend is not None
+
+
 def finish_single_user(
     modern: object, legacy: object, duration: int, offline_threshold: int
 ) -> dict[str, object] | None:
-    native = getattr(_backend, "finish_single_user_presence", None)
+    backend = _single_response_backend or _backend
+    native = getattr(backend, "finish_single_user_presence", None)
     if native is None:
         return None
     return cast(dict[str, object] | None, native(modern, legacy, duration, offline_threshold))

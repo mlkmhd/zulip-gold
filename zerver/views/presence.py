@@ -83,7 +83,7 @@ def get_presence_backend(
     aggregated_info = legacy_presence["aggregated"]
     aggr_status_duration = datetime_to_timestamp(timezone_now()) - aggregated_info["timestamp"]
     offline_threshold = settings.OFFLINE_THRESHOLD_SECS
-    if native_presence.is_enabled():
+    if native_presence.single_response_enabled():
         native = native_presence.finish_single_user(
             modern_presence, legacy_presence, aggr_status_duration, offline_threshold
         )
