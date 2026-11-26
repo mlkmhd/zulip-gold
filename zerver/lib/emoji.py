@@ -2,6 +2,7 @@ import hashlib
 import os
 import re
 from dataclasses import dataclass
+from typing import cast
 
 import orjson
 from django.conf import settings
@@ -10,6 +11,7 @@ from django.utils.translation import gettext as _
 
 from zerver.lib.exceptions import JsonableError
 from zerver.lib.mime_types import guess_extension
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.storage import static_path
 from zerver.models import Reaction, Realm, RealmEmoji, UserProfile
 from zerver.models.realm_emoji import (
@@ -67,10 +69,29 @@ class EmojiData:
     reaction_type: str
 
 
+_rust_emoji_metadata = load_native_contract(
+    "ZULIP_RUST_PREPARED_EMOJI_METADATA", "PREPARED_EMOJI_METADATA_API"
+)
+
+
 def get_emoji_data(realm_id: int, emoji_name: str) -> EmojiData:
     # Even if emoji_name is either in name_to_codepoint or named "zulip",
     # we still need to call get_realm_active_emoji.
     realm_emoji_dict = get_name_keyed_dict_for_active_realm_emoji(realm_id)
+    select = getattr(_rust_emoji_metadata, "select_prepared_emoji_metadata", None)
+    if callable(select):
+        prepared = cast(
+            "tuple[str, int] | None", select(emoji_name, realm_emoji_dict, name_to_codepoint)
+        )
+        if prepared is not None:
+            codepoint, kind = prepared
+            reaction_type = (
+                Reaction.REALM_EMOJI,
+                Reaction.ZULIP_EXTRA_EMOJI,
+                Reaction.UNICODE_EMOJI,
+            )[kind]
+            return EmojiData(emoji_code=codepoint, reaction_type=reaction_type)
+
     realm_emoji = realm_emoji_dict.get(emoji_name)
 
     if realm_emoji is not None:

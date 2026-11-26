@@ -3,7 +3,7 @@
 use std::fmt::Write as _;
 
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyString};
+use pyo3::types::{PyBytes, PyDict, PyInt, PyString};
 
 use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes};
 
@@ -127,4 +127,43 @@ pub(crate) fn decode_exact_emoji_codepoints<'py>(
         }
     }
     python_string_from_bytes(input.py(), &decoded)
+}
+
+#[pyfunction]
+pub(crate) fn select_prepared_emoji_metadata<'py>(
+    name: &Bound<'py, PyAny>,
+    realm_emojis: &Bound<'py, PyAny>,
+    codepoints: &Bound<'py, PyAny>,
+) -> PyResult<Option<(Bound<'py, PyString>, u8)>> {
+    let (Ok(name), Ok(realm_emojis), Ok(codepoints)) = (
+        name.cast_exact::<PyString>(),
+        realm_emojis.cast_exact::<PyDict>(),
+        codepoints.cast_exact::<PyDict>(),
+    ) else {
+        return Ok(None);
+    };
+
+    // Realm overrides win even over the reserved Zulip emoji.
+    if let Some(row) = realm_emojis
+        .get_item(name)?
+        .filter(|value| !value.is_none())
+    {
+        let Ok(row) = row.cast_exact::<PyDict>() else {
+            return Ok(None);
+        };
+        let Some(id) = row.get_item("id")? else {
+            return Ok(None);
+        };
+        if id.cast_exact::<PyInt>().is_err() {
+            return Ok(None);
+        }
+        return Ok(Some((id.str()?, 0)));
+    }
+    if name.to_str().is_ok_and(|name| name == "zulip") {
+        return Ok(Some((name.clone(), 1)));
+    }
+    Ok(codepoints
+        .get_item(name)?
+        .and_then(|code| code.cast_into_exact::<PyString>().ok())
+        .map(|code| (code, 2)))
 }
