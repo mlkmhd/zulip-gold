@@ -17,10 +17,13 @@ import pika
 import time_machine
 from django.conf import settings
 from django.contrib.sessions.backends.db import SessionStore
+from django.db import connection, transaction
 from django.test import LiveServerTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now as timezone_now
 from typing_extensions import override
 
+from zerver.actions import scheduled_messages
 from zerver.actions.message_send import check_message
 from zerver.actions.realm_settings import (
     do_change_realm_permission_group_setting,
@@ -936,6 +939,32 @@ class ScheduledMessageTest(ZulipTestCase):
             self.assertEqual(
                 sender_user_message.flags.read, not is_message_to_self(delivered_message)
             )
+
+    def test_native_orm_claim_keeps_identical_query_and_row(self) -> None:
+        backend = scheduled_messages._scheduled_orm_claim_backend
+        if not callable(getattr(backend, "claim_due_scheduled_job_with_orm", None)):
+            self.skipTest("No scheduled ORM claim ABI")
+        self.create_scheduled_message()
+        job = self.last_scheduled_message()
+        now = timezone_now()
+        ScheduledMessage.objects.filter(id=job.id).update(
+            scheduled_timestamp=now - timedelta(minutes=1)
+        )
+        with transaction.atomic(), time_machine.travel(now, tick=False):
+            with (
+                mock.patch.object(scheduled_messages, "_scheduled_orm_claim_backend", None),
+                CaptureQueriesContext(connection) as reference_queries,
+            ):
+                expected = scheduled_messages._claim_due_scheduled_message()
+            with CaptureQueriesContext(connection) as native_queries:
+                actual = scheduled_messages._claim_due_scheduled_message()
+        self.assertEqual(actual, job)
+        self.assertEqual(actual, expected)
+        self.assertEqual(len(native_queries), 1)
+        self.assertEqual(
+            [query["sql"] for query in native_queries],
+            [query["sql"] for query in reference_queries],
+        )
 
     def test_claim_due_jobs_in_id_order(self) -> None:
         self.create_scheduled_message()

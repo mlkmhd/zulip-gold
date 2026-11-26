@@ -34,6 +34,7 @@ from zerver.lib.exceptions import (
     UserDeactivatedError,
 )
 from zerver.lib.message import SendMessageRequest, truncate_topic
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.reminders import (
     access_reminder_target,
     get_reminder_formatted_content,
@@ -69,6 +70,9 @@ _rust_scheduled_job_claim = (
     import_module("_zulip_backend")
     if os.environ.get("ZULIP_RUST_SCHEDULED_JOB_CLAIM") == "1"
     else None
+)
+_scheduled_orm_claim_backend = load_native_contract(
+    "ZULIP_RUST_SCHEDULED_ORM_CLAIM", "SCHEDULED_ORM_CLAIM_API"
 )
 _rust_scheduled_job_result = (
     import_module("_zulip_backend")
@@ -543,27 +547,33 @@ def send_failed_scheduled_message_notification(
     )
 
 
-@transaction.atomic(durable=True)
-def try_deliver_one_scheduled_message() -> bool:
-    # Returns whether there was a scheduled message to attempt
-    # delivery on, regardless of whether delivery succeeded.
-    if _rust_scheduled_job_claim is None:
-        scheduled_message = (
-            ScheduledMessage.objects.filter(
-                scheduled_timestamp__lte=timezone_now(),
-                delivered=False,
-                failed=False,
-            )
-            .select_for_update(no_key=True)
-            .first()
-        )
-    else:
-        scheduled_message = cast(
+def _claim_due_scheduled_message() -> ScheduledMessage | None:
+    if _rust_scheduled_job_claim is not None:
+        return cast(
             ScheduledMessage | None,
             _rust_scheduled_job_claim.lock_due_scheduled_job(
                 ScheduledMessage.objects.using(connection.alias), timezone_now()
             ),
         )
+    native = getattr(_scheduled_orm_claim_backend, "claim_due_scheduled_job_with_orm", None)
+    if callable(native):
+        return cast("ScheduledMessage | None", native(ScheduledMessage.objects, timezone_now()))
+    return (
+        ScheduledMessage.objects.filter(
+            scheduled_timestamp__lte=timezone_now(),
+            delivered=False,
+            failed=False,
+        )
+        .select_for_update(no_key=True)
+        .first()
+    )
+
+
+@transaction.atomic(durable=True)
+def try_deliver_one_scheduled_message() -> bool:
+    # Returns whether there was a scheduled message to attempt
+    # delivery on, regardless of whether delivery succeeded.
+    scheduled_message = _claim_due_scheduled_message()
 
     if scheduled_message is None:
         return False

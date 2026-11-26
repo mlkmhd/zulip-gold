@@ -312,6 +312,7 @@ mod _zulip_backend {
         module.add("PREPARED_SEND_EVENT_LABELS_API", 1)?;
         module.add("PREPARED_ACTIVITY_BATCH_API", 1)?;
         module.add("PREPARED_ACTIVITY_UPSERT_VALUES_API", 1)?;
+        module.add("SCHEDULED_ORM_CLAIM_API", 1)?;
         module.add("PREPARED_ACTIVITY_INTERVAL_API", 1)?;
         module.add("PREPARED_MISSED_EMAIL_BATCH_API", 1)?;
         module.add("PREPARED_MATTERMOST_NAME_API", 1)?;
@@ -3085,6 +3086,23 @@ mod _zulip_backend {
             ),
         )?;
         Ok(cursor.getattr("rowcount")?.extract::<i64>()? == 1)
+    }
+
+    #[pyfunction]
+    fn claim_due_scheduled_job_with_orm<'py>(
+        manager: &Bound<'py, PyAny>,
+        now: &Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let filter = PyDict::new(manager.py());
+        filter.set_item("scheduled_timestamp__lte", now)?;
+        filter.set_item("delivered", false)?;
+        filter.set_item("failed", false)?;
+        let locking = PyDict::new(manager.py());
+        locking.set_item("no_key", true)?;
+        manager
+            .call_method("filter", (), Some(&filter))?
+            .call_method("select_for_update", (), Some(&locking))?
+            .call_method0("first")
     }
 
     #[pyfunction]
