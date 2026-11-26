@@ -5,8 +5,9 @@ from unittest import mock
 
 import orjson
 import time_machine
-from django.db import transaction
+from django.db import connection, transaction
 from django.http import HttpResponse
+from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now as timezone_now
 
 from zerver.actions.create_realm import do_create_realm
@@ -33,6 +34,7 @@ from zerver.actions.user_groups import (
     remove_subgroups_from_user_group,
 )
 from zerver.actions.users import do_deactivate_user
+from zerver.lib import native_group_payload, user_groups
 from zerver.lib.create_user import create_user
 from zerver.lib.exceptions import JsonableError
 from zerver.lib.mention import silent_mention_syntax_for_user
@@ -45,6 +47,7 @@ from zerver.lib.types import GroupPermissionSetting, UserGroupMembersData, UserG
 from zerver.lib.user_groups import (
     check_user_has_permission_by_role,
     get_direct_user_groups,
+    get_members_and_subgroups_of_groups,
     get_recursive_group_members,
     get_recursive_group_members_union_for_groups,
     get_recursive_membership_groups,
@@ -102,6 +105,74 @@ class UserGroupTestCase(ZulipTestCase):
         return check_add_user_group(
             get_realm("zulip"), group_name, members, acting_user=acting_user
         )
+
+    def test_prepared_membership_keeps_query_order_and_active_filter(self) -> None:
+        actor = self.example_user("iago")
+        hamlet = self.example_user("hamlet")
+        othello = self.example_user("othello")
+        inactive = self.example_user("desdemona")
+        group = check_add_user_group(
+            actor.realm, "membership-parent", [othello, hamlet], acting_user=actor
+        )
+        empty = check_add_user_group(actor.realm, "membership-empty", [], acting_user=actor)
+        subgroup_a = check_add_user_group(actor.realm, "membership-sub-a", [], acting_user=actor)
+        subgroup_b = check_add_user_group(actor.realm, "membership-sub-b", [], acting_user=actor)
+        do_deactivate_user(inactive, acting_user=None)
+        UserGroupMembership.objects.create(user_group=group, user_profile=inactive)
+        GroupGroupMembership.objects.create(supergroup=group, subgroup=subgroup_b)
+        GroupGroupMembership.objects.create(supergroup=group, subgroup=subgroup_a)
+
+        ids = [empty.id, group.id, empty.id]
+        with mock.patch.object(native_group_payload, "_backend", None):
+            with (
+                mock.patch.object(native_group_payload, "_membership_backend", None),
+                CaptureQueriesContext(connection) as reference_queries,
+            ):
+                reference = get_members_and_subgroups_of_groups(ids)
+
+            with (
+                mock.patch.object(
+                    native_group_payload,
+                    "assemble_membership",
+                    wraps=native_group_payload.assemble_membership,
+                ) as assemble,
+                CaptureQueriesContext(connection) as actual_queries,
+            ):
+                actual = get_members_and_subgroups_of_groups(ids)
+            if native_group_payload._membership_backend is not None:
+                assemble.assert_called_once()
+                self.assertEqual(assemble.call_args.args[0], ids)
+                self.assertTrue(assemble.call_args.kwargs["prepared"])
+            else:
+                assemble.assert_not_called()
+
+            with (
+                mock.patch.object(
+                    user_groups, "UserGroupMembersData", side_effect=UserGroupMembersData
+                ) as factory,
+                mock.patch.object(native_group_payload, "assemble_membership") as assemble,
+            ):
+                self.assertEqual(get_members_and_subgroups_of_groups(ids), reference)
+            assemble.assert_not_called()
+            self.assertEqual(factory.call_count, 2 * len(ids))
+
+        self.assertEqual(actual, reference)
+        self.assertEqual(list(actual), [empty.id, group.id])
+        self.assertEqual(
+            actual[empty.id], UserGroupMembersData(direct_members=[], direct_subgroups=[])
+        )
+        self.assertEqual(
+            actual[group.id],
+            UserGroupMembersData(
+                direct_members=sorted([othello.id, hamlet.id]),
+                direct_subgroups=sorted([subgroup_a.id, subgroup_b.id]),
+            ),
+        )
+        self.assert_length(actual_queries, 1)
+        actual_sql = actual_queries[0]["sql"]
+        self.assertIn(" UNION ", actual_sql)
+        self.assertIn('"zerver_userprofile"."is_active"', actual_sql)
+        self.assertEqual([q["sql"] for q in reference_queries], [actual_sql])
 
     def test_user_groups_in_realm_serialized(self) -> None:
         def convert_date_created_to_timestamp(date_created: datetime | None) -> int | None:
@@ -177,7 +248,7 @@ class UserGroupTestCase(ZulipTestCase):
         self.assertEqual(user_groups[9]["members"], [])
         self.assertEqual(
             user_groups[9]["can_manage_group"],
-            UserGroupMembersDict(direct_members=[11], direct_subgroups=[]),
+            UserGroupMembersDict(direct_members=[user.id], direct_subgroups=[]),
         )
         self.assertEqual(user_groups[9]["can_mention_group"], everyone_group.id)
         self.assertFalse(user_groups[9]["deactivated"])

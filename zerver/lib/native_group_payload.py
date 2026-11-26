@@ -30,6 +30,9 @@ except ModuleNotFoundError as error:
 _roster_replay_backend = load_native_contract(
     "ZULIP_RUST_GROUP_ROSTER_REPLAY", "GROUP_ROSTER_REPLAY_API"
 )
+_membership_backend = load_native_contract(
+    "ZULIP_RUST_PREPARED_GROUP_MEMBERSHIP", "PREPARED_GROUP_MEMBERSHIP_API"
+)
 
 
 def append_roster_ids(selected: object, incoming: object) -> bool:
@@ -46,14 +49,20 @@ def subtract_roster_ids(selected: object, incoming: object) -> list[int] | None:
     return cast("list[int] | None", native(selected, incoming)) if callable(native) else None
 
 
-def membership_available() -> bool:
-    return getattr(_backend, "assemble_group_membership", None) is not None
+def membership_available(*, prepared: bool = False) -> bool:
+    backend = _membership_backend if prepared else _backend
+    return callable(getattr(backend, "assemble_group_membership", None))
 
 
 def assemble_membership(
-    groups: list[int], rows: list[tuple[str, int, int]], members_model: type[UserGroupMembersData]
+    groups: list[int],
+    rows: list[tuple[str, int, int]],
+    members_model: type[UserGroupMembersData],
+    *,
+    prepared: bool = False,
 ) -> dict[int, UserGroupMembersData] | None:
-    native = getattr(_backend, "assemble_group_membership", None)
+    backend = _membership_backend if prepared else _backend
+    native = getattr(backend, "assemble_group_membership", None)
     if native is None:
         return None
     return cast("dict[int, UserGroupMembersData] | None", native(groups, rows, members_model))

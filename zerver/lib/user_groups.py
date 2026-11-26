@@ -633,6 +633,11 @@ def get_group_setting_value_for_register_api(
     )
 
 
+_reference_group_members_data = UserGroupMembersData
+_reference_group_members_init = UserGroupMembersData.__init__
+_reference_group_members_new = UserGroupMembersData.__new__
+
+
 def get_members_and_subgroups_of_groups(
     group_ids: Iterable[int],
 ) -> dict[int, UserGroupMembersData]:
@@ -655,15 +660,22 @@ def get_members_and_subgroups_of_groups(
     all_members: Iterable[tuple[str, int, int]] = user_members.union(group_subgroups).values_list(
         "member_type", "group_id", "member_id"
     )
-    if native_group_payload.membership_available() and type(group_ids) in (
-        set,
-        frozenset,
-        list,
-        tuple,
-    ):
+    if type(group_ids) in (set, frozenset, list, tuple):
+        use_legacy = native_group_payload.membership_available()
+        use_prepared = (
+            not use_legacy
+            and native_group_payload.membership_available(prepared=True)
+            and UserGroupMembersData is _reference_group_members_data
+            and UserGroupMembersData.__init__ is _reference_group_members_init
+            and UserGroupMembersData.__new__ is _reference_group_members_new
+            and all(type(group_id) is int for group_id in group_ids)
+        )
+    else:
+        use_legacy = use_prepared = False
+    if use_legacy or use_prepared:
         materialized = list(all_members)
         native = native_group_payload.assemble_membership(
-            list(group_ids), materialized, UserGroupMembersData
+            list(group_ids), materialized, UserGroupMembersData, prepared=use_prepared
         )
         if native is not None:
             return native
