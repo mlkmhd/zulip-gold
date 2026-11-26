@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyFloat, PyInt, PyList, PyString};
 
+use crate::python_presence::utc_instant;
+
 type ActivityRow<'py> = (
     Bound<'py, PyAny>,
     Bound<'py, PyAny>,
@@ -63,4 +65,33 @@ pub(crate) fn group_prepared_user_activity<'py>(
         }
     }
     Some(rows)
+}
+
+#[pyfunction]
+pub(crate) fn plan_prepared_activity_interval<'py>(
+    old_start: &Bound<'py, PyAny>,
+    old_end: &Bound<'py, PyAny>,
+    new_start: &Bound<'py, PyAny>,
+    new_end: &Bound<'py, PyAny>,
+    policy: (Bound<'py, PyAny>, Bound<'py, PyAny>),
+) -> Option<(bool, Bound<'py, PyAny>, Bound<'py, PyAny>)> {
+    let old_start_time = utc_instant(old_start, &policy)?;
+    let old_end_time = utc_instant(old_end, &policy)?;
+    let new_start_time = utc_instant(new_start, &policy)?;
+    let new_end_time = utc_instant(new_end, &policy)?;
+    if new_start_time > old_end_time || new_end_time < old_start_time {
+        return Some((false, new_start.clone(), new_end.clone()));
+    }
+    // The first argument to Python min/max wins when values are equal.
+    let start = if new_start_time < old_start_time {
+        new_start
+    } else {
+        old_start
+    };
+    let end = if new_end_time > old_end_time {
+        new_end
+    } else {
+        old_end
+    };
+    Some((true, start.clone(), end.clone()))
 }

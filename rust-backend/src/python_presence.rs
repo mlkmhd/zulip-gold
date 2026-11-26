@@ -5,7 +5,7 @@ use crate::presence::{UtcInstant, legacy_presence};
 
 type DatePolicy<'py> = (Bound<'py, PyAny>, Bound<'py, PyAny>);
 
-fn utc_instant(value: &Bound<'_, PyAny>, policy: &DatePolicy<'_>) -> Option<UtcInstant> {
+pub(crate) fn utc_instant(value: &Bound<'_, PyAny>, policy: &DatePolicy<'_>) -> Option<UtcInstant> {
     let (datetime, utc) = policy;
     if !value.get_type().is(datetime) || !value.getattr("tzinfo").ok()?.is(utc) {
         return None;

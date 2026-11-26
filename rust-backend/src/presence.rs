@@ -5,7 +5,7 @@ const MAX_EXACT_TRUNCATION: i64 = (1_i64 << 33) * MICROS_PER_SECOND;
 const MAX_LEGACY_OFFSET_SECONDS: i64 = 1_000_000;
 const MONTH_STARTS: [i64; 12] = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct UtcInstant(i64);
 
 impl UtcInstant {
