@@ -29,6 +29,12 @@ _rust_scheduled_job_timestamp = (
     if os.environ.get("ZULIP_RUST_SCHEDULED_JOB_TIMESTAMP") == "1"
     else None
 )
+_rust_scheduled_delivery_comparison = load_native_contract(
+    "ZULIP_RUST_SCHEDULED_DELIVERY_COMPARISON", "SCHEDULED_DELIVERY_COMPARISON_API"
+)
+_rust_delivery_time_is_future = getattr(
+    _rust_scheduled_delivery_comparison, "scheduled_delivery_time_is_future", None
+)
 _rust_scheduled_recipient_shape = load_native_contract(
     "ZULIP_RUST_SCHEDULED_RECIPIENT_SHAPE", "SCHEDULED_RECIPIENT_SHAPE_API"
 )
@@ -38,6 +44,7 @@ _rust_scheduled_message_recipient = (
     else None
 )
 _UNIX_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+_REFERENCE_TIMESTAMP_CONVERTER = timestamp_to_datetime
 
 
 def parse_scheduled_job_argument(
@@ -63,12 +70,14 @@ ScheduledJobBoolean = Annotated[
 ]
 
 
+def _microseconds_since_epoch(value: datetime) -> int:
+    since_epoch = value - _UNIX_EPOCH
+    return (since_epoch.days * 86_400 + since_epoch.seconds) * 1_000_000 + since_epoch.microseconds
+
+
 def validate_scheduled_delivery_time(timestamp: int) -> datetime:
     if _rust_scheduled_job_timestamp is not None:
-        since_epoch = timezone_now() - _UNIX_EPOCH
-        now_microseconds = (
-            since_epoch.days * 86_400 + since_epoch.seconds
-        ) * 1_000_000 + since_epoch.microseconds
+        now_microseconds = _microseconds_since_epoch(timezone_now())
         future = _rust_scheduled_job_timestamp.scheduled_delivery_time_is_future(
             timestamp, now_microseconds
         )
@@ -77,8 +86,23 @@ def validate_scheduled_delivery_time(timestamp: int) -> datetime:
                 raise DeliveryTimeNotInFutureError
             return _UNIX_EPOCH + timedelta(seconds=timestamp)
 
-    deliver_at = timestamp_to_datetime(timestamp)
-    if deliver_at <= timezone_now():
+    convert = timestamp_to_datetime
+    deliver_at = convert(timestamp)
+    now = timezone_now()
+    future = None
+    if (
+        _rust_delivery_time_is_future is not None
+        and convert is _REFERENCE_TIMESTAMP_CONVERTER
+        and type(timestamp) is int
+        and type(deliver_at) is datetime
+        and deliver_at.tzinfo is timezone.utc
+        and type(now) is datetime
+        and now.tzinfo is timezone.utc
+    ):
+        future = _rust_delivery_time_is_future(timestamp, _microseconds_since_epoch(now))
+    if future is None:
+        future = not (deliver_at <= now)
+    if not future:
         raise DeliveryTimeNotInFutureError
     return deliver_at
 
