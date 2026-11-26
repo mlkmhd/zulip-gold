@@ -89,3 +89,27 @@ pub(crate) fn rank_eligible_digest_topic_indices(rows: &Bound<'_, PyAny>) -> Opt
     }
     Some(top_diversity.into_iter().map(|row| row.index).collect())
 }
+
+#[pyfunction]
+pub(crate) fn assemble_recent_digest_topics<'py>(
+    messages: &Bound<'py, PyAny>,
+    stream_id: &Bound<'py, PyAny>,
+    new_topic: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyList>> {
+    let py = messages.py();
+    let topic_map = pyo3::types::PyDict::new(py);
+    for message in messages.try_iter()? {
+        let message = message?;
+        let name = message.call_method0("topic_name")?;
+        let key = PyTuple::new(py, [stream_id, &name])?;
+        if !topic_map.contains(&key)? {
+            let topic = new_topic.call1((&key,))?;
+            topic_map.set_item(&key, topic)?;
+        }
+        topic_map
+            .as_any()
+            .get_item(&key)?
+            .call_method1("add_message", (message,))?;
+    }
+    Ok(topic_map.values())
+}

@@ -50,6 +50,9 @@ DIGEST_CUTOFF = 5
 MAX_HOT_TOPICS_TO_BE_INCLUDED_IN_DIGEST = 4
 
 _rust_digest_rank = load_native_contract("ZULIP_RUST_DIGEST_RANK", "DIGEST_TOPIC_RANK_API")
+_rust_recent_topic_aggregation = load_native_contract(
+    "ZULIP_RUST_DIGEST_TOPIC_AGGREGATION", "DIGEST_TOPIC_AGGREGATION_API"
+)
 
 TopicKey: TypeAlias = tuple[int, str]
 
@@ -233,6 +236,10 @@ def get_recent_topics(
             }
         )
     )
+
+    assemble = getattr(_rust_recent_topic_aggregation, "assemble_recent_digest_topics", None)
+    if callable(assemble):
+        return cast(list[DigestTopic], assemble(messages, stream_id, DigestTopic))
 
     digest_topic_map: dict[TopicKey, DigestTopic] = {}
     for message in messages:
