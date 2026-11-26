@@ -2,6 +2,7 @@ import os
 import sys
 from enum import Enum
 from importlib import import_module
+from typing import cast
 
 from django.conf import settings
 from django.utils.translation import gettext as _
@@ -19,6 +20,7 @@ from zerver.lib.markdown.fenced_code import get_unused_fence
 from zerver.lib.mention import silent_mention_syntax_for_user
 from zerver.lib.message import access_message, format_sorted_user_mentions, truncate_content
 from zerver.lib.message_cache import MessageDict
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.topic_link_util import (
     TOPIC_LINK_SYNTAX_FOR_DISPLAY,
     escape_invalid_stream_topic_characters,
@@ -28,6 +30,13 @@ from zerver.lib.url_encoding import message_link_url, stream_message_url
 from zerver.models import Message, Stream, UserProfile
 from zerver.models.scheduled_jobs import ScheduledMessage
 from zerver.tornado.django_api import send_event_on_commit
+
+_rust_exact_reminder_quote = load_native_contract(
+    "ZULIP_RUST_REMINDER_QUOTE_TEXT", "REMINDER_QUOTE_TEXT_API"
+)
+_reference_quote_body = MESSAGE_QUOTE_BODY
+_reference_unused_fence = get_unused_fence
+_reference_truncate_content = truncate_content
 
 _rust_reminder_quote = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_REMINDER_QUOTE") == "1" else None
@@ -202,6 +211,16 @@ def get_reminder_formatted_content(
     else:
         content += REMINDER_FORMAT[format_recipient_type_key]["text"].format_map(context)
         content += "\n"
+        append_exact = getattr(_rust_exact_reminder_quote, "append_exact_reminder_quote", None)
+        if (
+            append_exact is not None
+            and MESSAGE_QUOTE_BODY is _reference_quote_body
+            and get_unused_fence is _reference_unused_fence
+            and truncate_content is _reference_truncate_content
+        ):
+            result = append_exact(content, message.content, settings.MAX_MESSAGE_LENGTH)
+            if result is not None:
+                return cast(str, result)
         if _rust_reminder_quote is not None and 0 <= settings.MAX_MESSAGE_LENGTH <= sys.maxsize:
             quoted: str | None = _rust_reminder_quote.append_reminder_quote(
                 content, message.content, settings.MAX_MESSAGE_LENGTH

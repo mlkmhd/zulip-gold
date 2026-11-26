@@ -21,6 +21,7 @@ from zerver.lib.timestamp import timestamp_to_datetime
 from zerver.lib.types import UserGroupMembersData
 from zerver.models import Message, NamedUserGroup, ScheduledMessage, UserMessage
 from zerver.models.recipients import Recipient, get_or_create_direct_message_group
+from zerver.models.streams import get_stream
 from zerver.models.users import UserProfile
 
 if TYPE_CHECKING:
@@ -77,19 +78,27 @@ class RemindersTest(ZulipTestCase):
             self.example_user("hamlet"), self.example_user("othello"), content
         )
 
+    def expected_hamlet_othello_ids(self) -> str:
+        hamlet = self.example_user("hamlet")
+        othello = self.example_user("othello")
+        return ",".join(str(pk) for pk in sorted((hamlet.id, othello.id)))
+
+    def fixture_verona_id(self) -> int:
+        return get_stream("Verona", self.example_user("hamlet").realm).id
+
     def get_dm_reminder_content(
         self, msg_content: str, msg_id: int, dm_recipients: Sequence[UserProfile]
     ) -> str:
         recipient_mentions = get_user_mentions_for_display(list(dm_recipients))
         return (
             "You requested a reminder for the following direct message.\n\n"
-            f"@_**King Hamlet|10** [said](http://zulip.testserver/#narrow/dm/10,12/near/{msg_id}) to {recipient_mentions}:\n```quote\n{msg_content}\n```"
+            f"@_**King Hamlet|{self.example_user('hamlet').id}** [said](http://zulip.testserver/#narrow/dm/{self.expected_hamlet_othello_ids()}/near/{msg_id}) to {recipient_mentions}:\n```quote\n{msg_content}\n```"
         )
 
     def get_channel_message_reminder_content(self, msg_content: str, msg_id: int) -> str:
         return (
             f"You requested a reminder for the following message.\n\n"
-            f"@_**King Hamlet|10** [said](http://zulip.testserver/#narrow/channel/3-Verona/topic/test/near/{msg_id}) in [#Verona > test](#narrow/channel/3-Verona/topic/test/with/{msg_id}):\n```quote\n{msg_content}\n```"
+            f"@_**King Hamlet|{self.example_user('hamlet').id}** [said](http://zulip.testserver/#narrow/channel/{self.fixture_verona_id()}-Verona/topic/test/near/{msg_id}) in [#Verona > test](#narrow/channel/{self.fixture_verona_id()}-Verona/topic/test/with/{msg_id}):\n```quote\n{msg_content}\n```"
         )
 
     def test_schedule_reminder(self) -> None:
@@ -615,7 +624,7 @@ class RemindersTest(ZulipTestCase):
                 delivered_message.content,
                 "You requested a reminder for the following direct message."
                 "\n\n"
-                f"@_**King Hamlet|10** [sent](http://zulip.testserver/#narrow/dm/10,12/near/{reminder.reminder_target_message_id}) a poll to {recipient_mentions}.",
+                f"@_**King Hamlet|{self.example_user('hamlet').id}** [sent](http://zulip.testserver/#narrow/dm/{self.expected_hamlet_othello_ids()}/near/{reminder.reminder_target_message_id}) a poll to {recipient_mentions}.",
             )
             self.assertEqual(delivered_message.date_sent, more_than_scheduled_delivery_datetime)
 
@@ -651,7 +660,7 @@ class RemindersTest(ZulipTestCase):
                 delivered_message.content,
                 "You requested a reminder for the following direct message."
                 "\n\n"
-                f"@_**King Hamlet|10** [sent](http://zulip.testserver/#narrow/dm/10,12/near/{reminder.reminder_target_message_id}) a todo list to {recipient_mentions}.",
+                f"@_**King Hamlet|{self.example_user('hamlet').id}** [sent](http://zulip.testserver/#narrow/dm/{self.expected_hamlet_othello_ids()}/near/{reminder.reminder_target_message_id}) a todo list to {recipient_mentions}.",
             )
             self.assertEqual(delivered_message.date_sent, more_than_scheduled_delivery_datetime)
 
@@ -669,7 +678,7 @@ class RemindersTest(ZulipTestCase):
         self.assertEqual(
             scheduled_message.content,
             f"You requested a reminder for the following message. Note:\n > {note}\n\n"
-            f"@_**King Hamlet|10** [said](http://zulip.testserver/#narrow/channel/3-Verona/topic/test/near/{message_id}) in [#Verona > test](#narrow/channel/3-Verona/topic/test/with/{message_id}):\n```quote\n{content}\n```",
+            f"@_**King Hamlet|{self.example_user('hamlet').id}** [said](http://zulip.testserver/#narrow/channel/{self.fixture_verona_id()}-Verona/topic/test/near/{message_id}) in [#Verona > test](#narrow/channel/{self.fixture_verona_id()}-Verona/topic/test/with/{message_id}):\n```quote\n{content}\n```",
         )
 
         message_id = self.send_dm_from_hamlet_to_othello(content)
@@ -679,7 +688,7 @@ class RemindersTest(ZulipTestCase):
         self.assertEqual(
             scheduled_message.content,
             f"You requested a reminder for the following direct message. Note:\n > {note}\n\n"
-            f"@_**King Hamlet|10** [said](http://zulip.testserver/#narrow/dm/10,12/near/{message_id}) to {recipient_mentions}:\n```quote\n{content}\n```",
+            f"@_**King Hamlet|{self.example_user('hamlet').id}** [said](http://zulip.testserver/#narrow/dm/{self.expected_hamlet_othello_ids()}/near/{message_id}) to {recipient_mentions}:\n```quote\n{content}\n```",
         )
 
         # Test with no note
@@ -715,8 +724,8 @@ class RemindersTest(ZulipTestCase):
         self.assertEqual(
             scheduled_message.content,
             "You requested a reminder for the following message. Note:\n > {123}\n\n"
-            f"@_**King Hamlet|10** [said](http://zulip.testserver/#narrow/channel/3-Verona/topic/.7B789.7D/near/{message_id})"
-            " in [#Verona > {789}](#narrow/channel/3-Verona/topic/.7B789.7D/with/"
+            f"@_**King Hamlet|{self.example_user('hamlet').id}** [said](http://zulip.testserver/#narrow/channel/{self.fixture_verona_id()}-Verona/topic/.7B789.7D/near/{message_id})"
+            f" in [#Verona > {{789}}](#narrow/channel/{self.fixture_verona_id()}-Verona/topic/.7B789.7D/with/"
             f"{message_id}):\n"
             f"```quote\n{content}\n```",
         )
@@ -745,7 +754,7 @@ class RemindersTest(ZulipTestCase):
         reminder = self.last_scheduled_reminder()
         self.assertIn(
             "[#Verona > &#91;x&#93; &amp; &#36;&#36;$ &gt; &#96;&#42;]"
-            f"(#narrow/channel/3-Verona/topic/.5Bx.5D.20.26.20.24.24.24.20.3E.20.60.2A/with/{message_id})",
+            f"(#narrow/channel/{self.fixture_verona_id()}-Verona/topic/.5Bx.5D.20.26.20.24.24.24.20.3E.20.60.2A/with/{message_id})",
             reminder.content,
         )
 
@@ -775,7 +784,7 @@ class RemindersTest(ZulipTestCase):
             f"""
 You requested a reminder for the following message.
 
-@_**King Hamlet|10** [said](http://zulip.testserver/#narrow/channel/3-Verona/topic/test/near/{message_id}) in [#Verona > test](#narrow/channel/3-Verona/topic/test/with/{message_id}):
+@_**King Hamlet|{self.example_user("hamlet").id}** [said](http://zulip.testserver/#narrow/channel/{self.fixture_verona_id()}-Verona/topic/test/near/{message_id}) in [#Verona > test](#narrow/channel/{self.fixture_verona_id()}-Verona/topic/test/with/{message_id}):
 ````quote
 Look at this:
 ```

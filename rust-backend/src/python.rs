@@ -361,6 +361,7 @@ mod _zulip_backend {
         module.add("CHANNEL_STOCK_COLORS_API", 1)?;
         module.add("COMPOSE_QUOTE_BUDGET_API", 1)?;
         module.add("THUMBNAIL_DISPLAY_RANK_API", 1)?;
+        module.add("REMINDER_QUOTE_TEXT_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
         module.add("MARKDOWN_HEADINGS_API", 1)?;
         module.add("MARKDOWN_HORIZONTAL_RULES_API", 1)?;
@@ -2196,6 +2197,23 @@ mod _zulip_backend {
         max_length: usize,
     ) -> Option<String> {
         reminder_quote::append_quote(prefix.to_str().ok()?, message.to_str().ok()?, max_length)
+    }
+
+    #[pyfunction]
+    fn append_exact_reminder_quote<'py>(
+        prefix: &Bound<'py, PyAny>,
+        message: &Bound<'py, PyAny>,
+        limit: &Bound<'py, PyAny>,
+    ) -> Option<Bound<'py, PyString>> {
+        let prefix = prefix.cast_exact::<PyString>().ok()?;
+        let message = message.cast_exact::<PyString>().ok()?;
+        let limit = limit.cast_exact::<PyInt>().ok()?.extract::<i64>().ok()?;
+        let content = reminder_quote::append_exact_quote(
+            &python_string_bytes(prefix)?,
+            &python_string_bytes(message)?,
+            limit,
+        )?;
+        python_string_from_bytes(prefix.py(), &content)
     }
 
     #[pyfunction]
