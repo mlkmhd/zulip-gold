@@ -407,6 +407,7 @@ mod _zulip_backend {
         module.add("PREPARED_SCHEDULED_INPUT_API", 1)?;
         module.add("PREPARED_TOPIC_LINK_SELECTION_API", 1)?;
         module.add("PREPARED_MESSAGE_EDIT_FLAGS_API", 1)?;
+        module.add("PREPARED_SEND_RECEIPT_MASKS_API", 1)?;
         module.add("EXACT_MESSAGE_BODY_API", 1)?;
         module.add("PREPARED_RECENT_DM_ROWS_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;

@@ -102,7 +102,10 @@ class MessageSendMasksRustTest(ZulipTestCase):
                 )
             ]
 
-        with patch.object(native_message_send_masks, "_backend", None):
+        with (
+            patch.object(native_message_send_masks, "_backend", None),
+            patch.object(native_message_send_masks, "_prepared_backend", None),
+        ):
             reference = receipt_rows()
         self.assertEqual([row[0] for row in reference], [i for i in eligible if i != omitted])
         self.assertEqual(
@@ -123,7 +126,22 @@ class MessageSendMasksRustTest(ZulipTestCase):
             SimpleNamespace(),
             SimpleNamespace(plan_new_user_message_masks=decline),
         ):
-            with patch.object(native_message_send_masks, "_backend", candidate):
+            with (
+                patch.object(native_message_send_masks, "_backend", candidate),
+                patch.object(native_message_send_masks, "_prepared_backend", None),
+            ):
                 self.assertEqual(receipt_rows(), reference)
-        witness.assert_called_once()
+        with (
+            patch.object(native_message_send_masks, "_backend", None),
+            patch.object(
+                native_message_send_masks,
+                "_prepared_backend",
+                SimpleNamespace(plan_new_user_message_masks=witness),
+            ),
+        ):
+            self.assertEqual(receipt_rows(), reference)
+            self.assertIsNone(
+                native_message_send_masks.plan([100], -1, set(), set(), set(), set(), None)
+            )
+        self.assertEqual(witness.call_count, 2)
         decline.assert_called_once()
