@@ -95,10 +95,12 @@ fn ordered_group_scan_keeps_first_position_and_upgrades_silent() {
     );
 }
 
-fn silence_mentions<'a>(content: &'a str, stars: &str) -> Cow<'a, str> {
+fn silence_mentions<'a>(content: &'a str, stars: &str) -> (Cow<'a, str>, bool) {
     let mut output = String::new();
     let mut copied = 0;
+    let mut seen = false;
     visit_mentions(content, stars, |range, _name, silent| {
+        seen = true;
         if !silent {
             output.push_str(&content[copied..range.start + 1]);
             output.push('_');
@@ -106,16 +108,36 @@ fn silence_mentions<'a>(content: &'a str, stars: &str) -> Cow<'a, str> {
         }
     });
     if copied == 0 {
-        Cow::Borrowed(content)
+        (Cow::Borrowed(content), seen)
     } else {
         output.push_str(&content[copied..]);
-        Cow::Owned(output)
+        (Cow::Owned(output), seen)
     }
 }
 
+pub(crate) fn silence_quoted_mentions_with_matches(content: &str) -> (String, bool) {
+    let (users, saw_user) = silence_mentions(content, "**");
+    let (groups, saw_group) = silence_mentions(&users, "*");
+    (groups.into_owned(), saw_user || saw_group)
+}
+
 pub(crate) fn silence_quoted_mentions(content: &str) -> String {
-    let users = silence_mentions(content, "**");
-    silence_mentions(&users, "*").into_owned()
+    silence_quoted_mentions_with_matches(content).0
+}
+
+#[cfg(test)]
+#[test]
+fn distinguishes_already_silent_mentions_from_no_matches() {
+    for (line, saw_match) in [
+        ("quote without mention", false),
+        ("quote @_**Alice**", true),
+        ("quote @_*devel*", true),
+    ] {
+        assert_eq!(
+            silence_quoted_mentions_with_matches(line),
+            (line.to_owned(), saw_match)
+        );
+    }
 }
 
 #[cfg(test)]

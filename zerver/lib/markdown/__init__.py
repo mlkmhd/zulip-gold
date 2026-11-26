@@ -138,6 +138,9 @@ _rust_markdown_quote_mentions = (
     if os.environ.get("ZULIP_RUST_MARKDOWN_QUOTE_MENTIONS") == "1"
     else None
 )
+_rust_prepared_quote_mentions = load_native_contract(
+    "ZULIP_RUST_PREPARED_QUOTE_MENTIONS", "PREPARED_QUOTE_MENTION_API"
+)
 _rust_markdown_inline_mentions = (
     import_module("_zulip_backend")
     if os.environ.get("ZULIP_RUST_MARKDOWN_INLINE_MENTIONS") == "1"
@@ -1850,6 +1853,28 @@ _STANDARD_BLOCKQUOTE_RE = re.compile(
 )
 
 
+def _silence_blockquote_mentions(line: str, *, standard: bool) -> str:
+    if _rust_markdown_quote_mentions is not None:
+        result = _rust_markdown_quote_mentions.silence_quoted_markdown_mentions(line)
+        if result is not None:
+            return result
+    elif (
+        standard
+        and type(line) is str
+        and mention.MENTIONS_RE is mention._reference_user_mention_regex
+        and mention.USER_GROUP_MENTIONS_RE is mention._reference_group_mention_regex
+    ):
+        silence = getattr(
+            _rust_prepared_quote_mentions, "silence_prepared_markdown_quote_mentions", None
+        )
+        if silence is not None:
+            result = silence(line)
+            if result is not None:
+                return result
+    line = mention.MENTIONS_RE.sub(lambda m: "@_**{}**".format(m.group("match")), line)
+    return mention.USER_GROUP_MENTIONS_RE.sub(lambda m: "@_*{}*".format(m.group("match")), line)
+
+
 class BlockQuoteProcessor(markdown.blockprocessors.BlockQuoteProcessor):
     """Process block quotes.
 
@@ -1916,20 +1941,7 @@ class BlockQuoteProcessor(markdown.blockprocessors.BlockQuoteProcessor):
 
     @override
     def clean(self, line: str) -> str:
-        rust_result = (
-            _rust_markdown_quote_mentions.silence_quoted_markdown_mentions(line)
-            if _rust_markdown_quote_mentions is not None
-            else None
-        )
-        if rust_result is not None:
-            line = rust_result
-        else:
-            # Silence all the mentions inside blockquotes
-            line = mention.MENTIONS_RE.sub(lambda m: "@_**{}**".format(m.group("match")), line)
-            # Silence all the user group mentions inside blockquotes
-            line = mention.USER_GROUP_MENTIONS_RE.sub(
-                lambda m: "@_*{}*".format(m.group("match")), line
-            )
+        line = _silence_blockquote_mentions(line, standard=type(self) is BlockQuoteProcessor)
         if (
             _rust_markdown_blockquotes is not None
             and type(self) is BlockQuoteProcessor

@@ -413,6 +413,7 @@ mod _zulip_backend {
         module.add("PREPARED_BOT_STORAGE_DELTA_API", 1)?;
         module.add("PREPARED_USER_MENTION_SCAN_API", 1)?;
         module.add("PREPARED_GROUP_MENTION_SCAN_API", 1)?;
+        module.add("PREPARED_QUOTE_MENTION_API", 1)?;
         module.add("EXACT_MESSAGE_BODY_API", 1)?;
         module.add("PREPARED_RECENT_DM_ROWS_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
@@ -1811,6 +1812,20 @@ mod _zulip_backend {
             result.set_item(name, state)?;
         }
         Ok(Some(result))
+    }
+
+    #[pyfunction]
+    fn silence_prepared_markdown_quote_mentions<'py>(
+        content: &Bound<'py, PyAny>,
+    ) -> Option<Bound<'py, PyString>> {
+        let exact = content.cast_exact::<PyString>().ok()?;
+        let (silenced, saw_match) =
+            markdown_mentions::silence_quoted_mentions_with_matches(exact.to_str().ok()?);
+        if saw_match {
+            Some(PyString::new(content.py(), &silenced))
+        } else {
+            Some(exact.clone())
+        }
     }
 
     #[pyfunction]
