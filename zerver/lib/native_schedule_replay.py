@@ -1,19 +1,10 @@
-"""Optional replay of events already selected by Django for one owner's state."""
+"""Native replay of events already selected by Django for one owner's state."""
 
-import os
-from importlib import import_module
 from typing import cast
 
-try:
-    _backend = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_SCHEDULE_REPLAY") == "1"
-        else None
-    )
-except ModuleNotFoundError as error:
-    if error.name != "_zulip_backend":
-        raise
-    _backend = None
+from zerver.lib.native_backend import load_native_contract
+
+_backend = load_native_contract("ZULIP_RUST_SCHEDULE_REPLAY", "SCHEDULED_LIST_REPLAY_API")
 
 
 def apply(state: dict[str, object], event: dict[str, object]) -> bool:
