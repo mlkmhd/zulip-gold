@@ -363,6 +363,7 @@ mod _zulip_backend {
         module.add("THUMBNAIL_DISPLAY_RANK_API", 1)?;
         module.add("REMINDER_QUOTE_TEXT_API", 1)?;
         module.add("PRESENCE_MODERN_TIMESTAMPS_API", 1)?;
+        module.add("REMINDER_NOTE_TEXT_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
         module.add("MARKDOWN_HEADINGS_API", 1)?;
         module.add("MARKDOWN_HORIZONTAL_RULES_API", 1)?;
@@ -2158,6 +2159,25 @@ mod _zulip_backend {
                 None => (false, ""),
             },
         )
+    }
+
+    #[pyfunction]
+    fn normalize_exact_reminder_note<'py>(
+        note: &Bound<'py, PyAny>,
+        max_length: &Bound<'py, PyAny>,
+    ) -> Option<(bool, Bound<'py, PyString>)> {
+        let note = note.cast_exact::<PyString>().ok()?;
+        let max_length = max_length
+            .cast_exact::<PyInt>()
+            .ok()?
+            .extract::<i64>()
+            .ok()?;
+        let bytes = python_string_bytes(note)?;
+        match reminder_context::normalize_exact_note(&bytes, max_length) {
+            Some(output) if output.len() == bytes.len() => Some((true, note.clone())),
+            Some(output) => Some((true, python_string_from_bytes(note.py(), output)?)),
+            None => Some((false, PyString::new(note.py(), ""))),
+        }
     }
 
     #[pyfunction]

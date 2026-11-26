@@ -31,6 +31,9 @@ from zerver.models import Message, Stream, UserProfile
 from zerver.models.scheduled_jobs import ScheduledMessage
 from zerver.tornado.django_api import send_event_on_commit
 
+_rust_reminder_note_text = load_native_contract(
+    "ZULIP_RUST_REMINDER_NOTE_TEXT", "REMINDER_NOTE_TEXT_API"
+)
 _rust_exact_reminder_quote = load_native_contract(
     "ZULIP_RUST_REMINDER_QUOTE_TEXT", "REMINDER_QUOTE_TEXT_API"
 )
@@ -63,7 +66,14 @@ def access_reminder_target(user: UserProfile, message_id: int) -> Message:
 def normalize_note_text(body: str) -> str:
     max_length = settings.MAX_REMINDER_NOTE_LENGTH
     rust_result: tuple[bool, str] | None = None
-    if _rust_reminder_context is not None and 0 <= max_length <= sys.maxsize:
+    normalize = getattr(_rust_reminder_note_text, "normalize_exact_reminder_note", None)
+    if normalize is not None and type(body) is str:
+        rust_result = cast("tuple[bool, str] | None", normalize(body, max_length))
+    if (
+        rust_result is None
+        and _rust_reminder_context is not None
+        and 0 <= max_length <= sys.maxsize
+    ):
         rust_result = _rust_reminder_context.normalize_reminder_note(body, max_length)
 
     if rust_result is None:

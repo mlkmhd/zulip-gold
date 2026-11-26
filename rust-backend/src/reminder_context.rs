@@ -5,6 +5,34 @@ pub(crate) fn normalize_note(note: &str, max_length: usize) -> Option<&str> {
     (note.chars().count() <= max_length).then_some(note)
 }
 
+#[cfg(any(feature = "python", test))]
+pub(crate) fn normalize_exact_note(note: &[u8], max_length: i64) -> Option<&[u8]> {
+    let trimmed = if let Ok(text) = std::str::from_utf8(note) {
+        trim_message_body(text).as_bytes()
+    } else {
+        // Each invalid chunk is part of a lone surrogate. It is not
+        // whitespace and prevents stripping any preceding character.
+        let mut end = 0;
+        let mut offset = 0;
+        for chunk in note.utf8_chunks() {
+            for (start, ch) in chunk.valid().char_indices() {
+                if !crate::draft_text::is_python_whitespace(ch) {
+                    end = offset + start + ch.len_utf8();
+                }
+            }
+            offset += chunk.valid().len() + chunk.invalid().len();
+            if !chunk.invalid().is_empty() {
+                end = offset;
+            }
+        }
+        let trimmed = &note[..end];
+        let start = trimmed.iter().take_while(|&&byte| byte == b'\n').count();
+        &trimmed[start..]
+    };
+    let chars = trimmed.iter().filter(|&&byte| byte & 0xc0 != 0x80).count() as i128;
+    (chars <= i128::from(max_length)).then_some(trimmed)
+}
+
 pub(crate) fn widget_label(content: &str) -> Option<&'static str> {
     if content.starts_with("/poll") {
         Some("poll")
