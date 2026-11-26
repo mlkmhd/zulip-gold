@@ -278,6 +278,23 @@ def get_channel_privacy_icon(channel: Stream) -> str:
     return "#"
 
 
+_plaintext_url_backend = load_native_contract(
+    "ZULIP_RUST_EMAIL_PLAINTEXT_URLS", "EMAIL_PLAINTEXT_URLS_API"
+)
+_reference_plaintext_re_sub = re.sub
+
+
+def _format_plaintext_message_urls(content: str, realm_url: str) -> str:
+    native = getattr(_plaintext_url_backend, "format_prepared_email_plaintext_urls", None)
+    if callable(native) and re.sub is _reference_plaintext_re_sub:
+        formatted = cast("str | None", native(content, realm_url))
+        if formatted is not None:
+            return formatted
+    # The less restrictive plaintext match intentionally differs from HTML.
+    content = re.sub(r"\[(\S*)\]\((\S*)\)", r"\2", content)
+    return re.sub(r"/user_uploads/(\S*)", realm_url + r"/user_uploads/\1", content)
+
+
 def build_message_list(
     user: UserProfile,
     messages: list[Message],
@@ -296,12 +313,6 @@ def build_message_list(
             if len(display_recipient) > 2:
                 return message.sender.full_name
         return ""
-
-    def fix_plaintext_image_urls(content: str) -> str:
-        # Replace image URLs in plaintext content of the form
-        #     [image name](image url)
-        # with a simple hyperlink.
-        return re.sub(r"\[(\S*)\]\((\S*)\)", r"\2", content)
 
     def prepend_sender_to_message(
         message_plain: str, message_html: Markup, sender: str
@@ -330,14 +341,7 @@ def build_message_list(
         return message_plain, Markup(BeautifulSoup.decode(message_soup))
 
     def build_message_payload(message: Message, sender: str | None = None) -> FormattedText:
-        plain = message.content
-        plain = fix_plaintext_image_urls(plain)
-        # There's a small chance of colliding with non-Zulip URLs containing
-        # "/user_uploads/", but we don't have much information about the
-        # structure of the URL to leverage. We can't use `relative_to_full_url()`
-        # function here because it uses a stricter regex which will not work for
-        # plain text.
-        plain = re.sub(r"/user_uploads/(\S*)", user.realm.url + r"/user_uploads/\1", plain)
+        plain = _format_plaintext_message_urls(message.content, user.realm.url)
         plain = fix_spoilers_in_text(plain, user.default_language)
         plain = add_quote_prefix_in_text(plain)
 
