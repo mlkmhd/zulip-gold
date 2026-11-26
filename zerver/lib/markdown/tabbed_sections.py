@@ -19,10 +19,13 @@ _rust_normalize_prepared_tabbed_lines = getattr(
     _rust_tabbed_text, "normalize_prepared_tabbed_lines", None
 )
 _rust_join_prepared_tabbed_blocks = getattr(_rust_tabbed_text, "join_prepared_tabbed_blocks", None)
+_rust_parse_prepared_tab_markers = getattr(_rust_tabbed_text, "parse_prepared_tab_markers", None)
 
 START_TABBED_SECTION_REGEX = re.compile(r"^\{start_tabs\}$")
 END_TABBED_SECTION_REGEX = re.compile(r"^\{end_tabs\}$")
 TAB_CONTENT_REGEX = re.compile(r"^\{tab\|([^}]+)\}$")
+
+_TAB_MARKER_PATTERNS = (START_TABBED_SECTION_REGEX, TAB_CONTENT_REGEX, END_TABBED_SECTION_REGEX)
 
 TABBED_SECTION_TEMPLATE = """
 <div class="tabbed-section {tab_class}" markdown="1">
@@ -80,6 +83,18 @@ class TabbedSectionsGenerator(Extension):
 
 
 def parse_tabs(lines: list[str]) -> dict[str, Any] | None:
+    if (
+        _rust_parse_prepared_tab_markers is not None
+        and (
+            START_TABBED_SECTION_REGEX,
+            TAB_CONTENT_REGEX,
+            END_TABBED_SECTION_REGEX,
+        )
+        == _TAB_MARKER_PATTERNS
+    ):
+        native = _rust_parse_prepared_tab_markers(lines)
+        if native is not None:
+            return native
     block: dict[str, Any] = {}
     for index, line in enumerate(lines):
         start_match = START_TABBED_SECTION_REGEX.search(line)

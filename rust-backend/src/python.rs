@@ -742,7 +742,9 @@ mod _zulip_backend {
     use crate::python_analytics_subgroup_projection::project_analytics_subgroup_series;
 
     #[pymodule_export]
-    use crate::python_tabbed_text::{join_prepared_tabbed_blocks, normalize_prepared_tabbed_lines};
+    use crate::python_tabbed_text::{
+        join_prepared_tabbed_blocks, normalize_prepared_tabbed_lines, parse_prepared_tab_markers,
+    };
 
     #[pymodule_export]
     use crate::python_commit_display::{project_commit_display_row, rank_commit_display_names};
