@@ -69,3 +69,62 @@ pub(crate) fn format_prepared_email_plaintext_urls(
             .into_owned(),
     )
 }
+
+#[pyfunction]
+pub(crate) fn redact_prepared_email_plaintext_spoilers<'py>(
+    content: &Bound<'py, PyAny>,
+    title: &Bound<'py, PyAny>,
+    match_fence: &Bound<'py, PyAny>,
+) -> PyResult<Option<Bound<'py, PyString>>> {
+    let (Ok(content), Ok(title)) = (
+        content.cast_exact::<PyString>(),
+        title.cast_exact::<PyString>(),
+    ) else {
+        return Ok(None);
+    };
+    let py = content.py();
+    let (Some(content), Some(title)) = (python_string_bytes(content), python_string_bytes(title))
+    else {
+        return Ok(None);
+    };
+    let label = [b"(", title.as_ref(), b")"].concat();
+    let mut rendered = Vec::with_capacity(content.len());
+    let mut has_line = false;
+    let mut append_line = |line: &[u8]| {
+        if has_line {
+            rendered.push(b'\n');
+        }
+        has_line = true;
+        rendered.extend_from_slice(line);
+    };
+    let mut open: Option<String> = None;
+    for line in content.split(|&byte| byte == b'\n') {
+        // The existing anchored matcher remains the authority for
+        // candidate fences, including uncommon headers and Unicode.
+        if line.starts_with(b"```") || line.starts_with(b"~~~") {
+            let Some(candidate) = python_string_from_bytes(py, line) else {
+                return Ok(None);
+            };
+            let matched = match_fence.call1((candidate,))?;
+            if !matched.is_none() {
+                let fence = matched
+                    .call_method1("group", ("fence",))?
+                    .extract::<String>()?;
+                let language = matched.call_method1("group", ("lang",))?;
+                if !language.is_none() && language.eq("spoiler")? {
+                    open = Some(fence);
+                    append_line(line);
+                    append_line(&label);
+                } else if open.as_deref() == Some(fence.as_str()) {
+                    open = None;
+                    append_line(line);
+                }
+                continue;
+            }
+        }
+        if open.is_none() {
+            append_line(line);
+        }
+    }
+    Ok(python_string_from_bytes(py, &rendered))
+}

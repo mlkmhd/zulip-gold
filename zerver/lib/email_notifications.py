@@ -75,6 +75,12 @@ _rust_email_plain_prefix = load_native_contract(
 )
 
 
+_rust_email_plain_spoilers = load_native_contract(
+    "ZULIP_RUST_EMAIL_PLAIN_SPOILERS", "EMAIL_PLAIN_SPOILER_API"
+)
+_original_email_fence = FENCE_RE
+
+
 def relative_to_full_url(fragment: lxml.html.HtmlElement, base_url: str) -> None:
     # We handle narrow URLs separately because of two reasons:
     # 1: 'lxml' seems to be having an issue in dealing with URLs that begin
@@ -207,6 +213,12 @@ def fix_spoilers_in_html(fragment: lxml.html.HtmlElement, language: str) -> None
 def fix_spoilers_in_text(content: str, language: str) -> str:
     with override_language(language):
         spoiler_title: str = _("Open Zulip to see the spoiler content")
+    redact = getattr(_rust_email_plain_spoilers, "redact_prepared_email_plaintext_spoilers", None)
+    if callable(redact) and FENCE_RE is _original_email_fence:
+        result = redact(content, spoiler_title, FENCE_RE.match)
+        if result is not None:
+            return cast(str, result)
+
     lines = content.split("\n")
     output = []
     open_fence = None
