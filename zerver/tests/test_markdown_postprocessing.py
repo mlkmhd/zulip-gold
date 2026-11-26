@@ -199,6 +199,27 @@ class MarkdownPostprocessingTest(TestCase):
             with self.assertRaises(IndexError):
                 processor.run(f"<p>{placeholder}</p>")
 
+    def test_noop_identity_matches_original_processors(self) -> None:
+        engine = Markdown()
+        engine.htmlStash.store("<em>already selected</em>")
+        raw = RawHtmlPostprocessor(engine)
+        original_raw = PythonRawHtmlPostprocessor(engine)
+        text = "prefix:ordinary فارسی text".removeprefix("prefix:")
+        for value in (text, AtomicString(text)):
+            expected = original_raw.run(value)
+            actual = raw.run(value)
+            self.assertEqual(actual, expected)
+            self.assertIs(type(actual), type(expected))
+            self.assertEqual(actual is value, expected is value)
+        subst = AndSubstitutePostprocessor()
+        self.assertIs(subst.run(text), text)
+        token = AtomicString(text)
+        self.assertIs(type(subst.run(token)), str)
+
+    def test_runtime_ampersand_token_uses_reference_when_changed(self) -> None:
+        with mock.patch("markdown.util.AMP_SUBSTITUTE", "alternate-placeholder"):
+            self.assertEqual(AndSubstitutePostprocessor().run("alternate-placeholder"), "&")
+
     def test_rust_postprocessing_is_used(self) -> None:
         if postprocessing._rust_postprocessing is None:
             self.skipTest("Rust postprocessing is disabled")

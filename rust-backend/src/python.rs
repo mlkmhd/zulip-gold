@@ -365,6 +365,7 @@ mod _zulip_backend {
         module.add("MARKDOWN_TABLE_LAYOUT_API", 1)?;
         module.add("MARKDOWN_PRETTIFY_API", 1)?;
         module.add("MARKDOWN_SERIALIZATION_API", 1)?;
+        module.add("MARKDOWN_POSTPROCESSING_API", 1)?;
         module.add("DISPLAY_RECIPIENT_ORDER_API", 1)
     }
 
@@ -1149,10 +1150,15 @@ mod _zulip_backend {
     }
 
     #[pyfunction]
-    fn restore_markdown_ampersands(text: &Bound<'_, PyString>) -> Option<String> {
-        Some(markdown_postprocessing::restore_ampersands(
-            text.to_str().ok()?,
-        ))
+    fn restore_markdown_ampersands<'py>(
+        text: &Bound<'py, PyString>,
+    ) -> Option<Bound<'py, PyString>> {
+        let original = text.to_str().ok()?;
+        let restored = markdown_postprocessing::restore_ampersands(original);
+        if text.is_exact_instance_of::<PyString>() && restored == original {
+            return Some(text.clone());
+        }
+        Some(PyString::new(text.py(), &restored))
     }
 
     #[pyfunction]
