@@ -111,6 +111,13 @@ COMMITS_COMMENT_MESSAGE_TEMPLATE = "{user_name} {action} on [{sha}]({url})"
 PUSH_TAGS_MESSAGE_TEMPLATE = """{user_name} {action} tag {tag}"""
 TAG_WITH_URL_TEMPLATE = "[{tag_name}]({tag_url})"
 TAG_WITHOUT_URL_TEMPLATE = "{tag_name}"
+_python_push_tags_template = PUSH_TAGS_MESSAGE_TEMPLATE
+_python_tag_with_url_template = TAG_WITH_URL_TEMPLATE
+_python_tag_without_url_template = TAG_WITHOUT_URL_TEMPLATE
+_python_tag_event_punctuation = string.punctuation
+_rust_format_prepared_tag_event = getattr(
+    _rust_git_commit_summary, "format_prepared_tag_event", None
+)
 
 RELEASE_MESSAGE_TEMPLATE = "{user_name} {action} release [{release_name}]({url}) for tag {tagname}."
 RELEASE_MESSAGE_TEMPLATE_WITHOUT_USER_NAME = (
@@ -432,6 +439,17 @@ def get_issue_milestoned_or_demilestoned_event_message(
 def get_push_tag_event_message(
     user_name: str, tag_name: str, tag_url: str | None = None, action: str = "pushed"
 ) -> str:
+    if (
+        _rust_format_prepared_tag_event is not None
+        and PUSH_TAGS_MESSAGE_TEMPLATE is _python_push_tags_template
+        and TAG_WITH_URL_TEMPLATE is _python_tag_with_url_template
+        and TAG_WITHOUT_URL_TEMPLATE is _python_tag_without_url_template
+        and string.punctuation is _python_tag_event_punctuation
+    ):
+        rendered = _rust_format_prepared_tag_event(user_name, tag_name, tag_url, action)
+        if type(rendered) is str:
+            return rendered
+
     if tag_url:
         tag_part = TAG_WITH_URL_TEMPLATE.format(tag_name=tag_name, tag_url=tag_url)
     else:

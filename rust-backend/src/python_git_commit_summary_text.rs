@@ -96,3 +96,40 @@ pub(crate) fn render_prepared_git_commit_rows<'py>(
     }
     Ok(rendered)
 }
+
+#[pyfunction]
+pub(crate) fn format_prepared_tag_event<'py>(
+    user: &Bound<'py, PyAny>,
+    tag: &Bound<'py, PyAny>,
+    url: &Bound<'py, PyAny>,
+    action: &Bound<'py, PyAny>,
+) -> Option<Bound<'py, PyString>> {
+    let name = python_string_bytes(user.cast_exact::<PyString>().ok()?)?;
+    let tag = python_string_bytes(tag.cast_exact::<PyString>().ok()?)?;
+    let action = python_string_bytes(action.cast_exact::<PyString>().ok()?)?;
+    let last = *tag.last()?;
+    let url = if url.is_none() {
+        None
+    } else {
+        Some(python_string_bytes(url.cast_exact::<PyString>().ok()?)?)
+    };
+
+    let mut result = Vec::new();
+    result.extend_from_slice(&name);
+    result.push(b' ');
+    result.extend_from_slice(&action);
+    result.extend_from_slice(b" tag ");
+    if let Some(url) = url.filter(|url| !url.is_empty()) {
+        result.push(b'[');
+        result.extend_from_slice(&tag);
+        result.extend_from_slice(b"](");
+        result.extend_from_slice(&url);
+        result.push(b')');
+    } else {
+        result.extend_from_slice(&tag);
+    }
+    if !last.is_ascii_punctuation() {
+        result.push(b'.');
+    }
+    python_string_from_bytes(user.py(), &result)
+}
