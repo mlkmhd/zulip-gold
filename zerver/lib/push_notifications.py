@@ -1312,16 +1312,23 @@ def get_message_payload_apns(
     assert message.rendered_content is not None
     with override_language(user_profile.default_language):
         content, _ = truncate_content(get_mobile_push_content(message.rendered_content))
+        alert_subtitle = get_apns_alert_subtitle(
+            message, trigger, mentioned_user_group_name, can_access_sender
+        )
+        badge = get_apns_badge_count(user_profile)
+        prepared = native_push_text.assemble_apns_message(
+            alert_title, alert_subtitle, content, badge, message_payload
+        )
+        if prepared is not None:
+            return prepared
         apns_data = {
             "alert": {
                 "title": alert_title,
-                "subtitle": get_apns_alert_subtitle(
-                    message, trigger, mentioned_user_group_name, can_access_sender
-                ),
+                "subtitle": alert_subtitle,
                 "body": content,
             },
             "sound": "default",
-            "badge": get_apns_badge_count(user_profile),
+            "badge": badge,
             "custom": {"zulip": message_payload},
         }
     return apns_data

@@ -144,6 +144,26 @@ def render_apns_subtitle(
     )
 
 
+_apns_message_envelope_backend = load_native_contract(
+    "ZULIP_RUST_APNS_MESSAGE_ENVELOPE", "APNS_MESSAGE_ENVELOPE_API"
+)
+
+
+def assemble_apns_message(
+    title: str,
+    subtitle: str,
+    body: str,
+    badge: int,
+    payload: dict[str, object],
+) -> dict[str, object] | None:
+    native = getattr(_apns_message_envelope_backend, "assemble_prepared_apns_message", None)
+    return (
+        cast("dict[str, object]", native(title, subtitle, body, badge, payload))
+        if callable(native)
+        else None
+    )
+
+
 MobileBaseFormatter = Callable[[tuple[str, int, str] | None, str, str, int], dict[str, object]]
 
 

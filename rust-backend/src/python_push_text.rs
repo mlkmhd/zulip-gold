@@ -421,3 +421,28 @@ pub(crate) fn render_prepared_apns_subtitle<'py>(
             .add(PyString::new(sender_name.py(), ":"))?,
     ))
 }
+
+#[pyfunction]
+pub(crate) fn assemble_prepared_apns_message<'py>(
+    title: &Bound<'py, PyAny>,
+    subtitle: &Bound<'py, PyAny>,
+    body: &Bound<'py, PyAny>,
+    badge: &Bound<'py, PyAny>,
+    message_payload: &Bound<'py, PyDict>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let py = message_payload.py();
+    let alert = PyDict::new(py);
+    alert.set_item("title", title)?;
+    alert.set_item("subtitle", subtitle)?;
+    alert.set_item("body", body)?;
+
+    let custom = PyDict::new(py);
+    custom.set_item("zulip", message_payload)?;
+
+    let envelope = PyDict::new(py);
+    envelope.set_item("alert", alert)?;
+    envelope.set_item("sound", "default")?;
+    envelope.set_item("badge", badge)?;
+    envelope.set_item("custom", custom)?;
+    Ok(envelope)
+}
