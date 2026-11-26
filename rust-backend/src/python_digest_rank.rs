@@ -226,3 +226,30 @@ pub(crate) fn group_prepared_digest_stream_rows<'py>(
     }
     Ok(groups)
 }
+
+#[pyfunction]
+pub(crate) fn render_prepared_digest_channel_labels<'py>(
+    streams: &Bound<'py, PyAny>,
+    realm: &Bound<'py, PyAny>,
+    link: &Bound<'py, PyAny>,
+    icon: &Bound<'py, PyAny>,
+    markup: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyTuple>> {
+    let py = streams.py();
+    let html = PyList::empty(py);
+    let plain = PyList::empty(py);
+    for stream in streams.try_iter()? {
+        let stream = stream?;
+        let url = link.call1((realm, &stream))?;
+        let template =
+            markup.call1(("<a href='{narrow_url}'>{channel_privacy_icon}{stream_name}</a>",))?;
+        let format = template.getattr("format")?;
+        let values = PyDict::new(py);
+        values.set_item("narrow_url", url)?;
+        values.set_item("channel_privacy_icon", icon.call1((&stream,))?)?;
+        values.set_item("stream_name", stream.getattr("name")?)?;
+        html.append(format.call((), Some(&values))?)?;
+        plain.append(stream.getattr("name")?)?;
+    }
+    PyTuple::new(py, [html, plain])
+}

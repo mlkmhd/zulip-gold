@@ -75,6 +75,10 @@ _rust_group_prepared_digest_stream_rows = getattr(
     _rust_stream_rows, "group_prepared_digest_stream_rows", None
 )
 
+_rust_render_prepared_digest_channel_labels = getattr(
+    _rust_stream_rows, "render_prepared_digest_channel_labels", None
+)
+
 TopicKey: TypeAlias = tuple[int, str]
 
 
@@ -347,20 +351,25 @@ def gather_new_streams(
     else:
         new_streams = [stream for stream in recently_created_streams if stream.is_web_public]
 
-    channels_html = []
-    channels_plain = []
-
-    for stream in new_streams:
-        narrow_url = stream_narrow_url(realm, stream)
-        channel_link = Markup(
-            "<a href='{narrow_url}'>{channel_privacy_icon}{stream_name}</a>"
-        ).format(
-            narrow_url=narrow_url,
-            channel_privacy_icon=get_channel_privacy_icon(stream),
-            stream_name=stream.name,
+    if _rust_render_prepared_digest_channel_labels is not None:
+        channels_html, channels_plain = _rust_render_prepared_digest_channel_labels(
+            new_streams, realm, stream_narrow_url, get_channel_privacy_icon, Markup
         )
-        channels_html.append(channel_link)
-        channels_plain.append(stream.name)
+    else:
+        channels_html = []
+        channels_plain = []
+
+        for stream in new_streams:
+            narrow_url = stream_narrow_url(realm, stream)
+            channel_link = Markup(
+                "<a href='{narrow_url}'>{channel_privacy_icon}{stream_name}</a>"
+            ).format(
+                narrow_url=narrow_url,
+                channel_privacy_icon=get_channel_privacy_icon(stream),
+                stream_name=stream.name,
+            )
+            channels_html.append(channel_link)
+            channels_plain.append(stream.name)
 
     return len(new_streams), {"html": channels_html, "plain": channels_plain}
 

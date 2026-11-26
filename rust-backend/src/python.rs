@@ -645,7 +645,7 @@ mod _zulip_backend {
         add_prepared_digest_topic_message, assemble_recent_digest_topics,
         build_prepared_digest_teaser, collect_prepared_digest_recent_topics,
         group_prepared_digest_muted_topic_rows, group_prepared_digest_stream_rows,
-        rank_eligible_digest_topic_indices,
+        rank_eligible_digest_topic_indices, render_prepared_digest_channel_labels,
     };
 
     #[pymodule_export]
