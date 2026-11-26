@@ -416,6 +416,7 @@ mod _zulip_backend {
         module.add("SETTINGS_CATALOGS_API", 1)?;
         module.add("SETTINGS_SNAPSHOT_API", 1)?;
         module.add("PUBLIC_SERVER_SETTINGS_RESPONSE_API", 1)?;
+        module.add("USER_AGENT_PARSE_API", 1)?;
         module.add("GROUP_ROSTER_REPLAY_API", 1)?;
         module.add("PREPARED_GROUP_MEMBERSHIP_API", 1)?;
         module.add("REGISTER_PROFILE_PRUNE_API", 1)?;
@@ -2477,6 +2478,30 @@ mod _zulip_backend {
             topic.to_str().ok()?,
             url,
         ))
+    }
+
+    #[pyfunction]
+    fn parse_exact_user_agent<'py>(
+        py: Python<'py>,
+        value: &Bound<'py, PyAny>,
+    ) -> PyResult<Option<Bound<'py, PyDict>>> {
+        let Some(value) = value
+            .cast_exact::<PyString>()
+            .ok()
+            .and_then(|value| value.to_str().ok())
+        else {
+            return Ok(None);
+        };
+        if value.contains(['\n', '\r']) {
+            return Ok(None);
+        }
+        let Some(parts) = crate::user_agent::parse(value) else {
+            return Ok(None);
+        };
+        let result = PyDict::new(py);
+        result.set_item("name", &parts["name"])?;
+        result.set_item("version", parts.name("version").map(|part| part.as_str()))?;
+        Ok(Some(result))
     }
 
     #[pyfunction]
