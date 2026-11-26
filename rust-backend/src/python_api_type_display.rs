@@ -170,3 +170,40 @@ pub(crate) fn render_prepared_api_oneof<'py>(
     kwargs.set_item("values", html)?;
     outer_template.call_method("format", (), Some(&kwargs))
 }
+
+#[pyfunction]
+pub(crate) fn decorate_prepared_api_description<'py>(
+    mut text: Bound<'py, PyAny>,
+    parameter: &Bound<'py, PyAny>,
+    json: &Bound<'py, PyAny>,
+    code_template: &Bound<'py, PyAny>,
+    join_enums: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let py = text.py();
+    let add = py.import("operator")?.getattr("iadd")?;
+    let enums = parameter
+        .getattr("value_schema")?
+        .call_method1("get", ("enum",))?;
+    if !enums.is_none() {
+        let values = PyList::empty(py);
+        for entry in enums.try_iter()? {
+            let entry = entry?;
+            let format = code_template.getattr("format")?;
+            let kwargs = PyDict::new(py);
+            kwargs.set_item("value", json.call_method1("dumps", (entry,))?)?;
+            values.append(format.call((), Some(&kwargs))?)?;
+        }
+        let line = PyString::new(py, "\nMust be one of: {}. ")
+            .call_method1("format", (join_enums.call1((values,))?,))?;
+        text = add.call1((text, line))?;
+    }
+    let default = parameter
+        .getattr("value_schema")?
+        .call_method1("get", ("default",))?;
+    if !default.is_none() {
+        let line = PyString::new(py, "\nDefaults to `{}`.")
+            .call_method1("format", (json.call_method1("dumps", (default,))?,))?;
+        text = add.call1((text, line))?;
+    }
+    Ok(text)
+}

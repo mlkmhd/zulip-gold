@@ -43,6 +43,10 @@ except ImportError:
 _rust_render_api_doc_type_tree = getattr(_rust_api_type_tree, "render_api_doc_type_tree", None)
 _rust_render_prepared_api_oneof = getattr(_rust_api_type_tree, "render_prepared_api_oneof", None)
 
+_rust_decorate_prepared_api_description = getattr(
+    _rust_api_type_tree, "decorate_prepared_api_description", None
+)
+
 try:
     _rust_api_enum_display = load_native_contract(
         "ZULIP_RUST_API_ENUM_DISPLAY", "API_ENUM_DISPLAY_API"
@@ -113,6 +117,23 @@ ONEOF_DETAILS_TEMPLATE = """
 ONEOF_LIST_ITEM_TEMPLATE = """
 <li>{item}</li>
 """.strip()
+
+
+def _decorate_parameter_description(description: str, parameter: Parameter) -> str:
+    if _rust_decorate_prepared_api_description is not None:
+        return _rust_decorate_prepared_api_description(
+            description, parameter, json, OBJECT_CODE_TEMPLATE, _join_api_enum_examples
+        )
+
+    enums = parameter.value_schema.get("enum")
+    if enums is not None:
+        formatted_enums = [OBJECT_CODE_TEMPLATE.format(value=json.dumps(enum)) for enum in enums]
+        description += f"\nMust be one of: {_join_api_enum_examples(formatted_enums)}. "
+
+    default = parameter.value_schema.get("default")
+    if default is not None:
+        description += f"\nDefaults to `{json.dumps(default)}`."
+    return description
 
 
 class MarkdownArgumentsTableGenerator(Extension):
@@ -199,17 +220,7 @@ class APIArgumentsTablePreprocessor(Preprocessor):
         parameters = sorted(parameters, key=lambda parameter: parameter.deprecated)
         for parameter in parameters:
             name = parameter.name
-            description = parameter.description
-            enums = parameter.value_schema.get("enum")
-            if enums is not None:
-                formatted_enums = [
-                    OBJECT_CODE_TEMPLATE.format(value=json.dumps(enum)) for enum in enums
-                ]
-                description += f"\nMust be one of: {_join_api_enum_examples(formatted_enums)}. "
-
-            default = parameter.value_schema.get("default")
-            if default is not None:
-                description += f"\nDefaults to `{json.dumps(default)}`."
+            description = _decorate_parameter_description(parameter.description, parameter)
             data_type = generate_data_type(parameter.value_schema)
 
             # TODO: OpenAPI allows indicating where the argument goes
