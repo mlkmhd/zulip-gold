@@ -6,6 +6,7 @@ from typing import Literal, cast
 import lxml.html
 
 from zerver.lib.native_backend import load_native_contract
+from zerver.lib.types import UserDisplayRecipient
 
 _backend = load_native_contract("ZULIP_RUST_PUSH_TEXT", "MOBILE_PUSH_TEXT_API")
 _ordered_list_backend = load_native_contract(
@@ -58,6 +59,18 @@ def format_message_identity(
 ) -> bool:
     native = getattr(_message_identity_backend, "format_mobile_message_identity", None)
     return cast(bool, native(payload, message_id, mode)) if callable(native) else False
+
+
+_direct_recipients_backend = load_native_contract(
+    "ZULIP_RUST_MOBILE_DIRECT_RECIPIENTS", "MOBILE_DIRECT_RECIPIENTS_API"
+)
+
+
+def format_direct_recipient_ids(
+    recipients: list[UserDisplayRecipient], get_sender_id: Callable[[], int]
+) -> list[int] | None:
+    native = getattr(_direct_recipients_backend, "format_mobile_direct_recipient_ids", None)
+    return cast("list[int] | None", native(recipients, get_sender_id)) if callable(native) else None
 
 
 MobileBaseFormatter = Callable[[tuple[str, int, str] | None, str, str, int], dict[str, object]]

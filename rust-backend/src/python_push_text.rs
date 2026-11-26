@@ -1,9 +1,10 @@
 //! Plain-text formatting after Django extracts a mobile notification preview.
 
+use std::collections::BTreeMap;
 use std::io::Write;
 
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyDict, PyInt, PyList, PyString, PyTuple};
+use pyo3::types::{PyBool, PyDict, PyInt, PyList, PySet, PyString, PyTuple};
 
 use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes, trim_python_text};
 
@@ -272,4 +273,44 @@ pub(crate) fn format_mobile_message_identity(
         _ => return Ok(false),
     }
     Ok(true)
+}
+
+#[pyfunction]
+pub(crate) fn format_mobile_direct_recipient_ids<'py>(
+    recipients: &Bound<'py, PyAny>,
+    get_sender: &Bound<'py, PyAny>,
+) -> PyResult<Option<Bound<'py, PyList>>> {
+    let Ok(recipients) = recipients.cast_exact::<PyList>() else {
+        return Ok(None);
+    };
+    let mut ids = BTreeMap::new();
+    let exact_integer = |id: &Bound<'_, PyAny>| {
+        id.cast_exact::<PyInt>()
+            .ok()
+            .and_then(|integer| integer.extract::<i64>().ok())
+    };
+    for row in recipients.iter() {
+        let Ok(row) = row.cast_exact::<PyDict>() else {
+            return Ok(None);
+        };
+        let Some(id) = row.get_item("id")? else {
+            return Ok(None);
+        };
+        let Some(value) = exact_integer(&id) else {
+            return Ok(None);
+        };
+        ids.entry(value).or_insert(id);
+    }
+    if ids.len() == 1 {
+        let sender = get_sender.call0()?;
+        let Some(value) = exact_integer(&sender) else {
+            let py = recipients.py();
+            let combined = PySet::new(py, ids.into_values())?;
+            combined.add(sender)?;
+            let sorted = py.import("builtins")?.call_method1("sorted", (combined,))?;
+            return Ok(Some(sorted.cast_into_exact::<PyList>()?));
+        };
+        ids.entry(value).or_insert(sender);
+    }
+    Ok(Some(PyList::new(recipients.py(), ids.into_values())?))
 }

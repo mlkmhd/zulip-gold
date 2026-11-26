@@ -1156,12 +1156,17 @@ def get_message_payload(
             # field. Note that this doesn't do a separate database query, because it uses
             # the `get_display_recipient_by_id` cache.
             display_recipients = get_display_recipient(message.recipient)
-            recipient_user_ids = {
-                display_recipient["id"] for display_recipient in display_recipients
-            }
-            if len(recipient_user_ids) == 1:  # Self-DM
-                recipient_user_ids.add(message.sender_id)
-            data["recipient_user_ids"] = sorted(recipient_user_ids)
+            recipient_ids = native_push_text.format_direct_recipient_ids(
+                display_recipients, lambda: message.sender_id
+            )
+            if recipient_ids is None:
+                recipient_user_ids = {
+                    display_recipient["id"] for display_recipient in display_recipients
+                }
+                if len(recipient_user_ids) == 1:  # Self-DM
+                    recipient_user_ids.add(message.sender_id)
+                recipient_ids = sorted(recipient_user_ids)
+            data["recipient_user_ids"] = recipient_ids
 
     return data
 
