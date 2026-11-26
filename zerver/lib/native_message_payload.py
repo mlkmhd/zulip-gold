@@ -31,6 +31,11 @@ _annotation_backend = load_native_contract(
 )
 
 
+_mobile_event_backend = load_native_contract(
+    "ZULIP_RUST_PREPARED_MOBILE_REPLY_EVENTS", "PREPARED_MOBILE_REPLY_EVENTS_API"
+)
+
+
 def is_enabled() -> bool:
     return _backend is not None
 
@@ -247,7 +252,8 @@ def assemble_cached_frame(
 
 
 def adapt_mobile_events(events: object, plain_reply_fields: Callable[..., dict[str, str]]) -> bool:
-    native = getattr(_backend, "adapt_mobile_message_events", None)
+    backend = _backend if _backend is not None else _mobile_event_backend
+    native = getattr(backend, "adapt_mobile_message_events", None)
     if native is None:
         return False
     return cast(bool, native(events, plain_reply_fields))

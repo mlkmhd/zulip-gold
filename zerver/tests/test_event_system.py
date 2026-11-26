@@ -21,7 +21,7 @@ from zerver.actions.streams import do_change_stream_folder
 from zerver.actions.user_settings import do_change_avatar_fields, do_change_user_setting
 from zerver.actions.user_topics import do_set_user_topic_visibility_policy
 from zerver.actions.users import do_change_user_role, do_deactivate_user
-from zerver.lib import native_register_state, native_settings_payload
+from zerver.lib import native_message_payload, native_register_state, native_settings_payload
 from zerver.lib.event_schema import check_web_reload_client_event
 from zerver.lib.events import fetch_initial_state_data, post_process_state
 from zerver.lib.exceptions import AccessDeniedError
@@ -784,21 +784,44 @@ class GetEventsTest(ZulipTestCase):
             result = self.api_patch(sender, message_url, {"content": f"{content} edited"})
             self.assert_json_success(result)
 
+        def read_events(client_name: str, queue_id: str) -> HttpResponse:
+            return self.tornado_call(
+                get_events,
+                recipient,
+                {
+                    "queue_id": queue_id,
+                    "last_event_id": -1,
+                    "user_client": client_name,
+                    "dont_block": "true",
+                },
+            )
+
         for client_name, queue_id in queues.items():
             with self.subTest(client=client_name):
                 expected_html = web_html if client_name == "website" else mobile_html
                 edited_html = expected_html.replace("Response</strong>", "Response</strong> edited")
                 user_agent = f"{client_name}/1.2.3 (Android 15)"
-                events_response = self.tornado_call(
-                    get_events,
-                    recipient,
-                    {
-                        "queue_id": queue_id,
-                        "last_event_id": -1,
-                        "user_client": client_name,
-                        "dont_block": "true",
-                    },
-                )
+                backend = native_message_payload._mobile_event_backend
+                with (
+                    mock.patch.object(native_message_payload, "_backend", None),
+                    mock.patch.object(native_message_payload, "_mobile_event_backend", None),
+                ):
+                    python_response = read_events(client_name, queue_id)
+                    self.assert_json_success(python_response)
+                if backend is None:
+                    events_response = read_events(client_name, queue_id)
+                else:
+                    with (
+                        mock.patch.object(native_message_payload, "_backend", None),
+                        mock.patch.object(
+                            backend,
+                            "adapt_mobile_message_events",
+                            wraps=backend.adapt_mobile_message_events,
+                        ) as adapt,
+                    ):
+                        events_response = read_events(client_name, queue_id)
+                    self.assertEqual(adapt.call_count, int(client_name != "website"))
+                self.assertEqual(events_response.content, python_response.content)
                 events = self.assert_json_success(events_response)["events"]
                 message_event = next(event for event in events if event["type"] == "message")
                 update_event = next(event for event in events if event["type"] == "update_message")

@@ -253,8 +253,7 @@ class ClientDescriptor:
         if not needs_plain_reply_links(self.client_type_name):
             return events
         if (
-            native_message_payload.is_enabled()
-            and plain_reply_link_fields is _REFERENCE_EVENT_REPLY_FIELDS
+            plain_reply_link_fields is _REFERENCE_EVENT_REPLY_FIELDS
             and reply_links.uses_reference_reply_renderer()
             and native_message_payload.adapt_mobile_events(events, plain_reply_link_fields)
         ):

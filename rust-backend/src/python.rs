@@ -350,6 +350,7 @@ mod _zulip_backend {
         module.add("ROCKETCHAT_DISPLAY_NAME_API", 1)?;
         module.add("INTEGRATION_CATALOG_DISPLAY_API", 1)?;
         module.add("MOBILE_REPLY_LINKS_API", 1)?;
+        module.add("PREPARED_MOBILE_REPLY_EVENTS_API", 1)?;
         module.add("MOBILE_PUSH_TEXT_API", 1)?;
         module.add("MOBILE_ORDERED_LIST_API", 1)?;
         module.add("SEARCH_HIGHLIGHTS_API", 1)?;
