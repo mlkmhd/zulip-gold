@@ -400,3 +400,33 @@ pub(crate) fn thumbnail_format_string(
     let suffix = if animated { "-anim" } else { "" };
     Some(format!("{width}x{height}{suffix}.{extension}"))
 }
+
+#[pyfunction]
+pub(crate) fn parse_canonical_thumbnail_format(
+    value: &Bound<'_, PyAny>,
+) -> Option<(i64, i64, bool, String)> {
+    let value = value.cast_exact::<PyString>().ok()?.to_str().ok()?;
+    let (dimensions, extension) = value.rsplit_once('.')?;
+    let animated = dimensions.ends_with("-anim");
+    let numbers = dimensions.strip_suffix("-anim").unwrap_or(dimensions);
+    let (width, height) = numbers.split_once('x')?;
+    if width.is_empty()
+        || width.len() > 19
+        || height.len() > 19
+        || height.is_empty()
+        || !width.bytes().all(|byte| byte.is_ascii_digit())
+        || !height.bytes().all(|byte| byte.is_ascii_digit())
+        || extension.is_empty()
+        || !extension
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+    {
+        return None;
+    }
+    Some((
+        width.parse().ok()?,
+        height.parse().ok()?,
+        animated,
+        extension.into(),
+    ))
+}

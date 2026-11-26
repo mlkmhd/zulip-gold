@@ -46,6 +46,10 @@ _format_string_backend = load_native_contract(
     "ZULIP_RUST_THUMBNAIL_FORMAT_STRING", "THUMBNAIL_FORMAT_STRING_API"
 )
 
+_format_parse_backend = load_native_contract(
+    "ZULIP_RUST_THUMBNAIL_FORMAT_PARSE", "THUMBNAIL_FORMAT_PARSE_API"
+)
+
 
 @dataclass(frozen=True)
 class BaseThumbnailFormat:  # noqa: PLW1641
@@ -74,6 +78,14 @@ class BaseThumbnailFormat:  # noqa: PLW1641
 
     @classmethod
     def from_string(cls, format_string: str) -> Self | None:
+        native = getattr(_format_parse_backend, "parse_canonical_thumbnail_format", None)
+        if callable(native):
+            parsed = cast("tuple[int, int, bool, str] | None", native(format_string))
+            if parsed is not None:
+                width, height, animated, extension = parsed
+                return cls(
+                    max_width=width, max_height=height, animated=animated, extension=extension
+                )
         format_parts = re.match(r"(\d+)x(\d+)(-anim)?\.(\w+)$", format_string)
         if format_parts is None:
             return None
