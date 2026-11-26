@@ -58,6 +58,10 @@ _rust_topic_sampling = load_native_contract(
     "ZULIP_RUST_DIGEST_TOPIC_SAMPLES", "DIGEST_TOPIC_SAMPLES_API"
 )
 
+_rust_topic_teaser = load_native_contract(
+    "ZULIP_RUST_DIGEST_TOPIC_TEASER", "DIGEST_TOPIC_TEASER_API"
+)
+
 TopicKey: TypeAlias = tuple[int, str]
 
 
@@ -102,6 +106,13 @@ class DigestTopic:
         return len(self.human_senders)
 
     def teaser_data(self, user: UserProfile, stream_id_map: dict[int, Stream]) -> DigestTeaserData:
+        native = getattr(_rust_topic_teaser, "build_prepared_digest_teaser", None)
+        if callable(native) and type(self) is DigestTopic and type(self.num_human_messages) is int:
+            return cast(
+                "DigestTeaserData",
+                native(self, user, stream_id_map, build_message_list, DigestTeaserData),
+            )
+
         teaser_count = self.num_human_messages - len(self.sample_messages)
         first_few_messages = build_message_list(
             user=user,

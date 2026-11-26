@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use pyo3::prelude::*;
-use pyo3::types::{PyInt, PyList, PyTuple};
+use pyo3::types::{PyDict, PyInt, PyList, PyTuple};
 
 const DIVERSE_COUNT: usize = 2;
 const LENGTH_COUNT: usize = 4;
@@ -135,4 +135,36 @@ pub(crate) fn add_prepared_digest_topic_message(
         topic.setattr("num_human_messages", count)?;
     }
     Ok(())
+}
+
+#[pyfunction]
+pub(crate) fn build_prepared_digest_teaser<'py>(
+    topic: &Bound<'py, PyAny>,
+    user: &Bound<'py, PyAny>,
+    stream_id_map: &Bound<'py, PyAny>,
+    render_messages: &Bound<'py, PyAny>,
+    create_teaser: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let count = topic.getattr("num_human_messages")?;
+    let samples = topic.getattr("sample_messages")?;
+    // Keep arbitrary-precision Python integers and compute the count before the
+    // message renderer can mutate or reorder sample_messages.
+    let remaining = count.call_method1("__sub__", (samples.len()?,))?;
+    let message_kwargs = PyDict::new(topic.py());
+    message_kwargs.set_item("user", user)?;
+    message_kwargs.set_item("messages", samples)?;
+    message_kwargs.set_item("stream_id_map", stream_id_map)?;
+    let rendered = render_messages.call((), Some(&message_kwargs))?;
+
+    let senders = topic.getattr("human_senders")?;
+    let participants = PyList::new(
+        topic.py(),
+        senders.try_iter()?.collect::<PyResult<Vec<_>>>()?,
+    )?;
+    participants.sort()?;
+    let teaser_kwargs = PyDict::new(topic.py());
+    teaser_kwargs.set_item("participants", participants)?;
+    teaser_kwargs.set_item("count", remaining)?;
+    teaser_kwargs.set_item("first_few_messages", rendered)?;
+    create_teaser.call((), Some(&teaser_kwargs))
 }
