@@ -45,6 +45,39 @@ class PersonalReplayRustTest(ZulipTestCase):
             include_deactivated_groups=False,
         )
 
+    def test_default_draft_replay_does_not_select_other_events(self) -> None:
+        row = {"id": 4, "content": "Original"}
+        drafts = [row]
+        snippets: list[dict[str, object]] = []
+        views: list[dict[str, object]] = []
+        state = {"drafts": drafts, "saved_snippets": snippets, "navigation_views": views}
+        edited = {"id": 4, "content": "Edited"}
+        draft_event = {"type": "drafts", "op": "update", "draft": edited}
+        snippet = {"id": 5, "title": "Snippet"}
+        view = {"fragment": "inbox"}
+        witness = Mock(return_value=False)
+        with (
+            patch.object(native_personal_replay, "_backend", None),
+            patch.object(
+                native_personal_replay,
+                "_draft_backend",
+                SimpleNamespace(apply_personal_list_event=witness),
+            ),
+        ):
+            self.replay(
+                state,
+                [
+                    draft_event,
+                    {"type": "saved_snippets", "op": "add", "saved_snippet": snippet},
+                    {"type": "navigation_view", "op": "add", "navigation_view": view},
+                ],
+            )
+        witness.assert_called_once_with(drafts, draft_event)
+        self.assertIs(witness.call_args.args[0], drafts)
+        self.assertIs(drafts[0], edited)
+        self.assertEqual(snippets, [snippet])
+        self.assertEqual(views, [view])
+
     def test_first_match_and_owner_list_identities(self) -> None:
         native = extension()
         snippet = {"id": 1, "title": "Existing"}
@@ -137,7 +170,10 @@ class PersonalReplayRustTest(ZulipTestCase):
         def timeline(backend: object) -> list[bytes]:
             state: dict[str, Any] = {"saved_snippets": [], "drafts": [], "navigation_views": []}
             history = []
-            with patch.object(native_personal_replay, "_backend", backend):
+            with (
+                patch.object(native_personal_replay, "_backend", backend),
+                patch.object(native_personal_replay, "_draft_backend", None),
+            ):
                 for event in events:
                     # The navigation reducer mutates the original added card.
                     # Give each replay the same fresh JSON payloads.

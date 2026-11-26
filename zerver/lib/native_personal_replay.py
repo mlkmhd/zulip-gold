@@ -1,8 +1,10 @@
-"""Optional replay of personal-list events already selected by Django."""
+"""Native replay of personal-list events already selected by Django."""
 
 import os
 from importlib import import_module
 from typing import cast
+
+from zerver.lib.native_backend import load_native_contract
 
 try:
     _backend = (
@@ -16,9 +18,11 @@ except ModuleNotFoundError as error:
     _backend = None
 
 
+_draft_backend = load_native_contract("ZULIP_RUST_DRAFT_REPLAY", "DRAFT_REPLAY_API")
+
+
 def apply(state: dict[str, object], event: dict[str, object]) -> bool:
-    native = getattr(_backend, "apply_personal_list_event", None)
-    if not callable(native) or type(state) is not dict or type(event) is not dict:
+    if type(state) is not dict or type(event) is not dict:
         return False
     kind = event.get("type")
     if type(kind) is not str:
@@ -28,6 +32,12 @@ def apply(state: dict[str, object], event: dict[str, object]) -> bool:
     elif kind in ("saved_snippets", "drafts"):
         key = kind
     else:
+        return False
+    backend = _backend
+    if backend is None and kind == "drafts":
+        backend = _draft_backend
+    native = getattr(backend, "apply_personal_list_event", None)
+    if not callable(native):
         return False
     # Only the list already selected for the current account crosses the bridge.
     return cast(bool, native(state.get(key), event))
