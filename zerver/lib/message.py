@@ -235,6 +235,9 @@ except ModuleNotFoundError as error:
     _rust_import_body = None
 
 
+_rust_exact_message_body = load_native_contract(
+    "ZULIP_RUST_EXACT_MESSAGE_BODY", "EXACT_MESSAGE_BODY_API"
+)
 _rust_exact_import_body = load_native_contract(
     "ZULIP_RUST_IMPORT_BODY_TEXT", "IMPORT_BODY_TEXT_API"
 )
@@ -247,21 +250,36 @@ def truncate_content(content: str, max_length: int, truncation_message: str) -> 
     return content
 
 
+_reference_message_truncate = truncate_content
+
+
 def normalize_body(body: str) -> str:
     max_length = settings.MAX_MESSAGE_LENGTH
+    result: tuple[str | None, Literal["empty", "null_byte"] | None] | None = None
     if _rust_message_body is not None and 0 <= max_length <= sys.maxsize:
         result = cast(
             tuple[str | None, Literal["empty", "null_byte"] | None] | None,
             _rust_message_body.normalize_message_body(body, max_length),
         )
-        if result is not None:
-            normalized, error = result
-            if error == "empty":
-                raise JsonableError(_("Message must not be empty"))
-            if error == "null_byte":
-                raise JsonableError(_("Message must not contain null bytes"))
-            assert normalized is not None
-            return normalized
+    elif (
+        _rust_message_body is None
+        and _rust_exact_message_body is not None
+        and type(body) is str
+        and type(max_length) is int
+        and truncate_content is _reference_message_truncate
+    ):
+        normalize = getattr(_rust_exact_message_body, "normalize_exact_message_body", None)
+        if normalize is not None:
+            result = normalize(body, max_length)
+
+    if result is not None:
+        normalized, error = result
+        if error == "empty":
+            raise JsonableError(_("Message must not be empty"))
+        if error == "null_byte":
+            raise JsonableError(_("Message must not contain null bytes"))
+        assert normalized is not None
+        return normalized
 
     body = body.rstrip().lstrip("\n")
     if len(body) == 0:

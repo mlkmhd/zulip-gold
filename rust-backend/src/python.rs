@@ -398,6 +398,7 @@ mod _zulip_backend {
         module.add("UNREAD_AGGREGATE_API", 1)?;
         module.add("UNREAD_DETAILS_API", 1)?;
         module.add("UNREAD_REMOVAL_API", 1)?;
+        module.add("EXACT_MESSAGE_BODY_API", 1)?;
         module.add("PREPARED_RECENT_DM_ROWS_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
         module.add("MARKDOWN_HEADINGS_API", 1)?;
@@ -2147,8 +2148,7 @@ mod _zulip_backend {
         }
     }
 
-    #[pyfunction]
-    fn normalize_exact_draft_body<'py>(
+    fn normalize_exact_body<'py>(
         body: &Bound<'py, PyAny>,
         limit: &Bound<'py, PyAny>,
     ) -> Option<(Option<Bound<'py, PyString>>, Option<&'static str>)> {
@@ -2163,6 +2163,22 @@ mod _zulip_backend {
             Err(draft_text::BodyError::Empty) => (None, Some("empty")),
             Err(draft_text::BodyError::NullByte) => (None, Some("null_byte")),
         })
+    }
+
+    #[pyfunction]
+    fn normalize_exact_draft_body<'py>(
+        body: &Bound<'py, PyAny>,
+        limit: &Bound<'py, PyAny>,
+    ) -> Option<(Option<Bound<'py, PyString>>, Option<&'static str>)> {
+        normalize_exact_body(body, limit)
+    }
+
+    #[pyfunction]
+    fn normalize_exact_message_body<'py>(
+        body: &Bound<'py, PyAny>,
+        limit: &Bound<'py, PyAny>,
+    ) -> Option<(Option<Bound<'py, PyString>>, Option<&'static str>)> {
+        normalize_exact_body(body, limit)
     }
 
     #[pyfunction]
