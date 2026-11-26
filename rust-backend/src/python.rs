@@ -401,6 +401,7 @@ mod _zulip_backend {
         module.add("UNREAD_MOVE_API", 1)?;
         module.add("UNREAD_REPLAY_API", 1)?;
         module.add("PRIVATE_UNREAD_ARRIVAL_API", 1)?;
+        module.add("CLIENT_READ_DEFAULTS_API", 1)?;
         module.add("EXACT_MESSAGE_BODY_API", 1)?;
         module.add("PREPARED_RECENT_DM_ROWS_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;

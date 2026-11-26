@@ -9,11 +9,17 @@ from typing_extensions import override
 
 from zerver.lib import cache
 from zerver.lib.cache import cache_with_key
+from zerver.lib.native_backend import load_native_contract
 
 _rust_client_defaults = (
     import_module("_zulip_backend")
     if os.environ.get("ZULIP_RUST_MESSAGE_CLIENT_DEFAULTS") == "1"
     else None
+)
+
+
+_native_client_read_defaults = load_native_contract(
+    "ZULIP_RUST_CLIENT_READ_DEFAULTS", "CLIENT_READ_DEFAULTS_API"
 )
 
 
@@ -41,6 +47,14 @@ class Client(models.Model):
                 bool,
                 _rust_client_defaults.default_read_by_sender(sending_client, settings.TEST_SUITE),
             )
+
+        native = getattr(_native_client_read_defaults, "default_read_by_sender", None)
+        if native is not None and type(sending_client) is str and sending_client.isascii():
+            test_suite = settings.TEST_SUITE if sending_client == "test suite" else False
+            if type(test_suite) is bool:
+                return cast(bool, native(sending_client, test_suite))
+            # The reference returns the configured value unchanged for this name.
+            return cast(bool, test_suite)
 
         return (
             sending_client
