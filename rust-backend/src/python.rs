@@ -303,6 +303,7 @@ mod _zulip_backend {
         module.add("USER_STATUS_REPLAY_API", 1)?;
         module.add("TOPIC_TITLE_API", 1)?;
         module.add("MESSAGE_CONTENT_FINALIZER_API", 1)?;
+        module.add("PREPARED_MESSAGE_ANNOTATIONS_API", 1)?;
         module.add("DISPLAY_MENTION_API", 1)?;
         module.add("EMAIL_PLAIN_PREFIX_API", 1)?;
         module.add("ONBOARDING_TEXT_API", 1)?;

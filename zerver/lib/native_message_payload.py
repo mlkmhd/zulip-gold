@@ -26,6 +26,11 @@ _default_content_backend = (
 )
 
 
+_annotation_backend = load_native_contract(
+    "ZULIP_RUST_PREPARED_MESSAGE_ANNOTATIONS", "PREPARED_MESSAGE_ANNOTATIONS_API"
+)
+
+
 def is_enabled() -> bool:
     return _backend is not None
 
@@ -204,18 +209,23 @@ def _message_rows(rows: object) -> object:
 
 
 def assemble_reactions(messages: list[MessageT], reactions: object) -> list[MessageT] | None:
-    native = getattr(_backend, "assemble_message_reactions", None)
+    backend = _backend if _backend is not None else _annotation_backend
+    native = getattr(backend, "assemble_message_reactions", None)
     if native is None:
+        return None
+    lazy_reactions = _is_values_queryset(reactions)
+    if _backend is None and type(reactions) is not list and not lazy_reactions:
         return None
     return cast(
         list[MessageT] | None,
-        native(_message_rows(messages), reactions, _is_values_queryset(reactions)),
+        native(_message_rows(messages), reactions, lazy_reactions),
     )
 
 
 def assemble_submessages(messages: object, submessages: object) -> bool:
-    native = getattr(_backend, "assemble_message_submessages", None)
-    if native is None:
+    backend = _backend if _backend is not None else _annotation_backend
+    native = getattr(backend, "assemble_message_submessages", None)
+    if native is None or (_backend is None and type(submessages) is not list):
         return False
     return cast(bool, native(_message_rows(messages), submessages))
 

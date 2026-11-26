@@ -1,12 +1,18 @@
 from typing import Any
+from unittest import mock
 
 from django.utils.timezone import now as timezone_now
 
+from zerver.lib import native_message_payload
 from zerver.lib.cache import cache_delete, to_dict_cache_key_id
 from zerver.lib.display_recipient import get_display_recipient
 from zerver.lib.markdown import version as markdown_version
 from zerver.lib.message import messages_for_ids
-from zerver.lib.message_cache import MessageDict, sew_messages_and_reactions
+from zerver.lib.message_cache import (
+    MessageDict,
+    sew_messages_and_reactions,
+    sew_messages_and_submessages,
+)
 from zerver.lib.per_request_cache import flush_per_request_caches
 from zerver.lib.test_classes import ZulipTestCase
 from zerver.lib.test_helpers import make_client
@@ -753,6 +759,62 @@ class TestMessageForIdsDisplayRecipientFetching(ZulipTestCase):
 
 
 class SewMessageAndReactionTest(ZulipTestCase):
+    def test_prepared_annotations_preserve_rows_and_order(self) -> None:
+        reactions = [{"message_id": 3, "emoji_name": "🙂"}, {"message_id": 7, "emoji_name": "📝"}]
+        submessages = [
+            {"message_id": 8, "content": "ignored"},
+            {"message_id": 3, "content": "widget"},
+        ]
+
+        # Message dictionaries combine raw fields and mutable annotation lists.
+        def run() -> list[dict[str, Any]]:
+            rows = [
+                {"id": 3, "content": "earlier key"},
+                {"id": 7},
+                {"id": 3, "content": "last value"},
+            ]
+            output = sew_messages_and_reactions(rows, reactions)
+            sew_messages_and_submessages(rows, submessages)
+            self.assertIs(output[0], rows[2])
+            self.assertIs(output[1], rows[1])
+            self.assertEqual(rows[0]["reactions"], [])
+            self.assertEqual(rows[0]["submessages"], [])
+            self.assertIs(rows[2]["reactions"][0], reactions[0])
+            self.assertIs(rows[2]["submessages"][0], submessages[1])
+            self.assertEqual([row["id"] for row in output], [3, 7])
+            self.assertEqual(rows[1]["submessages"], [])
+            bad_rows = [{"id": 3}]
+            with self.assertRaisesMessage(KeyError, "8"):
+                sew_messages_and_reactions(bad_rows, [{"message_id": 8}])
+            self.assertEqual(bad_rows, [{"id": 3, "reactions": []}])
+            return output
+
+        with (
+            mock.patch.object(native_message_payload, "_backend", None),
+            mock.patch.object(native_message_payload, "_annotation_backend", None),
+        ):
+            reference = run()
+        backend = native_message_payload._annotation_backend
+        if backend is None:
+            actual = run()
+        else:
+            with (
+                mock.patch.object(native_message_payload, "_backend", None),
+                mock.patch.object(
+                    backend, "assemble_message_reactions", wraps=backend.assemble_message_reactions
+                ) as native_reactions,
+                mock.patch.object(
+                    backend,
+                    "assemble_message_submessages",
+                    wraps=backend.assemble_message_submessages,
+                ) as native_submessages,
+            ):
+                actual = run()
+                self.assertFalse(native_message_payload.is_enabled())
+            self.assertEqual(native_reactions.call_count, 2)
+            native_submessages.assert_called_once()
+        self.assertEqual(actual, reference)
+
     def test_sew_messages_and_reaction(self) -> None:
         sender = self.example_user("othello")
         receiver = self.example_user("hamlet")
