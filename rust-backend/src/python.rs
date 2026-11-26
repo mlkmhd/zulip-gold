@@ -341,6 +341,7 @@ mod _zulip_backend {
         module.add("EMAIL_SENDER_BLOCKS_API", 1)?;
         module.add("EMAIL_PLAINTEXT_URLS_API", 1)?;
         module.add("ONBOARDING_TEXT_API", 1)?;
+        module.add("ONBOARDING_EMAIL_DELAY_API", 1)?;
         module.add("LOCALE_CATALOG_API", 1)?;
         module.add("EMAIL_PLAINTEXT_SURROGATES", 1)?;
         module.add("DIGEST_TOPIC_RANK_API", 1)?;
@@ -639,7 +640,8 @@ mod _zulip_backend {
 
     #[pymodule_export]
     use crate::python_onboarding_text::{
-        flatten_prepared_onboarding_newlines, wrap_prepared_welcome_quote,
+        flatten_prepared_onboarding_newlines, prepared_onboarding_email_delay_days,
+        wrap_prepared_welcome_quote,
     };
 
     #[pymodule_export]

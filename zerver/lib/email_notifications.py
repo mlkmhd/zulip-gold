@@ -83,6 +83,9 @@ _original_email_fence = FENCE_RE
 _rust_email_sender_blocks = load_native_contract(
     "ZULIP_RUST_EMAIL_SENDER_BLOCKS", "EMAIL_SENDER_BLOCKS_API"
 )
+_rust_onboarding_email_delay = load_native_contract(
+    "ZULIP_RUST_ONBOARDING_EMAIL_DELAY", "ONBOARDING_EMAIL_DELAY_API"
+)
 
 
 def relative_to_full_url(fragment: lxml.html.HtmlElement, base_url: str) -> None:
@@ -816,16 +819,6 @@ def handle_missedmessage_emails(
 def get_onboarding_email_schedule(
     user: UserProfile, demo_organization_creator: bool = False
 ) -> dict[str, timedelta]:
-    onboarding_emails = {
-        # The delay should be 1 hour before the below specified number of days
-        # as our goal is to maximize the chance that this email is near the top
-        # of the user's inbox when the user sits down to deal with their inbox,
-        # or comes in while they are dealing with their inbox.
-        "onboarding_zulip_topics": timedelta(days=2, hours=-1),
-        "onboarding_zulip_guide": timedelta(days=4, hours=-1),
-        "onboarding_team_to_zulip": timedelta(days=6, hours=-1),
-    }
-
     user_tz = user.timezone
     if user_tz == "":
         user_tz = "UTC"
@@ -841,6 +834,27 @@ def get_onboarding_email_schedule(
     day_of_week_user_registered = start_date.astimezone(
         zoneinfo.ZoneInfo(canonicalize_timezone(user_tz))
     ).isoweekday()
+
+    delay = getattr(_rust_onboarding_email_delay, "prepared_onboarding_email_delay_days", None)
+    if callable(delay):
+        offsets = cast("tuple[int, int, int] | None", delay(day_of_week_user_registered))
+        if offsets is not None:
+            topics, guide, team = offsets
+            return {
+                "onboarding_zulip_topics": timedelta(days=topics, hours=-1),
+                "onboarding_zulip_guide": timedelta(days=guide, hours=-1),
+                "onboarding_team_to_zulip": timedelta(days=team, hours=-1),
+            }
+
+    onboarding_emails = {
+        # The delay should be 1 hour before the below specified number of days
+        # as our goal is to maximize the chance that this email is near the top
+        # of the user's inbox when the user sits down to deal with their inbox,
+        # or comes in while they are dealing with their inbox.
+        "onboarding_zulip_topics": timedelta(days=2, hours=-1),
+        "onboarding_zulip_guide": timedelta(days=4, hours=-1),
+        "onboarding_team_to_zulip": timedelta(days=6, hours=-1),
+    }
 
     # General rules for scheduling welcome emails flow:
     # -Do not send emails on Saturday or Sunday

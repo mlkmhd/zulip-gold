@@ -1,4 +1,4 @@
-//! Format already prepared onboarding and announcement text.
+//! Format prepared onboarding text and calculate welcome email offsets.
 
 use pyo3::prelude::*;
 use pyo3::types::PyString;
@@ -78,4 +78,18 @@ pub(crate) fn wrap_prepared_welcome_quote<'py>(
         output.extend_from_slice(part);
     }
     python_string_from_bytes(py, &output)
+}
+
+#[pyfunction]
+pub(crate) fn prepared_onboarding_email_delay_days(weekday: u8) -> Option<(u8, u8, u8)> {
+    // Topics, guide, then bringing the team to Zulip. Weekend sends are
+    // skipped and successive emails have at least one weekday between them.
+    match weekday {
+        1 | 7 => Some((2, 4, 8)),
+        2 | 3 => Some((2, 6, 8)),
+        4 => Some((4, 6, 8)),
+        5 => Some((4, 6, 10)),
+        6 => Some((2, 4, 6)),
+        _ => None,
+    }
 }
