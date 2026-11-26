@@ -7,6 +7,7 @@ from unittest.mock import call, patch
 from typing_extensions import override
 
 from zerver.data_import import mattermost
+from zerver.lib.native_backend import supports_default_rust_backend
 
 
 class MattermostDisplayNameRustTest(TestCase):
@@ -31,7 +32,20 @@ class MattermostDisplayNameRustTest(TestCase):
 
     def test_real_helper_preserves_untrimmed_value_and_fallback_identity(self) -> None:
         native = mattermost._rust_plan_mattermost_display_name
-        enabled = os.environ.get("ZULIP_RUST_MATTERMOST_DISPLAY_NAME") == "1"
+        legacy = os.environ.get("ZULIP_RUST_MATTERMOST_DISPLAY_NAME") == "1"
+        prepared = os.environ.get("ZULIP_RUST_PREPARED_MATTERMOST_NAME")
+        try:
+            backend = import_module("_zulip_backend")
+        except ImportError:
+            backend = None
+        eligible = prepared == "1" or (
+            prepared != "0"
+            and supports_default_rust_backend()
+            and getattr(backend, "PREPARED_MATTERMOST_NAME_API", None) == 1
+        )
+        enabled = (legacy or eligible) and callable(
+            getattr(backend, "plan_mattermost_display_name", None)
+        )
         self.assertEqual(callable(native), enabled)
         display = f"synthetic {len(self.id())}"
         username = f"fallback {len(display)}"

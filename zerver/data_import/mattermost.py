@@ -47,6 +47,7 @@ from zerver.lib.export import do_common_export_processes
 from zerver.lib.import_realm import validate_and_resolve_relative_path
 from zerver.lib.markdown import IMAGE_EXTENSIONS
 from zerver.lib.message import truncate_content
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.upload import sanitize_name
 from zerver.lib.utils import process_list_in_batches
 from zerver.models import Reaction, RealmEmoji, Recipient, UserProfile
@@ -79,11 +80,19 @@ def make_realm(realm_id: int, team: dict[str, Any]) -> ZerverFieldsT:
     return realm
 
 
+_mattermost_display_name_requested = os.environ.get("ZULIP_RUST_MATTERMOST_DISPLAY_NAME") == "1"
+_prepared_mattermost_name_backend = (
+    None
+    if _mattermost_display_name_requested
+    or os.environ.get("ZULIP_RUST_PREPARED_MATTERMOST_NAME") == "0"
+    else load_native_contract("ZULIP_RUST_PREPARED_MATTERMOST_NAME", "PREPARED_MATTERMOST_NAME_API")
+)
+
 try:
     _rust_mattermost_display_name = (
         import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_MATTERMOST_DISPLAY_NAME") == "1"
-        else None
+        if _mattermost_display_name_requested
+        else _prepared_mattermost_name_backend
     )
 except ImportError:
     _rust_mattermost_display_name = None
