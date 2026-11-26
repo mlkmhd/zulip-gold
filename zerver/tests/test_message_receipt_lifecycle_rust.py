@@ -76,7 +76,10 @@ class MessageReceiptLifecycleRustTest(ZulipTestCase):
         def compare_fetch(user: UserProfile) -> list[dict[str, object]]:
             response = fetch(user)
             found = self.assert_json_success(response)["messages"]
-            with patch.object(native_user_message_flags, "_backend", None):
+            with (
+                patch.object(native_user_message_flags, "_backend", None),
+                patch.object(native_user_message_flags, "_prepared_fetch_backend", None),
+            ):
                 original = fetch(user)
             self.assertEqual(response.content, original.content)
             return found

@@ -76,6 +76,7 @@ class UserMessageFlagsRustTest(ZulipTestCase):
             with (
                 self.subTest(flag=flag),
                 patch.object(native_user_message_flags, "_backend", None),
+                patch.object(native_user_message_flags, "_prepared_fetch_backend", None),
             ):
                 response = self.api_get(owner, "/api/v1/messages", data)
                 ref = self.assert_json_success(response)
@@ -83,6 +84,26 @@ class UserMessageFlagsRustTest(ZulipTestCase):
             self.assertIn(
                 flag, next(row["flags"] for row in ref["messages"] if row["id"] == expected_id)
             )
+            prepared = native_user_message_flags._prepared_fetch_backend
+            if prepared is not None:
+                with (
+                    patch.object(native_user_message_flags, "_backend", None),
+                    patch.object(
+                        prepared,
+                        "label_user_message_flags",
+                        wraps=prepared.label_user_message_flags,
+                    ) as prepared_witness,
+                ):
+                    self.assertEqual(
+                        self.api_get(owner, "/api/v1/messages", data).content, ref_bytes
+                    )
+                prepared_witness.assert_called_once()
+                with (
+                    patch.object(native_user_message_flags, "_backend", None),
+                    patch.object(UserMessage, "flags_list", Mock()),
+                ):
+                    self.assertFalse(native_user_message_flags.available(prepared_fetch=True))
+
             witness = Mock(wraps=backend.label_user_message_flags)
             decline = Mock(return_value=None)
             for candidate in (

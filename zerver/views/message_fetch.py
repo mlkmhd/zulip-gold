@@ -288,9 +288,9 @@ def get_messages_backend(
                 user_profile=user_profile, message_id__in=result_message_ids
             )
             native_flags = None
-            if native_user_message_flags.available():
+            if native_user_message_flags.available(prepared_fetch=True):
                 native_flags = native_user_message_flags.labels_by_id(
-                    (um.message_id, int(um.flags)) for um in um_rows
+                    ((um.message_id, int(um.flags)) for um in um_rows), prepared_fetch=True
                 )
             if native_flags is None:
                 user_message_flags = {um.message_id: um.flags_list() for um in um_rows}
@@ -302,9 +302,9 @@ def get_messages_backend(
                     user_message_flags[message_id] = ["read", "historical"]
         else:
             native_flags = None
-            if native_user_message_flags.available():
+            if native_user_message_flags.available(prepared_fetch=True):
                 native_flags = native_user_message_flags.labels_by_id(
-                    (row[0], row[1]) for row in rows
+                    ((row[0], row[1]) for row in rows), prepared_fetch=True
                 )
             if native_flags is not None:
                 user_message_flags = native_flags

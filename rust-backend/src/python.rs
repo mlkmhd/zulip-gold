@@ -409,6 +409,7 @@ mod _zulip_backend {
         module.add("PREPARED_TOPIC_LINK_SELECTION_API", 1)?;
         module.add("PREPARED_MESSAGE_EDIT_FLAGS_API", 1)?;
         module.add("PREPARED_SEND_RECEIPT_MASKS_API", 1)?;
+        module.add("PREPARED_MESSAGE_FETCH_LABELS_API", 1)?;
         module.add("PREPARED_ALERT_WORD_ADDITIONS_API", 1)?;
         module.add("PREPARED_CHANNEL_LINK_FIELDS_API", 1)?;
         module.add("PREPARED_BOT_STORAGE_DELTA_API", 1)?;
