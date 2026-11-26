@@ -13,6 +13,7 @@ from zerver.lib.cache import (
     realm_alert_words_automaton_cache_key,
     realm_alert_words_cache_key,
 )
+from zerver.lib.native_backend import load_native_contract
 from zerver.models import AlertWord, Realm, UserProfile
 from zerver.models.alert_words import flush_realm_alert_words
 
@@ -23,6 +24,11 @@ _rust_markdown_alerts = (
     import_module("_zulip_backend")
     if os.environ.get("ZULIP_RUST_MARKDOWN_ALERT_WORDS") == "1"
     else None
+)
+
+
+_rust_prepared_alert_word_additions = load_native_contract(
+    "ZULIP_RUST_PREPARED_ALERT_WORD_ADDITIONS", "PREPARED_ALERT_WORD_ADDITIONS_API"
 )
 
 
@@ -94,24 +100,34 @@ def user_alert_words(user_profile: UserProfile) -> list[str]:
     return list(AlertWord.objects.filter(user_profile=user_profile).values_list("word", flat=True))
 
 
+def _select_alert_word_additions(
+    existing_words: list[str], new_words: Iterable[str]
+) -> Iterable[str]:
+    if _rust_alert_words is not None:
+        return _rust_alert_words.select_new_alert_words(existing_words, new_words)
+
+    native = getattr(
+        _rust_prepared_alert_word_additions, "select_prepared_alert_word_additions", None
+    )
+    if native is not None and type(new_words) in (list, tuple):
+        selected = native(existing_words, new_words)
+        if selected is not None:
+            return selected
+
+    existing_words_lower = {word.lower() for word in existing_words}
+    # Keep the original casing when adding distinct words.
+    word_dict: dict[str, str] = {}
+    for word in new_words:
+        if word.lower() in existing_words_lower:
+            continue
+        word_dict[word.lower()] = word
+    return word_dict.values()
+
+
 @transaction.atomic(savepoint=False)
 def add_user_alert_words(user_profile: UserProfile, new_words: Iterable[str]) -> list[str]:
     existing_words = user_alert_words(user_profile)
-    if _rust_alert_words is not None:
-        words_to_add: Iterable[str] = _rust_alert_words.select_new_alert_words(
-            existing_words, new_words
-        )
-    else:
-        existing_words_lower = {word.lower() for word in existing_words}
-
-        # Keep the original casing when adding distinct words.
-        word_dict: dict[str, str] = {}
-        for word in new_words:
-            if word.lower() in existing_words_lower:
-                continue
-            word_dict[word.lower()] = word
-        words_to_add = word_dict.values()
-
+    words_to_add = _select_alert_word_additions(existing_words, new_words)
     AlertWord.objects.bulk_create(
         AlertWord(user_profile=user_profile, word=word, realm=user_profile.realm)
         for word in words_to_add

@@ -408,6 +408,7 @@ mod _zulip_backend {
         module.add("PREPARED_TOPIC_LINK_SELECTION_API", 1)?;
         module.add("PREPARED_MESSAGE_EDIT_FLAGS_API", 1)?;
         module.add("PREPARED_SEND_RECEIPT_MASKS_API", 1)?;
+        module.add("PREPARED_ALERT_WORD_ADDITIONS_API", 1)?;
         module.add("EXACT_MESSAGE_BODY_API", 1)?;
         module.add("PREPARED_RECENT_DM_ROWS_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
@@ -2971,6 +2972,51 @@ mod _zulip_backend {
         alert_words::clean_alert_words(&words)
             .map(str::to_owned)
             .collect()
+    }
+
+    fn exact_alert_word_lower<'py>(
+        word: Bound<'py, PyAny>,
+    ) -> PyResult<Option<(String, Bound<'py, PyString>)>> {
+        let Ok(word) = word.cast_into_exact::<PyString>() else {
+            return Ok(None);
+        };
+        let lower = word.call_method0("lower")?.cast_into_exact::<PyString>()?;
+        let Ok(text) = lower.to_str() else {
+            return Ok(None);
+        };
+        Ok(Some((text.to_owned(), word)))
+    }
+
+    #[pyfunction]
+    fn select_prepared_alert_word_additions<'py>(
+        existing: &Bound<'py, PyAny>,
+        proposed: &Bound<'py, PyAny>,
+    ) -> PyResult<Option<Vec<Bound<'py, PyString>>>> {
+        let Ok(existing) = existing.cast_exact::<PyList>() else {
+            return Ok(None);
+        };
+        let proposed: Vec<_> = if let Ok(words) = proposed.cast_exact::<PyList>() {
+            words.iter().collect()
+        } else if let Ok(words) = proposed.cast_exact::<PyTuple>() {
+            words.iter().collect()
+        } else {
+            return Ok(None);
+        };
+        let mut keys = HashSet::with_capacity(existing.len());
+        for word in existing.iter() {
+            let Some((key, _)) = exact_alert_word_lower(word)? else {
+                return Ok(None);
+            };
+            keys.insert(key);
+        }
+        let mut prepared = Vec::with_capacity(proposed.len());
+        for word in proposed {
+            let Some(pair) = exact_alert_word_lower(word)? else {
+                return Ok(None);
+            };
+            prepared.push(pair);
+        }
+        Ok(Some(alert_words::select_new_alert_words(&keys, prepared)))
     }
 
     #[pyfunction]
