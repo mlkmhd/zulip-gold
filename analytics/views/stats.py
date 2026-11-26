@@ -92,6 +92,10 @@ _project_analytics_subgroup_series = getattr(
     _rust_subgroup_projection, "project_analytics_subgroup_series", None
 )
 
+_group_prepared_analytics_rows = getattr(
+    _rust_subgroup_projection, "group_prepared_analytics_rows", None
+)
+
 
 try:
     _rust_chart_timestamp_display = load_native_contract(
@@ -815,6 +819,13 @@ def _project_grouped_chart_rows(
     return _project_analytics_subgroup_series(points, times, eligible_labels)
 
 
+def _store_unusual_analytics_count_row(
+    groups: dict[str | None, dict[datetime, int]], row: tuple[str | None, datetime, int]
+) -> None:
+    subgroup, end_time, value = row
+    groups[subgroup][end_time] = value
+
+
 def get_time_series_by_subgroup(
     stat: CountStat,
     table: type[BaseCount],
@@ -829,8 +840,11 @@ def get_time_series_by_subgroup(
         .values_list("subgroup", "end_time", "value")
     )
     value_dicts: dict[str | None, dict[datetime, int]] = defaultdict(lambda: defaultdict(int))
-    for subgroup, end_time, value in queryset:
-        value_dicts[subgroup][end_time] = value
+    if _group_prepared_analytics_rows is not None:
+        _group_prepared_analytics_rows(queryset, value_dicts, _store_unusual_analytics_count_row)
+    else:
+        for subgroup, end_time, value in queryset:
+            value_dicts[subgroup][end_time] = value
     value_arrays = _project_grouped_chart_rows(
         value_dicts, end_times, subgroup_to_label, include_empty_subgroups
     )

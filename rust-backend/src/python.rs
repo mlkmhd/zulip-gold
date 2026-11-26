@@ -744,7 +744,9 @@ mod _zulip_backend {
     };
 
     #[pymodule_export]
-    use crate::python_analytics_subgroup_projection::project_analytics_subgroup_series;
+    use crate::python_analytics_subgroup_projection::{
+        group_prepared_analytics_rows, project_analytics_subgroup_series,
+    };
 
     #[pymodule_export]
     use crate::python_tabbed_text::{

@@ -88,3 +88,26 @@ pub(crate) fn project_analytics_subgroup_series<'py>(
     }
     Ok(Some(output))
 }
+
+#[pyfunction]
+pub(crate) fn group_prepared_analytics_rows<'py>(
+    rows: &Bound<'py, PyAny>,
+    groups: &Bound<'py, PyAny>,
+    store_other: &Bound<'py, PyAny>,
+) -> PyResult<()> {
+    for row in rows.try_iter()? {
+        let row = row?;
+        if let Ok(fields) = row.cast_exact::<PyTuple>()
+            && fields.len() == 3
+        {
+            let group = fields.get_item(0)?;
+            let time = fields.get_item(1)?;
+            let count = fields.get_item(2)?;
+            groups.get_item(group)?.set_item(time, count)?;
+        } else {
+            // Preserve Python iterable unpacking and its error on atypical rows.
+            store_other.call1((groups, row))?;
+        }
+    }
+    Ok(())
+}
