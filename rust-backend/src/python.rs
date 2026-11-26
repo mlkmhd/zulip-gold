@@ -477,6 +477,7 @@ mod _zulip_backend {
         module.add("MARKDOWN_POSTPROCESSING_API", 1)?;
         module.add("MARKDOWN_TEX_SYNTAX_API", 1)?;
         module.add("KATEX_SUCCESS_BYTES_API", 1)?;
+        module.add("DEVELOPMENT_KATEX_CLI_API", 1)?;
         module.add("RAW_LATEX_NOTIFICATION_API", 1)?;
         module.add("DISPLAY_RECIPIENT_ORDER_API", 1)
     }

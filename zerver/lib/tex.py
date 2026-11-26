@@ -28,6 +28,9 @@ _rust_katex_response = (
 _rust_katex_success = load_native_contract(
     "ZULIP_RUST_KATEX_SUCCESS_BYTES", "KATEX_SUCCESS_BYTES_API"
 )
+_rust_development_cli = load_native_contract(
+    "ZULIP_RUST_DEVELOPMENT_KATEX_CLI", "DEVELOPMENT_KATEX_CLI_API"
+)
 
 
 class KatexSession(OutgoingSession):
@@ -110,8 +113,19 @@ def render_tex(tex: str, is_inline: bool = True) -> str | None:
     if not exists:
         logging.error("Cannot find KaTeX for latex rendering!")
         return None
-    rust_render = getattr(_rust_markdown_tex, "run_katex_cli", None)
-    native_cli_allowed = getattr(_rust_markdown_tex, "katex_native_cli_allowed", None)
+    cli = _rust_markdown_tex
+    if (
+        cli is None
+        and _rust_development_cli is not None
+        and not settings.PRODUCTION
+        and type(katex_path) is str
+        and katex_path.isascii()
+        and type(tex) is str
+        and type(is_inline) is bool
+    ):
+        cli = _rust_development_cli
+    rust_render = getattr(cli, "run_katex_cli", None)
+    native_cli_allowed = getattr(cli, "katex_native_cli_allowed", None)
     if rust_render is not None and (
         native_cli_allowed(globals())
         if native_cli_allowed is not None
@@ -122,7 +136,7 @@ def render_tex(tex: str, is_inline: bool = True) -> str | None:
             and subprocess.Popen is _subprocess_popen
         )
     ):
-        select_encoding = getattr(_rust_markdown_tex, "select_katex_encoding", None)
+        select_encoding = getattr(cli, "select_katex_encoding", None)
         encoding = (
             select_encoding(globals())
             if select_encoding is not None
@@ -130,20 +144,27 @@ def render_tex(tex: str, is_inline: bool = True) -> str | None:
             if sys.flags.utf8_mode
             else locale.getencoding()
         )
-        encode = getattr(_rust_markdown_tex, "encode_katex_input", None)
-        try:
-            stdin = encode(tex, encoding) if encode is not None else tex.encode(encoding)
-            success, stdout = rust_render(katex_path, stdin, is_inline)
-        except NotImplementedError:
-            pass
-        else:
-            finish = getattr(_rust_markdown_tex, "finish_katex_cli", None)
-            if finish is not None:
-                return cast(str | None, finish(success, stdout, encoding))
-            # Text-mode subprocesses decode even unsuccessful output and normalize
-            # newlines before the caller checks the exit status.
-            rendered = stdout.decode(encoding).replace("\r\n", "\n").replace("\r", "\n")
-            return rendered.strip() if success else None
+        if _rust_markdown_tex is not None or encoding in {"utf-8", "UTF-8", "utf8", "UTF8"}:
+            encode = getattr(cli, "encode_katex_input", None)
+            try:
+                stdin = encode(tex, encoding) if encode is not None else tex.encode(encoding)
+            except UnicodeEncodeError:
+                if _rust_markdown_tex is not None:
+                    raise
+                # Let subprocess preserve the ordering of spawn and encoding errors.
+            else:
+                try:
+                    success, stdout = rust_render(katex_path, stdin, is_inline)
+                except NotImplementedError:
+                    pass
+                else:
+                    finish = getattr(cli, "finish_katex_cli", None)
+                    if finish is not None:
+                        return cast(str | None, finish(success, stdout, encoding))
+                    # Text-mode subprocesses decode even unsuccessful output and
+                    # normalize newlines before the caller checks the exit status.
+                    rendered = stdout.decode(encoding).replace("\r\n", "\n").replace("\r", "\n")
+                    return rendered.strip() if success else None
     command = ["node", katex_path]
     if not is_inline:
         command.extend(["--display-mode"])
