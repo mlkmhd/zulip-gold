@@ -578,9 +578,21 @@ def make_raw(query: Iterable[Any], exclude: list[Field] | None = None) -> Iterat
         yield data
 
 
+_rust_export_datetime_fields = load_native_contract(
+    "ZULIP_RUST_EXPORT_DATETIME_FIELDS", "EXPORT_DATETIME_FIELDS_API"
+)
+
+
 def floatify_datetime_fields(item: Record, table: TableName) -> Record:
+    fields = date_fields_for_table(table)
+    native = getattr(_rust_export_datetime_fields, "format_prepared_export_datetimes", None)
+    if callable(native):
+        output = cast("Record | None", native(item, fields, datetime, timezone_is_naive))
+        if output is not None:
+            return output
+
     updates = {}
-    for field in date_fields_for_table(table):
+    for field in fields:
         dt = item[field]
         if dt is None:
             continue

@@ -1,9 +1,9 @@
 //! Add array framing to already serialized JSON export chunks.
 
-use pyo3::exceptions::PyStopIteration;
+use pyo3::exceptions::{PyAssertionError, PyStopIteration};
 use pyo3::prelude::*;
 use pyo3::pyclass::{PyTraverseError, PyVisit};
-use pyo3::types::PyBytes;
+use pyo3::types::{PyBytes, PyDict, PyList};
 
 #[pyfunction]
 pub(crate) fn frame_prepared_export_json<'py>(
@@ -120,4 +120,34 @@ pub(crate) fn plan_prepared_export_parts(
             done: false,
         },
     )
+}
+
+#[pyfunction]
+pub(crate) fn format_prepared_export_datetimes<'py>(
+    record: &Bound<'py, PyAny>,
+    fields: &Bound<'py, PyAny>,
+    datetime_type: &Bound<'py, PyAny>,
+    is_naive: &Bound<'py, PyAny>,
+) -> PyResult<Option<Bound<'py, PyDict>>> {
+    let (Ok(record), Ok(fields)) = (record.cast_exact::<PyDict>(), fields.cast_exact::<PyList>())
+    else {
+        return Ok(None);
+    };
+    let updates = PyDict::new(record.py());
+    for field in fields.iter() {
+        let value = record.as_any().get_item(&field)?;
+        if value.is_none() {
+            continue;
+        }
+        if !value.is_instance(datetime_type)? || is_naive.call1((&value,))?.is_truthy()? {
+            return Err(PyAssertionError::new_err(()));
+        }
+        updates.set_item(field, value.call_method0("timestamp")?)?;
+    }
+    // Copy only after reading timestamps, as Python does for {**record, **updates}.
+    let output = record.copy()?;
+    for (field, timestamp) in updates.iter() {
+        output.set_item(field, timestamp)?;
+    }
+    Ok(Some(output))
 }
