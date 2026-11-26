@@ -35,7 +35,10 @@ class APIReturnIndentRustTest(TestCase):
         spy = Mock(wraps=native) if native is not None else None
         docs = returns.APIReturnValuesTablePreprocessor(Markdown(), {})
         desc = "First\r\nSecond\u2028same\n  Third"
-        with patch.object(returns, "_rust_indent_prepared_api_return_description", spy):
+        with (
+            patch.object(returns, "_rust_render_prepared_api_return_description", None),
+            patch.object(returns, "_rust_indent_prepared_api_return_description", spy),
+        ):
             rendered = docs.render_table({"field": {"description": desc, "type": "string"}}, 2)
             key_row = docs.render_desc("key: first\nsecond", 1, "string")
         self.assertEqual(

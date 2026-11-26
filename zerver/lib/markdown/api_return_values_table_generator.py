@@ -27,6 +27,9 @@ except ImportError:
 _rust_indent_prepared_api_return_description = getattr(
     _rust_api_return_indent, "indent_prepared_api_return_description", None
 )
+_rust_render_prepared_api_return_description = getattr(
+    _rust_api_return_indent, "render_prepared_api_return_description", None
+)
 
 try:
     _rust_api_doc_type_tree = load_native_contract(
@@ -138,6 +141,13 @@ class APIReturnValuesTablePreprocessor(Preprocessor):
     def render_desc(
         self, description: str, spacing: int, data_type: str, return_value: str | None = None
     ) -> str:
+        if _rust_render_prepared_api_return_description is not None:
+            native_line = _rust_render_prepared_api_return_description(
+                description, spacing, data_type, return_value
+            )
+            if native_line is not None:
+                return native_line
+
         if _rust_indent_prepared_api_return_description is not None and type(description) is str:
             replacement = "\n" + ((spacing + 4) * " ")
             native = _rust_indent_prepared_api_return_description(description, replacement)

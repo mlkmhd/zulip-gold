@@ -768,7 +768,9 @@ mod _zulip_backend {
     use crate::python_commit_display::{project_commit_display_row, rank_commit_display_names};
 
     #[pymodule_export]
-    use crate::python_api_return_indent::indent_prepared_api_return_description;
+    use crate::python_api_return_indent::{
+        indent_prepared_api_return_description, render_prepared_api_return_description,
+    };
 
     #[pymodule_export]
     use crate::python_api_enum_display::join_prepared_api_enum_examples;

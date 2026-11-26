@@ -44,7 +44,10 @@ def require_native_text(native: Callable[..., object], *args: object) -> str:
 
 
 class APIDocsRenderFlowRustTest(TestCase):
+    @patch.object(returns, "_rust_render_prepared_api_return_description", None)
     def render_synthetic_reference(self) -> str:
+        # This fixture probes the compatibility helpers individually. The full
+        # native return description is exercised by its own table/Markdown test.
         parameters = [
             Parameter(
                 kind="query",
