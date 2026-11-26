@@ -108,6 +108,7 @@ class RecentConversationReplayRustTest(ZulipTestCase):
             legacy_flag_enabled or native_recent_conversations._assembly_backend is backend
         )
         replay_enabled = environ.get("ZULIP_RUST_RECENT_CONVERSATION_REPLAY") == "1"
+        pin_enabled = replay_enabled or native_recent_conversation_replay._pin_backend is backend
         self.assertEqual(native_recent_conversations.assembly_available(), assembly_enabled)
         finalize_enabled = (
             legacy_flag_enabled or native_recent_conversations._finalize_backend is backend
@@ -178,6 +179,7 @@ class RecentConversationReplayRustTest(ZulipTestCase):
                     patch.object(native_recent_conversations, "_assembly_backend", None),
                     patch.object(native_recent_conversations, "_finalize_backend", None),
                     patch.object(native_recent_conversation_replay, "_backend", None),
+                    patch.object(native_recent_conversation_replay, "_pin_backend", None),
                 ):
                     expected = request(session)
                 data = orjson.loads(expected[1])
@@ -215,7 +217,7 @@ class RecentConversationReplayRustTest(ZulipTestCase):
                 self.assertEqual(assembly.call_count, int(assembly_enabled))
                 self.assertEqual(finalization.call_count, int(finalize_enabled))
                 self.assertEqual(message.call_count, int(replay_enabled))
-                self.assertEqual(pin.call_count, int(replay_enabled))
+                self.assertEqual(pin.call_count, int(pin_enabled))
 
                 reject_assembly = Mock(side_effect=decline)
                 reject_finalization = Mock(side_effect=decline_finalization)
@@ -281,7 +283,10 @@ class RecentConversationReplayRustTest(ZulipTestCase):
         def timeline(candidate: object) -> list[tuple[object, object]]:
             state: dict[str, Any] = {"max_message_id": 0, "raw_recent_private_conversations": {}}
             changes: list[tuple[object, object]] = []
-            with patch.object(native_recent_conversation_replay, "_backend", candidate):
+            with (
+                patch.object(native_recent_conversation_replay, "_backend", candidate),
+                patch.object(native_recent_conversation_replay, "_pin_backend", None),
+            ):
                 for event in events:
                     self.apply(state, event)
                     rows = state["raw_recent_private_conversations"]

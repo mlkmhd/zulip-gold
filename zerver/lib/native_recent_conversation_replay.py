@@ -4,6 +4,8 @@ import os
 from importlib import import_module
 from typing import cast
 
+from zerver.lib.native_backend import load_native_contract
+
 try:
     _backend = (
         import_module("_zulip_backend")
@@ -14,6 +16,11 @@ except ModuleNotFoundError as error:
     if error.name != "_zulip_backend":
         raise
     _backend = None
+
+
+_pin_backend = load_native_contract(
+    "ZULIP_RUST_RECENT_CONVERSATION_PIN_REPLAY", "RECENT_CONVERSATION_PIN_REPLAY_API"
+)
 
 
 def message(conversations: object, user_id: int, event_message: dict[str, object]) -> bool:
@@ -30,7 +37,8 @@ def message(conversations: object, user_id: int, event_message: dict[str, object
 
 
 def pin(conversations: object, event: dict[str, object]) -> bool:
-    native = getattr(_backend, "replay_recent_conversation_pin", None)
+    backend = _backend if _backend is not None else _pin_backend
+    native = getattr(backend, "replay_recent_conversation_pin", None)
     if not callable(native) or type(event) is not dict:
         return False
     return cast(bool, native(conversations, event.get("user_ids"), event.get("pinned")))
