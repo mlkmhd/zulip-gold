@@ -370,6 +370,7 @@ mod _zulip_backend {
         module.add("REMINDER_WIDGET_LABEL_API", 1)?;
         module.add("REMINDER_TOPIC_CAPTION_API", 1)?;
         module.add("REMINDER_RECIPIENT_LABELS_API", 1)?;
+        module.add("DRAFT_TOPIC_TEXT_API", 1)?;
         module.add("INLINE_CODE_API", 1)?;
         module.add("MARKDOWN_HEADINGS_API", 1)?;
         module.add("MARKDOWN_HORIZONTAL_RULES_API", 1)?;
@@ -2305,6 +2306,42 @@ mod _zulip_backend {
     #[pyfunction]
     fn normalize_draft_topic(topic: &str, max_length: usize) -> Option<String> {
         draft_text::normalize_topic(topic, max_length).map(std::borrow::Cow::into_owned)
+    }
+
+    #[pyfunction]
+    fn normalize_exact_draft_topic<'py>(
+        topic: &Bound<'py, PyAny>,
+        limit: &Bound<'py, PyAny>,
+    ) -> Option<(bool, Bound<'py, PyString>)> {
+        let topic = topic.cast_exact::<PyString>().ok()?;
+        let limit = i128::from(limit.cast_exact::<PyInt>().ok()?.extract::<i64>().ok()?);
+        let text = python_string_bytes(topic)?;
+        let lead = |byte: u8| byte & 0xc0 != 0x80;
+        let length = text.iter().filter(|&&byte| lead(byte)).count() as i128;
+        let suffix = b"...";
+        let truncated = length > limit;
+        let kept = if truncated {
+            let stop = limit - suffix.len() as i128;
+            let end = (if stop < 0 { length + stop } else { stop }).clamp(0, length) as usize;
+            let byte = text
+                .iter()
+                .enumerate()
+                .filter(|(_, byte)| lead(**byte))
+                .nth(end)
+                .map_or(text.len(), |(index, _)| index);
+            &text[..byte]
+        } else {
+            &text
+        };
+        if kept.contains(&0) {
+            return Some((false, PyString::new(topic.py(), "")));
+        }
+        if !truncated {
+            return Some((true, topic.clone()));
+        }
+        let mut result = kept.to_vec();
+        result.extend_from_slice(suffix);
+        Some((true, python_string_from_bytes(topic.py(), &result)?))
     }
 
     #[pyfunction]

@@ -16,10 +16,12 @@ from pydantic import BaseModel, ConfigDict, Json, ValidatorFunctionWrapHandler, 
 from pydantic import ValidationError as PydanticValidationError
 from typing_extensions import ParamSpec
 
+from zerver.lib import message as message_lib
 from zerver.lib.addressee import get_user_profiles_by_ids
 from zerver.lib.event_types import DraftFields, DraftsAddEvent, DraftsRemoveEvent, DraftsUpdateEvent
 from zerver.lib.exceptions import JsonableError, ResourceNotFoundError
 from zerver.lib.message import normalize_body, truncate_topic
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.recipient_users import (
     check_sender_can_access_recipients,
     recipient_for_user_profiles,
@@ -37,6 +39,11 @@ from zerver.tornado.django_api import send_event_on_commit
 
 ParamT = ParamSpec("ParamT")
 _UNIX_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+_rust_draft_topic_text = load_native_contract("ZULIP_RUST_DRAFT_TOPIC_TEXT", "DRAFT_TOPIC_TEXT_API")
+_reference_topic_truncator = truncate_topic
+_reference_content_truncator = message_lib.truncate_content
+_reference_native_topic_truncator = message_lib.native_topic_text.truncate_topic_title
 
 _rust_draft_text = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_DRAFT_TEXT") == "1" else None
@@ -82,6 +89,23 @@ def normalize_draft_body(content: str) -> str:
 
 
 def normalize_draft_topic(topic: str) -> str:
+    normalize = getattr(_rust_draft_topic_text, "normalize_exact_draft_topic", None)
+    if (
+        normalize is not None
+        and truncate_topic is _reference_topic_truncator
+        and message_lib.truncate_content is _reference_content_truncator
+        and message_lib.native_topic_text.truncate_topic_title is _reference_native_topic_truncator
+        and type(message_lib.TOPIC_TRUNCATION_MESSAGE) is str
+        and message_lib.TOPIC_TRUNCATION_MESSAGE == "..."
+    ):
+        result = cast(
+            "tuple[bool, str] | None", normalize(topic, message_lib.MAX_TOPIC_NAME_LENGTH)
+        )
+        if result is not None:
+            valid, normalized = result
+            if not valid:
+                raise JsonableError(_("Topic must not contain null bytes"))
+            return normalized
     if _rust_draft_text is None:
         truncated = truncate_topic(topic)
         if "\0" not in truncated:
