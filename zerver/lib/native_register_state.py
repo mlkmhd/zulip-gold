@@ -18,18 +18,9 @@ except ModuleNotFoundError as error:
         raise
     _backend = None
 
-try:
-    _profile_prune_backend = (
-        import_module("_zulip_backend")
-        if os.environ.get("ZULIP_RUST_REGISTER_PROFILE_PRUNE") == "1"
-        else None
-    )
-except ModuleNotFoundError as error:
-    if error.name != "_zulip_backend":
-        raise
-    _profile_prune_backend = None
-
-
+_profile_prune_backend = load_native_contract(
+    "ZULIP_RUST_REGISTER_PROFILE_PRUNE", "REGISTER_PROFILE_PRUNE_API"
+)
 _legacy_topics_backend = load_native_contract(
     "ZULIP_RUST_REGISTER_LEGACY_TOPICS", "REGISTER_LEGACY_TOPICS_API"
 )

@@ -75,7 +75,10 @@ class RegisterRustReplayTest(ZulipTestCase):
     def test_register_profile_field_pruning_preserves_both_routes_and_rollback(self) -> None:
         backend = profile_pruning_extension()
         native = backend.prune_register_custom_profile_fields
-        enabled = environ.get("ZULIP_RUST_REGISTER_PROFILE_PRUNE") == "1"
+        enabled = (
+            environ.get("ZULIP_RUST_REGISTER_PROFILE_PRUNE") == "1"
+            or native_register_state._profile_prune_backend is backend
+        )
         owner = self.example_user("hamlet")
         peer = self.example_user("cordelia")
         first, obsolete, last = [
