@@ -819,6 +819,9 @@ def has_metadata_access_to_previously_subscribed_stream(
 # the code pretty ugly, but in this case, it has significant
 # performance impact for loading / for users with large numbers of
 # subscriptions, so it's worth optimizing.
+_reference_active_subscription_projection = build_stream_dict_for_sub
+
+
 def gather_subscriptions_helper(
     user_profile: UserProfile,
     include_subscribers: bool | Literal["partial"] = True,
@@ -906,9 +909,15 @@ def gather_subscriptions_helper(
     sub_unsub_stream_ids = set()
     # Only the HTTP own-subscriptions caller may use this batch. The same
     # Django scope, projection inputs, and roster authorization stay here.
+    # The prepared default formats plain HTTP responses without any roster.
+    prepared_active_projection = (
+        include_subscribers is False
+        and build_stream_dict_for_sub is _reference_active_subscription_projection
+    )
     native_rows: list[native_channel_payload.OwnSubscriptionInput] | None = (
         []
-        if assemble_active_with_rust and native_channel_payload.own_subscriptions_available()
+        if assemble_active_with_rust
+        and native_channel_payload.own_subscriptions_available(prepared=prepared_active_projection)
         else None
     )
     threshold = (
@@ -964,7 +973,10 @@ def gather_subscriptions_helper(
 
     native_batch = (
         native_channel_payload.assemble_own_subscriptions(
-            native_rows, partial=include_subscribers == "partial", threshold=threshold
+            native_rows,
+            partial=include_subscribers == "partial",
+            threshold=threshold,
+            prepared=prepared_active_projection,
         )
         if native_rows is not None
         else None

@@ -4233,6 +4233,47 @@ class SubscriptionAPITest(ZulipTestCase):
         self.assertEqual(entry["stream_weekly_traffic"], 120)
         self.assertNotIn("recipient_id", entry)
 
+    def test_prepared_own_subscriptions_keeps_api_and_session_response_bytes(self) -> None:
+        user = self.test_user
+        self.login_user(user)
+        self.subscribe(user, "Prepared projection tiếng Việt")
+        self.subscribe(user, "Prepared projection فارسی")
+        backend = native_channel_payload._prepared_own_backend
+
+        def request(session: bool, mode: str | None) -> "TestHttpResponse":
+            params = {} if mode is None else {"include_subscribers": mode}
+            if session:
+                return self.client_get("/json/users/me/subscriptions", params)
+            return self.api_get(user, "/api/v1/users/me/subscriptions", params)
+
+        for session in (False, True):
+            for mode in (None, "false", "true", "partial"):
+                with self.subTest(session=session, mode=mode):
+                    with (
+                        mock.patch.object(native_channel_payload, "_own_backend", None),
+                        mock.patch.object(native_channel_payload, "_prepared_own_backend", None),
+                    ):
+                        reference = request(session, mode)
+                        self.assert_json_success(reference)
+                    if backend is None:
+                        actual = request(session, mode)
+                    else:
+                        with (
+                            mock.patch.object(native_channel_payload, "_own_backend", None),
+                            mock.patch.object(
+                                backend,
+                                "assemble_own_subscription_batch",
+                                wraps=backend.assemble_own_subscription_batch,
+                            ) as assemble,
+                        ):
+                            actual = request(session, mode)
+                        self.assertEqual(assemble.call_count, int(mode in (None, "false")))
+                    subscriptions = self.assert_json_success(actual)["subscriptions"]
+                    self.assertEqual(actual.content, reference.content)
+                    self.assertEqual(
+                        [r["name"] for r in subscriptions], sorted(r["name"] for r in subscriptions)
+                    )
+
     def test_successful_subscriptions_list_subscribers(self) -> None:
         """
         Calling /api/v1/users/me/subscriptions should successfully return your subscriptions.

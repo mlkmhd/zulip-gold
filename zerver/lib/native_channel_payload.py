@@ -28,19 +28,28 @@ def _load_backend(flag: str) -> ModuleType | None:
 
 _backend = _load_backend("ZULIP_RUST_CHANNEL_PAYLOAD")
 _own_backend = _load_backend("ZULIP_RUST_OWN_SUBSCRIPTIONS")
+_prepared_own_backend = load_native_contract(
+    "ZULIP_RUST_PREPARED_OWN_SUBSCRIPTIONS", "PREPARED_OWN_SUBSCRIPTIONS_API"
+)
 _traffic_backend = load_native_contract(
     "ZULIP_RUST_PREPARED_CHANNEL_TRAFFIC", "PREPARED_CHANNEL_TRAFFIC_API"
 )
 
 
-def own_subscriptions_available() -> bool:
-    return callable(getattr(_own_backend, "assemble_own_subscription_batch", None))
+def own_subscriptions_available(*, prepared: bool = False) -> bool:
+    backend = _prepared_own_backend if prepared and _own_backend is None else _own_backend
+    return callable(getattr(backend, "assemble_own_subscription_batch", None))
 
 
 def assemble_own_subscriptions(
-    rows: list[OwnSubscriptionInput], *, partial: bool, threshold: int | None
+    rows: list[OwnSubscriptionInput],
+    *,
+    partial: bool,
+    threshold: int | None,
+    prepared: bool = False,
 ) -> tuple[list[SubscriptionStreamDict], list[int]] | None:
-    native = getattr(_own_backend, "assemble_own_subscription_batch", None)
+    backend = _prepared_own_backend if prepared and _own_backend is None else _own_backend
+    native = getattr(backend, "assemble_own_subscription_batch", None)
     if native is None:
         return None
     return cast(
