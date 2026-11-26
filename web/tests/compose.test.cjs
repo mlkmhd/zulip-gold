@@ -477,7 +477,7 @@ test_ui("handle_enter_key_with_preview_open", ({override, override_rewire}) => {
     compose.handle_enter_key_with_preview_open();
 });
 
-test_ui("finish", ({override, override_rewire}) => {
+test_ui("finish", ({override, override_rewire, mock_template}) => {
     mock_banners();
 
     const fake_compose_box = new FakeComposeBox();
@@ -539,6 +539,46 @@ test_ui("finish", ({override, override_rewire}) => {
         // cleared, as would happen asynchronously on send success.
         compose.clear_compose_box();
         fake_compose_box.assert_preview_mode_is_off();
+    })();
+
+    (function test_when_scheduling_message_fails() {
+        simulate_draft_ui_interactions();
+        override_rewire(drafts, "update_compose_draft_count", noop);
+        fake_compose_box.set_textarea_val("scheduled message");
+        override_rewire(compose_ui, "compose_spinner_visible", false);
+
+        let banner_rendered = false;
+        mock_template("compose_banner/compose_banner.hbs", false, (data) => {
+            assert.equal(data.classname, "generic_compose_error");
+            assert.equal(data.banner_text, "Error sending message: Server says 400");
+            banner_rendered = true;
+            return "<banner-stub>";
+        });
+        override(channel, "post", ({url, error}) => {
+            assert.equal(url, "/json/scheduled_messages");
+            error();
+        });
+        override(channel, "xhr_error_message", () => "Error sending message: Server says 400");
+
+        assert.ok(compose.finish(true));
+
+        assert.ok(banner_rendered);
+        assert.ok(!fake_compose_box.is_submit_button_spinner_visible());
+        const draft = drafts.draft_model.getDraft(drafts.compose_draft_id);
+        assert.equal(draft.content, "scheduled message");
+        assert.equal(draft.is_sending_saving, false);
+    })();
+
+    (function test_scheduling_error_after_draft_deleted() {
+        const draft_id = drafts.compose_draft_id;
+        override(channel, "post", ({error}) => {
+            drafts.draft_model.deleteDrafts([draft_id]);
+            error();
+        });
+
+        assert.ok(compose.finish(true));
+
+        assert.equal(drafts.draft_model.getDraft(draft_id), false);
     })();
 });
 
