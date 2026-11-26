@@ -137,3 +137,18 @@ pub(crate) fn merge_queued_events<'py>(
     }
     Ok(Some(output))
 }
+
+/// Only standard virtual-event keys use this by default. Other keys can
+/// have custom mapping lookup behavior in the Python reference.
+#[pyfunction]
+pub(crate) fn merge_prepared_queued_events<'py>(
+    py: Python<'py>,
+    queue: &Bound<'py, PyAny>,
+    deque_type: &Bound<'py, PyAny>,
+    virtual_events: &Bound<'py, PyAny>,
+) -> PyResult<Option<Bound<'py, PyList>>> {
+    if plain_event(virtual_events).is_none() {
+        return Ok(None);
+    }
+    merge_queued_events(py, queue, deque_type, virtual_events)
+}

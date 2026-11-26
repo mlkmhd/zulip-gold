@@ -1,4 +1,5 @@
 import time
+from collections import deque
 from collections.abc import Callable, Collection
 from typing import Any
 from unittest import mock
@@ -1441,6 +1442,38 @@ class EventQueueTest(ZulipTestCase):
         before = dict(previous)
         self.assertFalse(native_event_queue.fold_flag_event(previous, {"id": 2, "messages": (4,)}))
         self.assertEqual(previous, before)
+
+    def test_default_rust_merge_preserves_queue_order_and_object_identity(self) -> None:
+        backend = native_event_queue._merge_backend
+        if backend is None:
+            self.skipTest("No prepared event merge ABI")
+        self.assertIsNone(native_event_queue._backend)
+
+        queue = self.get_client_descriptor().event_queue
+        early = {"id": 1, "type": "heartbeat"}
+        real = {"id": 3, "type": "message", "internal_data": {"test": True}}
+        overwritten = {"id": 3, "type": "old"}
+        latest = {"id": 3, "type": "latest"}
+        queue.queue = deque([early, real])
+        queue.virtual_events = {"older": overwritten, "newer": latest}
+        with mock.patch.object(native_event_queue, "_merge_backend", None):
+            expected = queue._merge_events()
+        with mock.patch.object(
+            backend, "merge_prepared_queued_events", wraps=backend.merge_prepared_queued_events
+        ) as witness:
+            actual = queue.contents(include_internal_data=True)
+            witness.assert_called_once()
+        self.assertEqual(actual, expected)
+        self.assertEqual(len(actual), 3)
+        for item, original in zip(actual, (early, real, latest), strict=True):
+            self.assertIs(item, original)
+        self.assertEqual(queue.virtual_events, {})
+
+        class CustomKey(str):
+            __slots__ = ()
+
+        self.assertIsNone(native_event_queue.merge(deque([early]), {CustomKey("k"): latest}))
+        self.assertIsNone(native_event_queue.merge(deque([{"id": 2**80}]), {"k": latest}))
 
     def test_event_collapsing(self) -> None:
         client = self.get_client_descriptor()

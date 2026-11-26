@@ -17,7 +17,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def load_bridge(*, enabled: bool) -> ModuleType:
+def load_bridge(*, enabled: bool, prepared: bool = False) -> ModuleType:
     path = ROOT / "zerver/lib/native_event_queue.py"
     spec = util.spec_from_file_location("native_event_queue", path)
     assert spec is not None and spec.loader is not None
@@ -27,7 +27,8 @@ def load_bridge(*, enabled: bool) -> ModuleType:
         {
             "ZULIP_RUST_EVENT_QUEUE": str(int(enabled)),
             "ZULIP_RUST_PREPARED_EVENT_CLASSIFICATION": "0",
-            "ZULIP_RUST_PREPARED_EVENT_FOLD": "0",
+            "ZULIP_RUST_PREPARED_EVENT_FOLD": "1" if prepared else "0",
+            "ZULIP_RUST_PREPARED_EVENT_MERGE": "1" if prepared else "0",
         },
     ):
         spec.loader.exec_module(module)
@@ -65,9 +66,12 @@ class EventQueueParityTest(unittest.TestCase):
         cls.reference = load_queue(baseline, load_bridge(enabled=False))
 
     def test_seeded_queue_operations(self) -> None:
+        self._assert_seeded_queue_operations(self.native)
+
+    def _assert_seeded_queue_operations(self, native: ModuleType) -> None:
         rng = random.Random(51820)
         for _ in range(2000):
-            rust = self.native.EventQueue("test")
+            rust = native.EventQueue("test")
             python = self.reference.EventQueue("test")
             for n in range(rng.randrange(1, 31)):
                 kind = rng.choice(
@@ -97,6 +101,15 @@ class EventQueueParityTest(unittest.TestCase):
                     python.prune(n - 3)
             self.assertEqual(json.dumps(rust.contents(True)), json.dumps(python.contents(True)))
             self.assertEqual(json.dumps(rust.to_dict()), json.dumps(python.to_dict()))
+
+    def test_prepared_folding_and_merging_match_seeded_reference(self) -> None:
+        bridge = load_bridge(enabled=False, prepared=True)
+        self.assertIsNone(bridge._backend)
+        self.assertIsNotNone(bridge._fold_backend)
+        self.assertIsNotNone(bridge._merge_backend)
+        path = ROOT / "zerver/tornado/event_queue.py"
+        native = load_queue(path, bridge)
+        self._assert_seeded_queue_operations(native)
 
     def test_restore_preserves_collisions_and_exact_event_instances(self) -> None:
         earlier = {"id": 2, "type": "heartbeat"}

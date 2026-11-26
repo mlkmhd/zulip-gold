@@ -22,6 +22,12 @@ _fold_backend = (
     else load_native_contract("ZULIP_RUST_PREPARED_EVENT_FOLD", "PREPARED_EVENT_FOLD_API")
 )
 
+_merge_backend = (
+    None
+    if _legacy_requested or os.environ.get("ZULIP_RUST_PREPARED_EVENT_MERGE") == "0"
+    else load_native_contract("ZULIP_RUST_PREPARED_EVENT_MERGE", "PREPARED_EVENT_MERGE_API")
+)
+
 try:
     _backend = import_module("_zulip_backend") if _legacy_requested else None
 except ModuleNotFoundError as error:
@@ -45,7 +51,10 @@ def fold_flag_event(previous: object, current: object) -> bool:
 
 
 def merge(queue: object, virtual_events: object) -> list[dict[str, object]] | None:
-    native = getattr(_backend, "merge_queued_events", None)
+    if _legacy_requested:
+        native = getattr(_backend, "merge_queued_events", None)
+    else:
+        native = getattr(_merge_backend, "merge_prepared_queued_events", None)
     if native is None:
         return None
     return cast("list[dict[str, object]] | None", native(queue, deque, virtual_events))

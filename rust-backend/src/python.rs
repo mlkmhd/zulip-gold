@@ -303,6 +303,7 @@ mod _zulip_backend {
         module.add("PREPARED_USER_STATUS_PERSISTENCE_API", 1)?;
         module.add("PREPARED_EVENT_CLASSIFICATION_API", 1)?;
         module.add("PREPARED_EVENT_FOLD_API", 1)?;
+        module.add("PREPARED_EVENT_MERGE_API", 1)?;
         module.add("PREPARED_MATTERMOST_NAME_API", 1)?;
         module.add("PREPARED_DURATION_TEXT_API", 1)?;
         module.add("USER_STATUS_REPLAY_API", 1)?;
@@ -479,7 +480,8 @@ mod _zulip_backend {
 
     #[pymodule_export]
     use crate::python_event_queue::{
-        classify_queued_event, fold_queued_flag_event, merge_queued_events,
+        classify_queued_event, fold_queued_flag_event, merge_prepared_queued_events,
+        merge_queued_events,
     };
 
     #[pymodule_export]
