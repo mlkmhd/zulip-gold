@@ -108,3 +108,19 @@ pub(crate) fn format_mobile_ordered_list<'py>(
     }
     python_string_from_bytes(rows.py(), &output)
 }
+
+#[pyfunction]
+pub(crate) fn format_mobile_spoiler_header<'py>(
+    header: &Bound<'py, PyAny>,
+) -> Option<Bound<'py, PyString>> {
+    let header = header.cast_exact::<PyString>().ok()?;
+    let text = python_string_bytes(header)?;
+    let text = trim_python_text(&text);
+    let mut preview = Vec::with_capacity(text.len().saturating_add(7));
+    if !text.is_empty() {
+        preview.extend_from_slice(text);
+        preview.push(b' ');
+    }
+    preview.extend_from_slice("(…)\n".as_bytes());
+    python_string_from_bytes(header.py(), &preview)
+}

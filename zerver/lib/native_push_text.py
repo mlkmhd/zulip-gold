@@ -11,6 +11,16 @@ _ordered_list_backend = load_native_contract(
 )
 
 
+_spoiler_header_backend = load_native_contract(
+    "ZULIP_RUST_MOBILE_SPOILER_HEADER", "MOBILE_SPOILER_HEADER_API"
+)
+
+
+def format_spoiler_header(text: str) -> str | None:
+    native = getattr(_spoiler_header_backend, "format_mobile_spoiler_header", None)
+    return cast("str | None", native(text)) if callable(native) else None
+
+
 OrderedListFormatter = Callable[[list[str], int, int], str | None]
 
 

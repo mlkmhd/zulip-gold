@@ -952,7 +952,11 @@ def get_mobile_push_content(rendered_content: str) -> str:
 
     def render_spoiler(elem: lxml.html.HtmlElement) -> str:
         header = elem.find_class("spoiler-header")[0]
-        text = process(header).strip()
+        text = process(header)
+        native = native_push_text.format_spoiler_header(text)
+        if native is not None:
+            return native
+        text = text.strip()
         if len(text) == 0:
             return "(…)\n"
         return f"{text} (…)\n"
