@@ -335,6 +335,7 @@ mod _zulip_backend {
         module.add("API_RETURN_INDENT_API", 1)?;
         module.add("URL_FRAGMENTS_API", 1)?;
         module.add("TIMEZONE_ALIAS_SOURCE_API", 1)?;
+        module.add("TIMEZONE_ALIAS_LOOKUP_API", 1)?;
         module.add("TIME_DISPLAY_API", 1)?;
         module.add("DESCRIPTION_TEXT_API", 1)?;
         module.add("LOG_DISPLAY_API", 1)?;

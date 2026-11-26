@@ -77,7 +77,13 @@ class TimezoneAliasesIntegrationTest(SimpleTestCase):
         self.assertEqual(
             parse is not None, default_parse or (explicit_request and backend is not None)
         )
-        self.assertEqual(lookup is not None, explicit_request and backend is not None)
+        default_lookup = (
+            supports_default_rust_backend()
+            and getattr(backend, "TIMEZONE_ALIAS_LOOKUP_API", None) == 1
+        )
+        self.assertEqual(
+            lookup is not None, default_lookup or (explicit_request and backend is not None)
+        )
         parse_spy = (
             patch.object(timezone, "_parse_timezone_alias_lines", wraps=parse)
             if parse

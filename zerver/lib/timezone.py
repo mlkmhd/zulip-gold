@@ -1,4 +1,3 @@
-import os
 from functools import cache
 
 from scripts.lib.zulip_tools import get_tzdata_zi
@@ -12,11 +11,14 @@ except ImportError:
     _rust_timezone_aliases = None
 
 _parse_timezone_alias_lines = getattr(_rust_timezone_aliases, "parse_timezone_alias_lines", None)
-_lookup_timezone_alias = (
-    getattr(_rust_timezone_aliases, "lookup_timezone_alias", None)
-    if os.environ.get("ZULIP_RUST_TIMEZONE_ALIASES") == "1"
-    else None
-)
+try:
+    _rust_timezone_lookup = load_native_contract(
+        "ZULIP_RUST_TIMEZONE_ALIASES", "TIMEZONE_ALIAS_LOOKUP_API"
+    )
+except ImportError:
+    _rust_timezone_lookup = None
+
+_lookup_timezone_alias = getattr(_rust_timezone_lookup, "lookup_timezone_alias", None)
 
 
 @cache
