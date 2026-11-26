@@ -4,6 +4,9 @@ from types import ModuleType, SimpleNamespace
 from unittest import SkipTest
 from unittest.mock import Mock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from zerver.actions.message_edit import update_user_message_flags
 from zerver.lib import native_message_edit_flags
 from zerver.lib.markdown import MessageRenderingResult
@@ -98,27 +101,41 @@ class MessageEditFlagsRustTest(ZulipTestCase):
         decline = Mock(return_value=None)
         original_save = UserMessage.save
         saved_orders = []
-        for candidate in (
-            None,
-            SimpleNamespace(plan_user_message_flag_deltas=witness),
-            SimpleNamespace(),
-            SimpleNamespace(plan_user_message_flag_deltas=decline),
+        sql = []
+        for candidate, prepared, keep_queryset in (
+            (None, None, False),
+            (SimpleNamespace(plan_user_message_flag_deltas=witness), None, False),
+            (SimpleNamespace(), None, False),
+            (SimpleNamespace(plan_user_message_flag_deltas=decline), None, False),
+            (None, backend, True),
         ):
             for user_id, mask in old.items():
                 selected.filter(user_profile_id=user_id).update(flags=mask)
             with (
                 patch.object(native_message_edit_flags, "_backend", candidate),
+                patch.object(native_message_edit_flags, "_prepared_backend", prepared),
+                patch.object(backend, "plan_user_message_flag_deltas", witness),
                 patch.object(UserMessage, "save", autospec=True, side_effect=original_save) as save,
+                CaptureQueriesContext(connection) as queries,
             ):
-                update_user_message_flags(rendered, iter(selected.all()), {owner.id})
+                if prepared is not None:
+                    self.assertFalse(native_message_edit_flags.available(iter(())))
+                    self.assertFalse(native_message_edit_flags.available(selected.defer("flags")))
+                    self.assertFalse(
+                        native_message_edit_flags.available(selected.values_list("id"))
+                    )
+                source = selected.all() if keep_queryset else iter(selected.all())
+                update_user_message_flags(rendered, source, {owner.id})
                 saved_orders.append([call.args[0].user_profile_id for call in save.call_args_list])
                 self.assertTrue(
                     all(call.kwargs == {"update_fields": ["flags"]} for call in save.call_args_list)
                 )
+            sql.append([query["sql"] for query in queries.captured_queries])
             self.assertEqual(
                 {row.user_profile_id: int(row.flags) for row in selected.all()}, expected
             )
         self.assertCountEqual(saved_orders[0], [owner.id, other.id])
-        self.assertEqual(saved_orders, [saved_orders[0]] * 4)
-        witness.assert_called_once()
+        self.assertEqual(saved_orders, [saved_orders[0]] * 5)
+        self.assertEqual(sql, [sql[0]] * 5)
+        self.assertEqual(witness.call_count, 2)
         decline.assert_called_once()

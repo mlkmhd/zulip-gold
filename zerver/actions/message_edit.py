@@ -463,7 +463,7 @@ def update_user_message_flags(
     stream_wildcard_mentioned = rendering_result.mentions_stream_wildcard
     changed_ums: set[UserMessage] = set()
 
-    if native_message_edit_flags.available():
+    if native_message_edit_flags.available(ums):
         rows = list(ums)
         deltas = native_message_edit_flags.plan(
             rows,
