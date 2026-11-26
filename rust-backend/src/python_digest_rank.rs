@@ -212,3 +212,17 @@ pub(crate) fn group_prepared_digest_muted_topic_rows<'py>(
     }
     Ok(groups)
 }
+
+#[pyfunction]
+pub(crate) fn group_prepared_digest_stream_rows<'py>(
+    rows: &Bound<'py, PyAny>,
+    groups: Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    for row in rows.try_iter()? {
+        let row = row?;
+        let group = groups.get_item(row.get_item("user_profile_id")?)?;
+        let stream = row.get_item("recipient__type_id")?;
+        group.call_method1("add", (stream,))?;
+    }
+    Ok(groups)
+}

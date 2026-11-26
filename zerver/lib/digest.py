@@ -70,6 +70,11 @@ _rust_muted_topic_rows = load_native_contract(
     "ZULIP_RUST_DIGEST_MUTED_TOPIC_ROWS", "DIGEST_MUTED_TOPIC_ROWS_API"
 )
 
+_rust_stream_rows = load_native_contract("ZULIP_RUST_DIGEST_STREAM_ROWS", "DIGEST_STREAM_ROWS_API")
+_rust_group_prepared_digest_stream_rows = getattr(
+    _rust_stream_rows, "group_prepared_digest_stream_rows", None
+)
+
 TopicKey: TypeAlias = tuple[int, str]
 
 
@@ -448,6 +453,9 @@ def get_user_stream_map(user_ids: list[int], cutoff_date: datetime) -> dict[int,
 
     # maps user_id -> {stream_id, stream_id, ...}
     dct: dict[int, set[int]] = defaultdict(set)
+    if _rust_group_prepared_digest_stream_rows is not None:
+        return _rust_group_prepared_digest_stream_rows(rows, dct)
+
     for row in rows:
         dct[row["user_profile_id"]].add(row["recipient__type_id"])
 
