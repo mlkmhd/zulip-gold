@@ -306,6 +306,7 @@ mod _zulip_backend {
         module.add("PREPARED_EVENT_MERGE_API", 1)?;
         module.add("PREPARED_USER_DIRECTORY_API", 1)?;
         module.add("PREPARED_CLOSE_FENCES_API", 1)?;
+        module.add("PREPARED_FENCE_PARSER_API", 1)?;
         module.add("PREPARED_MATTERMOST_NAME_API", 1)?;
         module.add("PREPARED_DURATION_TEXT_API", 1)?;
         module.add("USER_STATUS_REPLAY_API", 1)?;

@@ -45,6 +45,7 @@ from zerver.lib.markdown import (
     MessageRenderingResult,
     clear_web_link_regex_for_testing,
     content_has_emoji_syntax,
+    fenced_code,
     image_preview_enabled,
     markdown_convert,
     possible_channel_link_references,
@@ -239,6 +240,25 @@ class FencedBlockPreprocessorTest(ZulipTestCase):
         for line, expected in cases:
             with self.subTest(line=line):
                 self.assertEqual(parse_fence_line(line), expected)
+
+    def test_scoped_ascii_fence_parser_and_fallback(self) -> None:
+        backend = fenced_code._rust_prepared_fence_parser
+        if backend is None:
+            self.skipTest("No prepared ASCII fence parser ABI")
+
+        class CustomLine(str):
+            __slots__ = ()
+
+        accepted = ["~~~   .py", "```{python}", "```spoiler Heading", "``", "```quote~"]
+        declined = ["```spoiler 😀", "```spoiler " + chr(0xD800), CustomLine("```"), "x" * 65537]
+        with mock.patch.object(fenced_code, "_rust_prepared_fence_parser", None):
+            expected = [parse_fence_line(line) for line in accepted + declined]
+
+        with mock.patch.object(
+            backend, "parse_markdown_fence", wraps=backend.parse_markdown_fence
+        ) as native:
+            self.assertEqual([parse_fence_line(line) for line in accepted + declined], expected)
+            self.assertEqual([call.args[0] for call in native.call_args_list], accepted)
 
     def test_fence_content_whitespace_and_iterators(self) -> None:
         cases = [

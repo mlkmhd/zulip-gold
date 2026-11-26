@@ -126,6 +126,11 @@ _rust_tex_handlers = (
 _rust_markdown_fences = (
     import_module("_zulip_backend") if os.environ.get("ZULIP_RUST_MARKDOWN_FENCES") == "1" else None
 )
+_rust_prepared_fence_parser = (
+    None
+    if os.environ.get("ZULIP_RUST_PREPARED_FENCE_PARSER") == "0"
+    else load_native_contract("ZULIP_RUST_PREPARED_FENCE_PARSER", "PREPARED_FENCE_PARSER_API")
+)
 _rust_prepared_close_fences = (
     None
     if os.environ.get("ZULIP_RUST_PREPARED_CLOSE_FENCES") == "0"
@@ -340,8 +345,19 @@ def generic_handler(
 
 
 def parse_fence_line(line: str) -> tuple[str, str | None, str | None] | None:
-    if _rust_markdown_fences is not None:
-        rust_result = _rust_markdown_fences.parse_markdown_fence(line)
+    backend = _rust_markdown_fences
+    if (
+        backend is None
+        and FENCE_RE is _original_fence_pattern
+        and PLAYGROUND_LANGUAGE_REGEX == r"[a-zA-Z0-9_+-./#]+"
+        and type(line) is str
+        and line.isascii()
+        and len(line) <= 65536
+    ):
+        backend = _rust_prepared_fence_parser
+    parse = getattr(backend, "parse_markdown_fence", None)
+    if callable(parse):
+        rust_result = parse(line)
         if rust_result is not None:
             fence, language, header = rust_result
             if fence is None:
