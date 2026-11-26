@@ -449,6 +449,7 @@ mod _zulip_backend {
         module.add("EXPORT_JSON_FRAMING_API", 1)?;
         module.add("EXPORT_JSON_PART_PLAN_API", 1)?;
         module.add("EXPORT_DATETIME_FIELDS_API", 1)?;
+        module.add("IMPORT_DATETIME_FIELDS_API", 1)?;
         module.add("DRAFT_BODY_TEXT_API", 1)?;
         module.add("DRAFT_TIMESTAMP_API", 1)?;
         module.add("PREPARED_DJANGO_DRAFT_INPUT_API", 1)?;
@@ -644,6 +645,7 @@ mod _zulip_backend {
     #[pymodule_export]
     use crate::python_export_framing::{
         format_prepared_export_datetimes, frame_prepared_export_json, plan_prepared_export_parts,
+        restore_prepared_import_datetimes,
     };
 
     #[pymodule_export]

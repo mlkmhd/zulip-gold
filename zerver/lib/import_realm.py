@@ -41,6 +41,7 @@ from zerver.lib.markdown import version as markdown_version
 from zerver.lib.message import get_last_message_id
 from zerver.lib.migration_status import MigrationStatusJson, parse_migration_status
 from zerver.lib.mime_types import guess_type
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.onboarding import (
     OnboardingMessageTypeEnum,
     send_initial_direct_messages_to_user,
@@ -338,8 +339,23 @@ def update_id_map(table: TableName, old_id: int, new_id: int) -> None:
     ID_MAP[table][old_id] = new_id
 
 
+_rust_import_datetime_fields = load_native_contract(
+    "ZULIP_RUST_IMPORT_DATETIME_FIELDS", "IMPORT_DATETIME_FIELDS_API"
+)
+
+
 def fix_datetime_fields(data: ImportedTableData, table: TableName) -> None:
-    for item in data[table]:
+    rows = data[table]
+    native = getattr(_rust_import_datetime_fields, "restore_prepared_import_datetimes", None)
+    if callable(native):
+
+        def convert(timestamp: float) -> datetime:
+            return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+
+        if native(rows, table, date_fields_for_table, convert):
+            return
+
+    for item in rows:
         for field_name in date_fields_for_table(table):
             if item[field_name] is not None:
                 item[field_name] = datetime.fromtimestamp(item[field_name], tz=timezone.utc)

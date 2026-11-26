@@ -151,3 +151,27 @@ pub(crate) fn format_prepared_export_datetimes<'py>(
     }
     Ok(Some(output))
 }
+
+#[pyfunction]
+pub(crate) fn restore_prepared_import_datetimes(
+    rows: &Bound<'_, PyAny>,
+    table: &Bound<'_, PyAny>,
+    lookup_fields: &Bound<'_, PyAny>,
+    from_timestamp: &Bound<'_, PyAny>,
+) -> PyResult<bool> {
+    if rows.cast_exact::<PyList>().is_err() {
+        return Ok(false);
+    }
+    for record in rows.try_iter()? {
+        let record = record?;
+        for field in lookup_fields.call1((table,))?.try_iter()? {
+            let field = field?;
+            if !record.get_item(&field)?.is_none() {
+                // Preserve read/write ordering, including a partial update on error.
+                let value = from_timestamp.call1((record.get_item(&field)?,))?;
+                record.set_item(field, value)?;
+            }
+        }
+    }
+    Ok(true)
+}
