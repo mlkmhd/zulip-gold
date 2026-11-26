@@ -1,5 +1,5 @@
-from dataclasses import dataclass
-from typing import Literal
+from dataclasses import asdict, dataclass
+from typing import Any, Literal, cast
 
 from django.utils.translation import gettext as _
 
@@ -33,6 +33,20 @@ class ChannelFolderData:
     creator_id: int | None
     date_created: int
     is_archived: bool
+
+
+_channel_folder_response_backend = load_native_contract(
+    "ZULIP_RUST_CHANNEL_FOLDER_RESPONSE", "CHANNEL_FOLDER_RESPONSE_API"
+)
+
+
+def format_channel_folder_payloads(folders: list[ChannelFolderData]) -> list[dict[str, Any]]:
+    native = getattr(_channel_folder_response_backend, "assemble_channel_folder_payloads", None)
+    if callable(native):
+        payloads = cast("list[dict[str, Any]] | None", native(folders, ChannelFolderData))
+        if payloads is not None:
+            return payloads
+    return [asdict(folder) for folder in folders]
 
 
 def check_channel_folder_name(name: str, realm: Realm) -> None:

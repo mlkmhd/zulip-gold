@@ -37,6 +37,7 @@ from zerver.lib.alert_words import user_alert_words
 from zerver.lib.avatar import avatar_url
 from zerver.lib.bot_config import load_bot_config_template
 from zerver.lib.channel_folders import (
+    format_channel_folder_payloads,
     get_channel_folders_for_spectators,
     get_channel_folders_in_realm,
 )
@@ -860,14 +861,12 @@ def fetch_initial_state_data(
         state["never_subscribed"] = sub_info.never_subscribed
 
     if want("channel_folders"):
-        if user_profile is None:
-            state["channel_folders"] = [
-                asdict(folder) for folder in get_channel_folders_for_spectators(realm)
-            ]
-        else:
-            state["channel_folders"] = [
-                asdict(folder) for folder in get_channel_folders_in_realm(user_profile.realm, True)
-            ]
+        folders = (
+            get_channel_folders_for_spectators(realm)
+            if user_profile is None
+            else get_channel_folders_in_realm(user_profile.realm, True)
+        )
+        state["channel_folders"] = format_channel_folder_payloads(folders)
 
     if want("update_message_flags") and want("message"):
         # Keeping unread_msgs updated requires both message flag updates and

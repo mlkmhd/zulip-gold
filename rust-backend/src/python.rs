@@ -336,6 +336,7 @@ mod _zulip_backend {
         module.add("NAVIGATION_VIEW_DISPLAY_API", 1)?;
         module.add("DRAFT_GET_DISPLAY_API", 1)?;
         module.add("CHANNEL_FOLDER_DISPLAY_ORDER_API", 1)?;
+        module.add("CHANNEL_FOLDER_RESPONSE_API", 1)?;
         module.add("DOCUMENTATION_DISPLAY_TITLE_API", 1)?;
         module.add("GONG_DISPLAY_API", 1)?;
         module.add("NEWRELIC_DISPLAY_LIST_API", 1)?;
@@ -718,7 +719,9 @@ mod _zulip_backend {
     use crate::python_gong_display::{format_gong_duration_display, join_gong_topic_display};
 
     #[pymodule_export]
-    use crate::python_channel_folder_display::plan_channel_folder_display_order;
+    use crate::python_channel_folder_display::{
+        assemble_channel_folder_payloads, plan_channel_folder_display_order,
+    };
 
     #[pymodule_export]
     use crate::python_jotform_value_display::join_jotform_display_values;

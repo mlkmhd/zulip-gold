@@ -1,4 +1,3 @@
-from dataclasses import asdict
 from typing import Annotated
 
 from django.http import HttpRequest, HttpResponse
@@ -17,6 +16,7 @@ from zerver.decorator import require_realm_admin
 from zerver.lib.channel_folders import (
     check_channel_folder_in_use,
     check_channel_folder_name,
+    format_channel_folder_payloads,
     get_channel_folder_by_id,
     get_channel_folders_in_realm,
 )
@@ -53,7 +53,7 @@ def get_channel_folders(
     channel_folders = get_channel_folders_in_realm(user_profile.realm, include_archived)
     return json_success(
         request,
-        data={"channel_folders": [asdict(folder) for folder in channel_folders]},
+        data={"channel_folders": format_channel_folder_payloads(channel_folders)},
     )
 
 
