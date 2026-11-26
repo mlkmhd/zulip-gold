@@ -421,6 +421,21 @@ _rust_export_json_framing = load_native_contract(
     "ZULIP_RUST_EXPORT_JSON_FRAMING", "EXPORT_JSON_FRAMING_API"
 )
 
+_rust_export_json_part_plan = load_native_contract(
+    "ZULIP_RUST_EXPORT_JSON_PART_PLAN", "EXPORT_JSON_PART_PLAN_API"
+)
+ExportPart: TypeAlias = tuple[str, tuple[Any, ...] | None]
+
+
+def _python_export_json_parts(batches: Iterable[tuple[Any, ...]]) -> Iterator[ExportPart]:
+    first_chunk = True
+    for batch in batches:
+        if not first_chunk:
+            yield ("separator", None)
+        yield ("first" if first_chunk else "following", batch)
+        first_chunk = False
+    yield ("empty" if first_chunk else "end", None)
+
 
 def orjson_stream(
     it: Iterable[Any],
@@ -433,30 +448,37 @@ def orjson_stream(
     def frame(kind: str, batch: bytes | None = None) -> bytes | None:
         return cast("bytes | None", native(kind, indent, batch)) if callable(native) else None
 
-    first_chunk = True
-    for batch in batched(it, chunk_size):
-        if not first_chunk:
-            separator = frame("separator")
+    batches = batched(it, chunk_size)
+    plan = getattr(_rust_export_json_part_plan, "plan_prepared_export_parts", None)
+    parts = (
+        cast("Iterator[ExportPart]", plan(batches))
+        if callable(plan)
+        else _python_export_json_parts(batches)
+    )
+    for kind, batch in parts:
+        if kind == "separator":
+            separator = frame(kind)
             yield b",\n" + indent if separator is None else separator
-        chunk = orjson.dumps(batch, option=options)
-        framed = frame("first" if first_chunk else "following", chunk)
-        if framed is None:
-            if not first_chunk:
-                assert chunk.startswith(b"[\n")
-                chunk = chunk[2:]
-            assert chunk.endswith(b"\n]")
-            chunk = chunk[:-2]
-            if indent != b"":
-                chunk = chunk.replace(b"\n", b"\n" + indent)
-            framed = chunk
-        yield framed
-        first_chunk = False
-    if first_chunk:
-        empty = frame("empty")
-        yield b"[]" if empty is None else empty
-    else:
-        end = frame("end")
-        yield b"\n" + indent + b"]" if end is None else end
+        elif kind == "empty":
+            empty = frame(kind)
+            yield b"[]" if empty is None else empty
+        elif kind == "end":
+            end = frame(kind)
+            yield b"\n" + indent + b"]" if end is None else end
+        else:
+            assert batch is not None
+            chunk = orjson.dumps(batch, option=options)
+            framed = frame(kind, chunk)
+            if framed is None:
+                if kind == "following":
+                    assert chunk.startswith(b"[\n")
+                    chunk = chunk[2:]
+                assert chunk.endswith(b"\n]")
+                chunk = chunk[:-2]
+                if indent != b"":
+                    chunk = chunk.replace(b"\n", b"\n" + indent)
+                framed = chunk
+            yield framed
 
 
 def orjson_serialize_iterable(
