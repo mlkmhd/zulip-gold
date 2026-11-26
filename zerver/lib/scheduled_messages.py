@@ -8,6 +8,7 @@ from django.utils.translation import gettext as _
 from pydantic import Json, ValidatorFunctionWrapHandler, WrapValidator
 
 from zerver.lib.exceptions import DeliveryTimeNotInFutureError, JsonableError, ResourceNotFoundError
+from zerver.lib.native_backend import load_native_contract
 from zerver.lib.partial import partial
 from zerver.lib.recipient_parsing import extract_direct_message_recipient_ids, extract_stream_id
 from zerver.lib.timestamp import timestamp_to_datetime
@@ -27,6 +28,9 @@ _rust_scheduled_job_timestamp = (
     import_module("_zulip_backend")
     if os.environ.get("ZULIP_RUST_SCHEDULED_JOB_TIMESTAMP") == "1"
     else None
+)
+_rust_scheduled_recipient_shape = load_native_contract(
+    "ZULIP_RUST_SCHEDULED_RECIPIENT_SHAPE", "SCHEDULED_RECIPIENT_SHAPE_API"
 )
 _rust_scheduled_message_recipient = (
     import_module("_zulip_backend")
@@ -82,7 +86,22 @@ def validate_scheduled_delivery_time(timestamp: int) -> datetime:
 def parse_scheduled_message_recipient(
     message_type: str, to: int | list[int]
 ) -> tuple[str, list[int]]:
-    if _rust_scheduled_message_recipient is not None:
+    recipient_type = None
+    classify = getattr(
+        _rust_scheduled_recipient_shape, "classify_scheduled_message_recipient", None
+    )
+    if (
+        classify is not None
+        and type(message_type) is str
+        and message_type.isascii()
+        and (type(to) is list or type(to) is int)
+    ):
+        kind, error = classify(message_type, len(to) if type(to) is list else None)
+        # The reference extracts recipients and handles errors in its
+        # existing order; only ordinary successful shapes are replaced.
+        if error is None and kind in ("stream", "private"):
+            recipient_type = kind
+    if recipient_type is None and _rust_scheduled_message_recipient is not None:
         recipient_type, error = (
             _rust_scheduled_message_recipient.classify_scheduled_message_recipient(
                 message_type, len(to) if isinstance(to, list) else None
@@ -95,7 +114,7 @@ def parse_scheduled_message_recipient(
         if error == "empty_direct_list":
             raise JsonableError(_("Message must have recipients"))
         assert recipient_type in ("stream", "private")
-    else:
+    if recipient_type is None:
         recipient_type = "stream" if message_type in ("channel", "stream") else "private"
 
     if recipient_type == "stream":
