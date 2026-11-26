@@ -1013,19 +1013,29 @@ def get_mobile_push_content(rendered_content: str) -> str:
     def potentially_collapse_quotes(element: lxml.html.HtmlElement) -> None:
         collapsible_status = get_collapsible_status_array(element)
 
-        if all(collapsible_status) or all(not x for x in collapsible_status):
+        actions = native_push_text.plan_quote_collapse(collapsible_status)
+        if actions is None:
+            if all(collapsible_status) or all(not x for x in collapsible_status):
+                return
+            actions = [
+                (index > 0 and collapsible_status[index - 1]) if collapsible else None
+                for index, collapsible in enumerate(collapsible_status)
+            ]
+        if not actions:
             return
 
         collapse_element = lxml.html.Element("p")
         collapse_element.text = "[…]"
         for index, child in enumerate(element):
-            if collapsible_status[index]:
-                if index > 0 and collapsible_status[index - 1]:
-                    child.drop_tree()
-                else:
-                    parent = child.getparent()
-                    assert parent is not None
-                    parent.replace(child, collapse_element)
+            drop = actions[index]
+            if drop is None:
+                continue
+            if drop:
+                child.drop_tree()
+            else:
+                parent = child.getparent()
+                assert parent is not None
+                parent.replace(child, collapse_element)
 
     elem = lxml.html.fragment_fromstring(
         render_plain_reply_links(rendered_content), create_parent=True

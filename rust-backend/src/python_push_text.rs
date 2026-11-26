@@ -3,7 +3,7 @@
 use std::io::Write;
 
 use pyo3::prelude::*;
-use pyo3::types::{PyInt, PyList, PyString};
+use pyo3::types::{PyBool, PyInt, PyList, PyString};
 
 use crate::python_text_bytes::{python_string_bytes, python_string_from_bytes, trim_python_text};
 
@@ -123,4 +123,25 @@ pub(crate) fn format_mobile_spoiler_header<'py>(
     }
     preview.extend_from_slice("(…)\n".as_bytes());
     python_string_from_bytes(header.py(), &preview)
+}
+
+#[pyfunction]
+pub(crate) fn plan_mobile_quote_collapse(statuses: &Bound<'_, PyAny>) -> Option<Vec<Option<bool>>> {
+    let statuses = statuses.cast_exact::<PyList>().ok()?;
+    let mut has_quote = false;
+    let mut has_unquoted = false;
+    let mut previous = false;
+    let mut actions = Vec::with_capacity(statuses.len());
+    for status in statuses.iter() {
+        let current = status.cast_exact::<PyBool>().ok()?.extract::<bool>().ok()?;
+        has_quote |= current;
+        has_unquoted |= !current;
+        // None keeps the element, true drops it, false replaces it with the marker.
+        actions.push(current.then_some(previous));
+        previous = current;
+    }
+    if !has_quote || !has_unquoted {
+        actions.clear();
+    }
+    Some(actions)
 }

@@ -11,6 +11,16 @@ _ordered_list_backend = load_native_contract(
 )
 
 
+_quote_collapse_backend = load_native_contract(
+    "ZULIP_RUST_MOBILE_QUOTE_COLLAPSE", "MOBILE_QUOTE_COLLAPSE_API"
+)
+
+
+def plan_quote_collapse(statuses: list[bool]) -> list[bool | None] | None:
+    native = getattr(_quote_collapse_backend, "plan_mobile_quote_collapse", None)
+    return cast("list[bool | None] | None", native(statuses)) if callable(native) else None
+
+
 _spoiler_header_backend = load_native_contract(
     "ZULIP_RUST_MOBILE_SPOILER_HEADER", "MOBILE_SPOILER_HEADER_API"
 )
