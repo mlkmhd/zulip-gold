@@ -37,6 +37,10 @@ _rust_prepared_user_mention_scan = load_native_contract(
     "ZULIP_RUST_PREPARED_USER_MENTION_SCAN", "PREPARED_USER_MENTION_SCAN_API"
 )
 
+_rust_prepared_group_mention_scan = load_native_contract(
+    "ZULIP_RUST_PREPARED_GROUP_MENTION_SCAN", "PREPARED_GROUP_MENTION_SCAN_API"
+)
+
 _rust_markdown_group_members = (
     import_module("_zulip_backend")
     if os.environ.get("ZULIP_RUST_MARKDOWN_GROUP_MEMBERS") == "1"
@@ -382,11 +386,22 @@ def possible_mentions(content: str) -> PossibleMentions:
     )
 
 
+_reference_group_mention_regex = USER_GROUP_MENTIONS_RE
+
+
 def possible_user_group_mentions(content: str) -> dict[str, Literal["silent", "non-silent"]]:
     if _rust_markdown_mentions is not None:
         rust_result = _rust_markdown_mentions.possible_markdown_group_mentions(content)
         if rust_result is not None:
             return rust_result
+    elif type(content) is str and USER_GROUP_MENTIONS_RE is _reference_group_mention_regex:
+        scan = getattr(
+            _rust_prepared_group_mention_scan, "scan_prepared_markdown_group_mentions", None
+        )
+        if scan is not None:
+            prepared = scan(content)
+            if prepared is not None:
+                return prepared
 
     # maps each group name to its mention type, silent or non-silent.
     mentions: dict[str, Literal["silent", "non-silent"]] = {}

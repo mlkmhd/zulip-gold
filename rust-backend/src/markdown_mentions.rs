@@ -64,6 +64,37 @@ pub(crate) fn possible_group_mentions(content: &str) -> HashMap<String, &'static
     names
 }
 
+#[cfg(any(feature = "python", test))]
+pub(crate) fn ordered_possible_group_mentions(content: &str) -> Vec<(String, &'static str)> {
+    let mut positions: HashMap<String, usize> = HashMap::new();
+    let mut names: Vec<(String, &'static str)> = Vec::new();
+    visit_mentions(content, "*", |_range, name, silent| {
+        if let Some(index) = positions.get(name).copied() {
+            if !silent {
+                names[index].1 = "non-silent";
+            }
+        } else {
+            let name = name.to_owned();
+            positions.insert(name.clone(), names.len());
+            names.push((name, if silent { "silent" } else { "non-silent" }));
+        }
+    });
+    names
+}
+
+#[cfg(test)]
+#[test]
+fn ordered_group_scan_keeps_first_position_and_upgrades_silent() {
+    assert_eq!(
+        ordered_possible_group_mentions("@_*ops* @*dev* @*ops* @_*ops* @_*سلام*"),
+        vec![
+            ("ops".to_owned(), "non-silent"),
+            ("dev".to_owned(), "non-silent"),
+            ("سلام".to_owned(), "silent")
+        ],
+    );
+}
+
 fn silence_mentions<'a>(content: &'a str, stars: &str) -> Cow<'a, str> {
     let mut output = String::new();
     let mut copied = 0;
