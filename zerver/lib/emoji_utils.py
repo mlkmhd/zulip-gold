@@ -9,6 +9,9 @@ _rust_emoji_selector = load_native_contract(
     "ZULIP_RUST_EMOJI_PRESENTATION_SELECTOR", "EMOJI_PRESENTATION_SELECTOR_API"
 )
 _rust_emoji_encoder = load_native_contract("ZULIP_RUST_EMOJI_HEX_LABEL", "EMOJI_HEX_LABEL_API")
+_rust_emoji_decoder = load_native_contract(
+    "ZULIP_RUST_EMOJI_CANONICAL_HEX_DECODE", "EMOJI_CANONICAL_HEX_DECODE_API"
+)
 
 try:
     _backend = (
@@ -62,5 +65,10 @@ def emoji_to_hex_codepoint(emoji: str) -> str:
 
 
 def hex_codepoint_to_emoji(hex: str) -> str:
+    decode = getattr(_rust_emoji_decoder, "decode_exact_emoji_codepoints", None)
+    if decode is not None and type(hex) is str:
+        result = decode(hex)
+        if result is not None:
+            return cast(str, result)
     native = _convert("decode_emoji_codepoints", hex)
     return "".join(chr(int(h, 16)) for h in hex.split("-")) if native is None else native

@@ -71,7 +71,7 @@ class EmojiCodepointsRustTest(SimpleTestCase):
 
     def test_utility_fallback_keeps_legacy_results_and_errors(self) -> None:
         backend = extension()
-        for hook in ("_rust_emoji_selector", "_rust_emoji_encoder"):
+        for hook in ("_rust_emoji_selector", "_rust_emoji_encoder", "_rust_emoji_decoder"):
             patcher = patch.object(emoji_utils, hook, None)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -114,6 +114,7 @@ class EmojiCodepointDjangoDispatchRustTest(ZulipTestCase):
         enabled = environ.get("ZULIP_RUST_EMOJI_CODEPOINTS") == "1"
         selector_enabled = emoji_utils._rust_emoji_selector is not None
         encoding_enabled = emoji_utils._rust_emoji_encoder is not None
+        decoding_enabled = emoji_utils._rust_emoji_decoder is not None
         actor = self.example_user("hamlet")
         message = Message(sender=actor, realm=actor.realm)
 
@@ -130,6 +131,7 @@ class EmojiCodepointDjangoDispatchRustTest(ZulipTestCase):
             patch.object(emoji_utils, "_backend", None),
             patch.object(emoji_utils, "_rust_emoji_selector", None),
             patch.object(emoji_utils, "_rust_emoji_encoder", None),
+            patch.object(emoji_utils, "_rust_emoji_decoder", None),
         ):
             expected = render()
         self.assertIn('class="emoji emoji-2615"', expected[0])
@@ -152,7 +154,15 @@ class EmojiCodepointDjangoDispatchRustTest(ZulipTestCase):
             native_calls["unqualify_exact_emoji_text"] = backend.unqualify_exact_emoji_text
         if encoding_enabled:
             native_calls["encode_exact_emoji_codepoints"] = backend.encode_exact_emoji_codepoints
+        if decoding_enabled:
+            native_calls["decode_exact_emoji_codepoints"] = backend.decode_exact_emoji_codepoints
         with (
+            patch.object(
+                backend,
+                "decode_exact_emoji_codepoints",
+                create=True,
+                side_effect=lambda value: witness("decode_exact_emoji_codepoints", value),
+            ),
             patch.object(
                 backend,
                 "encode_exact_emoji_codepoints",
@@ -191,7 +201,9 @@ class EmojiCodepointDjangoDispatchRustTest(ZulipTestCase):
             expected_calls.append("encode_exact_emoji_codepoints")
         elif enabled:
             expected_calls.append("encode_emoji_codepoints")
-        if enabled:
+        if decoding_enabled:
+            expected_calls.append("decode_exact_emoji_codepoints")
+        elif enabled:
             expected_calls.append("decode_emoji_codepoints")
         self.assertEqual(accepted, expected_calls)
 
@@ -245,3 +257,34 @@ class EmojiHexLabelContractTest(SimpleTestCase):
         ) as encode:
             self.assertEqual(emoji_utils.emoji_to_hex_codepoint("x\udfff"), "0078-dfff")
         encode.assert_called_once_with("x\udfff")
+
+
+class EmojiCanonicalHexDecodeContractTest(SimpleTestCase):
+    def test_decode_label_into_original_code_points(self) -> None:
+        self.assertEqual(
+            emoji_utils.hex_codepoint_to_emoji("0-D800-DFFF-1F9D1-200D-1F4BB"),
+            "\x00\ud800\udfff🧑\u200d💻",
+        )
+        self.assertEqual(emoji_utils.hex_codepoint_to_emoji("00000000041"), "A")
+
+    def test_extended_python_numeric_spellings_and_errors_keep_their_results(self) -> None:
+        for value in ("0x41-+0042- 43 -0_044-４５-d800", "", "41-", "110000", "not hex"):
+            with self.subTest(value=value):
+                try:
+                    expected = "".join(chr(int(part, 16)) for part in value.split("-"))
+                except ValueError as error:
+                    with self.assertRaises(ValueError) as actual:
+                        emoji_utils.hex_codepoint_to_emoji(value)
+                    self.assertEqual(str(actual.exception), str(error))
+                else:
+                    self.assertEqual(emoji_utils.hex_codepoint_to_emoji(value), expected)
+
+    def test_default_matching_wheel_decodes_canonical_label(self) -> None:
+        backend = emoji_utils._rust_emoji_decoder
+        if getattr(backend, "EMOJI_CANONICAL_HEX_DECODE_API", None) != 1:
+            self.skipTest("Matching Rust hex decode contract is not available")
+        with patch.object(
+            backend, "decode_exact_emoji_codepoints", wraps=backend.decode_exact_emoji_codepoints
+        ) as decode:
+            self.assertEqual(emoji_utils.hex_codepoint_to_emoji("46-D800"), "F\ud800")
+        decode.assert_called_once_with("46-D800")

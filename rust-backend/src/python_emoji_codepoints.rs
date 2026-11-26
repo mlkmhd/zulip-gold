@@ -82,18 +82,49 @@ pub(crate) fn encode_exact_emoji_codepoints(input: &Bound<'_, PyAny>) -> Option<
     format_emoji_points(points, bytes.len())
 }
 
+fn parse_ascii_emoji_point(part: &str) -> Option<u32> {
+    // Whitespace, underscores, signs, prefixes and non-ASCII digits
+    // retain the original Python int spelling rules and errors.
+    if !part.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
+    u32::from_str_radix(part, 16).ok()
+}
+
 #[pyfunction]
 pub(crate) fn decode_emoji_codepoints(input: &Bound<'_, PyAny>) -> Option<String> {
     let text = input.cast_exact::<PyString>().ok()?.to_str().ok()?;
     let mut decoded = String::with_capacity(text.len());
     for part in text.split('-') {
-        // Leave Python's permissive integer spellings, error types and
-        // Unicode surrogate output to the original reference.
-        if !part.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-            return None;
-        }
-        let value = u32::from_str_radix(part, 16).ok()?;
-        decoded.push(char::from_u32(value)?);
+        decoded.push(char::from_u32(parse_ascii_emoji_point(part)?)?);
     }
     Some(decoded)
+}
+
+#[pyfunction]
+pub(crate) fn decode_exact_emoji_codepoints<'py>(
+    input: &Bound<'py, PyAny>,
+) -> Option<Bound<'py, PyString>> {
+    let input = input.cast_exact::<PyString>().ok()?;
+    let text = input.to_str().ok()?;
+    let mut decoded = Vec::new();
+    decoded.try_reserve(text.len()).ok()?;
+    for part in text.split('-') {
+        let code = parse_ascii_emoji_point(part)?;
+        if let Some(ch) = char::from_u32(code) {
+            let mut utf8 = [0; 4];
+            decoded.extend_from_slice(ch.encode_utf8(&mut utf8).as_bytes());
+        } else if (0xd800..=0xdfff).contains(&code) {
+            // Encode a lone surrogate using the bytes accepted by
+            // Python's surrogate-pass codec, never as a Rust char.
+            decoded.extend_from_slice(&[
+                (0xe0 | (code >> 12)) as u8,
+                (0x80 | ((code >> 6) & 0x3f)) as u8,
+                (0x80 | (code & 0x3f)) as u8,
+            ]);
+        } else {
+            return None;
+        }
+    }
+    python_string_from_bytes(input.py(), &decoded)
 }
